@@ -1,3 +1,6 @@
+[phases.setup]
+nixPkgs = ["dotnet-sdk_9"]
+
 [phases.install]
 cmds = ["dotnet restore API/API.csproj"]
 
