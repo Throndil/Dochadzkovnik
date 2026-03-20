@@ -6,7 +6,7 @@
 
     "builder": "NIXPACKS",
 
-    "buildCommand": "dotnet publish API/API.csproj -c Release -o /app/publish"
+    "buildCommand": "dotnet restore API/API.csproj && dotnet publish API/API.csproj -c Release -o /app/publish"
 
   },
 
