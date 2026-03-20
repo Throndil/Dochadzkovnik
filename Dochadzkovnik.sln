@@ -28,8 +28,7 @@ Project("{E24C65DC-7377-472B-9ABA-BC803B73C61A}") = "client", "client\", "{4B928
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{B870EC27-D878-4157-905E-A2BA7350ECFA}"
 	ProjectSection(SolutionItems) = preProject
-		.nixpacksignore = .nixpacksignore
-		nixpacks.toml = nixpacks.toml
+		C:\Users\Michael\Documents\Dockerfile = C:\Users\Michael\Documents\Dockerfile
 		railway.json = railway.json
 	EndProjectSection
 EndProject
