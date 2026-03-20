@@ -1,0 +1,103 @@
+<app-navbar />
+<div class="max-w-7xl mx-auto p-6">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">Pracoviská</h1>
+    <button (click)="showForm() ? cancelForm() : showForm.set(true)"
+            class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md transition-colors">
+      {{ showForm() ? 'Zrušiť' : '+ Pridať pracovisko' }}
+    </button>
+  </div>
+
+  @if (showForm()) {
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+      <h2 class="text-lg font-semibold mb-4">Nové pracovisko</h2>
+      <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Názov</label>
+          <input type="text" [(ngModel)]="newLocation.name" name="name" required
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Adresa</label>
+          <input type="text" [(ngModel)]="newLocation.address" name="address"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Fotografia (voliteľné)</label>
+          <div class="relative w-40 h-40 rounded-lg cursor-pointer overflow-hidden transition-colors border-2"
+               [class.border-dashed]="!photoPreview()"
+               [class.border-amber-400]="isDragOver()"
+               [class.border-slate-300]="!isDragOver()"
+               (click)="photoInput.click()"
+               (dragover)="onDragOver($event)"
+               (dragleave)="onDragLeave()"
+               (drop)="onDrop($event)">
+            @if (photoPreview()) {
+              <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Preview" />
+              <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
+                <span class="text-white text-xs text-center px-2">Zmeniť foto</span>
+              </div>
+            } @else {
+              <div class="w-full h-full flex flex-col items-center justify-center gap-2 transition-colors"
+                   [class.bg-amber-50]="isDragOver()"
+                   [class.text-amber-500]="isDragOver()"
+                   [class.text-slate-400]="!isDragOver()">
+                <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span class="text-xs text-center px-2 leading-tight">
+                  {{ isDragOver() ? 'Pustiť sem' : 'Kliknúť alebo pretiahnuť' }}
+                </span>
+              </div>
+            }
+            <input #photoInput type="file" accept="image/*" class="hidden" (change)="onPhotoSelected($event)" />
+          </div>
+        </div>
+        <div class="md:col-span-2">
+          <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md transition-colors">
+            Vytvoriť
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    @for (loc of locations(); track loc.id) {
+      <div class="bg-white rounded-lg shadow overflow-hidden">
+        @if (loc.photoUrl) {
+          <img [src]="loc.photoUrl" class="w-full h-40 object-cover" alt="Location photo" />
+        } @else {
+          <div class="w-full h-40 bg-slate-200 flex items-center justify-center text-slate-400 text-4xl">📍</div>
+        }
+        <div class="p-4">
+          <a [routerLink]="['/admin/time-entries']" [queryParams]="{locationId: loc.id}"
+             class="font-semibold text-lg text-slate-800 hover:text-amber-600 hover:underline cursor-pointer">
+            {{ loc.name }}
+          </a>
+          @if (loc.address) {
+            <p class="text-sm text-slate-500 mt-1">{{ loc.address }}</p>
+          }
+          <div class="flex justify-between items-center mt-3">
+            <span [class]="loc.isActive ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'"
+                  class="px-2 py-1 rounded-full text-xs font-medium">
+              {{ loc.isActive ? 'Aktívne' : 'Neaktívne' }}
+            </span>
+            <div>
+              <a [routerLink]="['/admin/locations', loc.id]"
+                 class="text-amber-600 hover:text-amber-800 text-sm font-medium mr-2">Upraviť</a>
+              <button (click)="onToggleActive(loc)"
+                      class="text-sm font-medium mr-2"
+                      [class]="loc.isActive ? 'text-slate-500 hover:text-slate-700' : 'text-green-600 hover:text-green-800'">
+                {{ loc.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+              </button>
+              <button (click)="onHardDelete(loc)"
+                      class="text-red-600 hover:text-red-800 text-sm font-medium">Odstrániť</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+  </div>
+</div>

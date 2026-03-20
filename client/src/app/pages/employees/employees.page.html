@@ -1,0 +1,199 @@
+<app-navbar />
+<div class="max-w-7xl mx-auto p-6">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">Zamestnanci</h1>
+    <button (click)="showForm() ? cancelForm() : showForm.set(true)"
+            class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md transition-colors">
+      {{ showForm() ? 'Zrušiť' : '+ Pridať zamestnanca' }}
+    </button>
+  </div>
+
+  @if (showForm()) {
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+      <h2 class="text-lg font-semibold mb-4">Nový zamestnanec</h2>
+      <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Meno</label>
+          <input type="text" [(ngModel)]="newEmployee.firstName" name="firstName" required
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Priezvisko</label>
+          <input type="text" [(ngModel)]="newEmployee.lastName" name="lastName" required
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">PIN</label>
+          <div class="flex gap-2">
+            <input type="text" [(ngModel)]="newEmployee.pin" name="pin" required maxlength="6" pattern="[0-9]{4,6}"
+                   class="w-24 px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono tracking-widest text-center" />
+            <button type="button" (click)="generatePin()"
+                    class="px-3 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md text-sm text-slate-600 transition-colors">
+              Generovať
+            </button>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Telefón</label>
+          <input type="tel" [(ngModel)]="newEmployee.phoneNumber" name="phoneNumber"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Mesto</label>
+          <input type="text" [(ngModel)]="newEmployee.city" name="city"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Adresa</label>
+          <input type="text" [(ngModel)]="newEmployee.address" name="address"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500" />
+        </div>
+        <div class="md:col-span-3">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Fotografia (voliteľné)</label>
+          <div class="relative w-40 h-40 rounded-lg cursor-pointer overflow-hidden transition-colors border-2"
+               [class.border-dashed]="!photoPreview()"
+               [class.border-amber-400]="isDragOver()"
+               [class.border-slate-300]="!isDragOver()"
+               (click)="photoInput.click()"
+               (dragover)="onDragOver($event)"
+               (dragleave)="onDragLeave()"
+               (drop)="onDrop($event)">
+            @if (photoPreview()) {
+              <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Preview" />
+              <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
+                <span class="text-white text-xs text-center px-2">Zmeniť foto</span>
+              </div>
+            } @else {
+              <div class="w-full h-full flex flex-col items-center justify-center gap-2 transition-colors"
+                   [class.bg-amber-50]="isDragOver()"
+                   [class.text-amber-500]="isDragOver()"
+                   [class.text-slate-400]="!isDragOver()">
+                <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span class="text-xs text-center px-2 leading-tight">
+                  {{ isDragOver() ? 'Pustiť sem' : 'Kliknúť alebo pretiahnuť' }}
+                </span>
+              </div>
+            }
+            <input #photoInput type="file" accept="image/*" class="hidden" (change)="onPhotoSelected($event)" />
+          </div>
+        </div>
+        <div class="md:col-span-3">
+          <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md transition-colors">
+            Vytvoriť
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  <div class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="w-full">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Fotografia</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Meno</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Kontakt</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Stav</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Akcie</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (emp of employees(); track emp.id) {
+          <tr class="border-t border-slate-100 hover:bg-slate-50">
+            <td class="px-4 py-3">
+              @if (emp.photoUrl) {
+                <img [src]="emp.photoUrl" class="w-10 h-10 rounded-full object-cover" alt="Photo" />
+              } @else {
+                <div class="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-slate-500 text-sm font-bold">
+                  {{ emp.firstName[0] }}{{ emp.lastName[0] }}
+                </div>
+              }
+            </td>
+            <td class="px-4 py-3 font-medium">
+              <a [routerLink]="['/admin/time-entries']" [queryParams]="{employeeId: emp.id}"
+                 class="text-slate-800 hover:text-amber-600 hover:underline cursor-pointer">
+                {{ emp.firstName }} {{ emp.lastName }}
+              </a>
+            </td>
+            <td class="px-4 py-3 text-sm text-slate-500">
+              @if (emp.phoneNumber) {
+                <div>{{ emp.phoneNumber }}</div>
+              }
+              @if (emp.city) {
+                <div>{{ emp.city }}</div>
+              }
+            </td>
+            <td class="px-4 py-3">
+              <span [class]="emp.isActive ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'"
+                    class="px-2 py-1 rounded-full text-xs font-medium">
+                {{ emp.isActive ? 'Aktívny' : 'Neaktívny' }}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <a [routerLink]="['/admin/employees', emp.id]"
+                 class="text-amber-600 hover:text-amber-800 mr-3 text-sm font-medium">Upraviť</a>
+              <button (click)="onSetPin(emp)"
+                      class="text-slate-500 hover:text-slate-700 mr-3 text-sm font-medium">Nastaviť PIN</button>
+              <button (click)="onToggleActive(emp)"
+                      class="mr-3 text-sm font-medium"
+                      [class]="emp.isActive ? 'text-slate-500 hover:text-slate-700' : 'text-green-600 hover:text-green-800'">
+                {{ emp.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+              </button>
+              <button (click)="onHardDelete(emp)"
+                      class="text-red-600 hover:text-red-800 text-sm font-medium">Odstrániť</button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="bg-white rounded-lg shadow p-6 mt-6">
+    <h2 class="text-lg font-semibold text-slate-800 mb-4">Prehľad hodín</h2>
+    <div class="flex flex-wrap gap-4 items-end mb-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Od</label>
+        <div class="date-field">
+          <input type="date" appDate [(ngModel)]="summaryFrom" (ngModelChange)="loadSummary()" name="summaryFrom" [fpMaxDate]="summaryTo" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Do</label>
+        <div class="date-field">
+          <input type="date" appDate [(ngModel)]="summaryTo" (ngModelChange)="loadSummary()" name="summaryTo" [fpMinDate]="summaryFrom" />
+        </div>
+      </div>
+    </div>
+    <table class="w-full">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Zamestnanec</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Celkovo hodín</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Záznamy</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of hoursSummary(); track row.employeeId) {
+          <tr class="border-t border-slate-100 hover:bg-slate-50">
+            <td class="px-4 py-3 font-medium">{{ row.name }}</td>
+            <td class="px-4 py-3">{{ row.totalHours | hm }}</td>
+            <td class="px-4 py-3 text-slate-500">{{ row.entryCount }}</td>
+          </tr>
+        }
+        @if (hoursSummary().length > 0) {
+          <tr class="border-t-2 border-slate-300 bg-slate-50 font-semibold">
+            <td class="px-4 py-3">Spolu</td>
+            <td class="px-4 py-3 text-amber-600">{{ summaryTotalHours() | hm }}</td>
+            <td class="px-4 py-3 text-slate-500">{{ summaryTotalEntries() }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    @if (hoursSummary().length === 0) {
+      <div class="p-6 text-center text-slate-500">Žiadne záznamy za toto obdobie.</div>
+    }
+  </div>
+</div>

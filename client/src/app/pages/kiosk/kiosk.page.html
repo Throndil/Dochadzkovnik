@@ -1,0 +1,253 @@
+<div class="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full p-8"
+       [class]="mode() === 'my-hours' ? 'max-w-3xl' : 'max-w-md'">
+    <h1 class="text-3xl font-bold text-center mb-2 text-slate-800">Dochádzka</h1>
+
+    <!-- Mode tabs -->
+    <div class="flex rounded-lg overflow-hidden border border-slate-200 mb-6">
+      <button (click)="setMode('live')"
+              [class]="mode() === 'live' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+              class="flex-1 py-2 text-sm font-medium transition-colors">
+        Živé hodiny
+      </button>
+      <button (click)="setMode('manual')"
+              [class]="mode() === 'manual' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+              class="flex-1 py-2 text-sm font-medium transition-colors">
+        Ručný záznam
+      </button>
+      <button (click)="setMode('my-hours')"
+              [class]="mode() === 'my-hours' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+              class="flex-1 py-2 text-sm font-medium transition-colors">
+        Moje hodiny
+      </button>
+    </div>
+
+    @if (response()) {
+      <div class="mb-6 p-4 rounded-lg text-center"
+           [class]="responseError() ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'">
+        <p class="font-semibold">{{ response()!.employeeName }}</p>
+        <p>{{ response()!.message }}</p>
+        <p class="text-sm mt-1">{{ response()!.timestamp | date:'dd/MM/yyyy HH:mm' }}</p>
+      </div>
+    }
+
+    <!-- Live Clock mode -->
+    @if (mode() === 'live') {
+      @if (status()) {
+        <div class="mb-4 p-3 bg-blue-50 rounded-lg text-center text-sm">
+          <p class="font-medium text-blue-800">{{ status()!.employeeName }}</p>
+          @if (status()!.isClockedIn) {
+            <p class="text-blue-600">Prihlásený na {{ status()!.locationName }} od {{ status()!.clockInTime | date:'HH:mm' }}</p>
+          } @else {
+            <p class="text-slate-500">Momentálne nie ste prihlásený</p>
+          }
+        </div>
+      }
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-700 mb-1">PIN</label>
+        <div class="relative">
+          <input type="text" [(ngModel)]="pin" name="pin" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+                 [class.pin-masked]="!showPin()"
+                 (ngModelChange)="onPinChange()"
+                 class="w-full px-4 py-3 pr-12 text-center text-2xl tracking-[0.5em] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button type="button" (click)="showPin.set(!showPin())"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            @if (showPin()) {
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+            } @else {
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            }
+          </button>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Pracovisko</label>
+        <select [(ngModel)]="selectedLocationId" name="location"
+                class="w-full px-3 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+          <option [ngValue]="0" disabled>Vyberte pracovisko</option>
+          @for (loc of locations(); track loc.id) {
+            <option [ngValue]="loc.id">{{ loc.name }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Poznámka <span class="text-red-500">*</span> <span class="text-slate-400 font-normal">(povinné pri odchode)</span></label>
+        <input type="text" [(ngModel)]="comment" name="comment" maxlength="500"
+               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+               placeholder="napr. práca vo výškách, vrátane obednej prestávky…" />
+      </div>
+
+      <div class="flex gap-3">
+        <button (click)="clockIn()" [disabled]="!canSubmit() || loading()"
+                class="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-40 text-lg">
+          Príchod
+        </button>
+        <button (click)="clockOut()" [disabled]="!canClockOut() || loading()"
+                class="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-40 text-lg">
+          Odchod
+        </button>
+      </div>
+    }
+
+    <!-- Manual Entry mode -->
+    @if (mode() === 'manual') {
+      <p class="text-sm text-slate-500 mb-4 text-center">Zadajte PIN a presnú dobu, ktorú ste odpracovali.</p>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-700 mb-1">PIN</label>
+        <div class="relative">
+          <input type="text" [(ngModel)]="pin" name="pinManual" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+                 [class.pin-masked]="!showPin()"
+                 class="w-full px-4 py-3 pr-12 text-center text-2xl tracking-[0.5em] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button type="button" (click)="showPin.set(!showPin())"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            @if (showPin()) {
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+            } @else {
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            }
+          </button>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Pracovisko</label>
+        <select [(ngModel)]="manualLocationId" name="manualLocation"
+                class="w-full px-3 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+          <option [ngValue]="0" disabled>Vyberte pracovisko</option>
+          @for (loc of locations(); track loc.id) {
+            <option [ngValue]="loc.id">{{ loc.name }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Od</label>
+          <div class="date-field">
+            <input type="text" appDate [enableTime]="true" [(ngModel)]="manualFrom" name="manualFrom" [fpMaxDate]="manualTo" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Do</label>
+          <div class="date-field">
+            <input type="text" appDate [enableTime]="true" [(ngModel)]="manualTo" name="manualTo" [fpMinDate]="manualFrom" />
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-6">
+        <label class="block text-sm font-medium text-slate-700 mb-1">Poznámka <span class="text-red-500">*</span></label>
+        <input type="text" [(ngModel)]="manualNote" name="manualNote" maxlength="500" required
+               class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+               placeholder="napr. nadčas, špeciálna úloha…" />
+      </div>
+
+      <button (click)="submitManual()" [disabled]="!canSubmitManual() || loading()"
+              class="w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-40 text-lg">
+        Uložiť záznam
+      </button>
+    }
+
+    <!-- My Hours mode -->
+    @if (mode() === 'my-hours') {
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-700 mb-1">PIN</label>
+        <div class="relative">
+          <input type="text" [(ngModel)]="pin" name="pinHours" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+                 [class.pin-masked]="!showPin()"
+                 class="w-full px-4 py-3 pr-12 text-center text-2xl tracking-[0.5em] border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          <button type="button" (click)="showPin.set(!showPin())"
+                  class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            @if (showPin()) {
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+            } @else {
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            }
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Od</label>
+          <div class="date-field">
+            <input type="date" appDate [(ngModel)]="myHoursFrom" name="myHoursFrom" [fpMaxDate]="myHoursTo" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Do</label>
+          <div class="date-field">
+            <input type="date" appDate [(ngModel)]="myHoursTo" name="myHoursTo" [fpMinDate]="myHoursFrom" />
+          </div>
+        </div>
+      </div>
+
+      <button (click)="loadMyHours()" [disabled]="pin.length < 4 || !myHoursFrom || !myHoursTo || loading()"
+              class="w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-40 mb-6">
+        Zobraziť moje hodiny
+      </button>
+
+      @if (myHoursLoaded()) {
+        @if (myHoursEntries().length === 0) {
+          <p class="text-center text-slate-500">Žiadne záznamy za toto obdobie.</p>
+        } @else {
+          <p class="font-semibold text-slate-800 mb-3">{{ myHoursEmployeeName() }}</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50">
+                <tr>
+                  <th class="text-left px-3 py-2 font-semibold text-slate-600">Pracovisko</th>
+                  <th class="text-left px-3 py-2 font-semibold text-slate-600">Príchod</th>
+                  <th class="text-left px-3 py-2 font-semibold text-slate-600">Odchod</th>
+                  <th class="text-left px-3 py-2 font-semibold text-slate-600">Hodiny</th>
+                  <th class="text-left px-3 py-2 font-semibold text-slate-600">Poznámka</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (e of myHoursEntries(); track e.id) {
+                  <tr class="border-t border-slate-100">
+                    <td class="px-3 py-2">{{ e.locationName }}</td>
+                    <td class="px-3 py-2">{{ e.clockIn | date:'dd/MM/yyyy HH:mm' }}</td>
+                    <td class="px-3 py-2">{{ e.clockOut ? (e.clockOut | date:'dd/MM/yyyy HH:mm') : 'Aktívny' }}</td>
+                    <td class="px-3 py-2">{{ e.hoursWorked | hm }}</td>
+                    <td class="px-3 py-2 text-slate-500">{{ e.note || '' }}</td>
+                  </tr>
+                }
+              </tbody>
+              <tfoot>
+                <tr class="border-t-2 border-slate-300 bg-slate-50 font-semibold">
+                  <td class="px-3 py-2" colspan="3">Spolu</td>
+                  <td class="px-3 py-2 text-amber-600">{{ myHoursTotalHours() | hm }}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        }
+      }
+    }
+
+    <div class="mt-6 text-center">
+      <a href="/login" class="text-sm text-slate-400 hover:text-amber-600">Prihlásenie administrátora →</a>
+    </div>
+  </div>
+</div>

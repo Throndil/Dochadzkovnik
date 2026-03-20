@@ -1,0 +1,185 @@
+<app-navbar />
+<div class="max-w-7xl mx-auto p-6">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-slate-800">Záznamy dochádzky</h1>
+    <button (click)="cancelAll()"
+            class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-md transition-colors">
+      {{ (showAddForm() || editingEntry()) ? 'Zrušiť' : '+ Pridať záznam' }}
+    </button>
+  </div>
+
+  @if (showAddForm()) {
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+      <h2 class="text-lg font-semibold mb-4">Nový záznam dochádzky</h2>
+      <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Zamestnanec</label>
+          <select [(ngModel)]="newEntry.employeeId" name="newEmployee" required
+                  class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option [ngValue]="0" disabled>Vybrať zamestnanca</option>
+            @for (emp of employees(); track emp.id) {
+              <option [ngValue]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
+            }
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Pracovisko</label>
+          <select [(ngModel)]="newEntry.locationId" name="newLocation" required
+                  class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option [ngValue]="0" disabled>Vybrať pracovisko</option>
+            @for (loc of locations(); track loc.id) {
+              <option [ngValue]="loc.id">{{ loc.name }}</option>
+            }
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Poznámka (voliteľné)</label>
+          <input type="text" [(ngModel)]="newEntry.note" name="newNote" maxlength="500"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                 placeholder="Komentár…" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Príchod</label>
+          <div class="flex gap-2">
+            <div class="date-field flex-1">
+              <input type="date" appDate [(ngModel)]="newEntry.clockInDate" name="newClockInDate" required />
+            </div>
+            <input type="time" [(ngModel)]="newEntry.clockInTime" name="newClockInTime" class="time-field w-28" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Odchod (voliteľné)</label>
+          <div class="flex gap-2">
+            <div class="date-field flex-1">
+              <input type="date" appDate [(ngModel)]="newEntry.clockOutDate" name="newClockOutDate" [fpMinDate]="newEntry.clockInDate" />
+            </div>
+            <input type="time" [(ngModel)]="newEntry.clockOutTime" name="newClockOutTime" class="time-field w-28"
+                   [min]="newEntry.clockInDate && newEntry.clockInDate === newEntry.clockOutDate ? newEntry.clockInTime : ''" />
+          </div>
+        </div>
+        <div class="flex items-end">
+          <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md transition-colors">
+            Uložiť záznam
+          </button>
+        </div>
+      </form>
+    </div>
+  }
+
+  <div class="bg-white rounded-lg shadow p-4 mb-6">
+    <div class="flex flex-wrap gap-4 items-end">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Od</label>
+        <div class="date-field">
+          <input type="date" appDate [(ngModel)]="from" (ngModelChange)="load()" name="from" [fpMaxDate]="to" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Do</label>
+        <div class="date-field">
+          <input type="date" appDate [(ngModel)]="to" (ngModelChange)="load()" name="to" [fpMinDate]="from" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Zamestnanec</label>
+        <select [(ngModel)]="filterEmployeeId" (ngModelChange)="load()" name="filterEmployee"
+                class="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500">
+          <option [ngValue]="0">Všetci</option>
+          @for (emp of employees(); track emp.id) {
+            <option [ngValue]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
+          }
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">Pracovisko</label>
+        <select [(ngModel)]="filterLocationId" (ngModelChange)="load()" name="filterLocation"
+                class="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500">
+          <option [ngValue]="0">Všetky</option>
+          @for (loc of locations(); track loc.id) {
+            <option [ngValue]="loc.id">{{ loc.name }}</option>
+          }
+        </select>
+      </div>
+    </div>
+  </div>
+
+  @if (editingEntry()) {
+    <div class="bg-amber-50 border border-amber-200 rounded-lg shadow p-6 mb-6">
+      <div class="flex justify-between items-start mb-4">
+        <div>
+          <h2 class="text-lg font-semibold text-slate-800">Upraviť záznam</h2>
+          <p class="text-sm text-slate-500 mt-0.5">{{ editingEntry()!.employeeName }} &middot; {{ editingEntry()!.locationName }}</p>
+        </div>
+      </div>
+      <form (ngSubmit)="onUpdate()" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Príchod</label>
+          <div class="flex gap-2">
+            <div class="date-field flex-1">
+              <input type="date" appDate [(ngModel)]="editForm.clockInDate" name="editClockInDate" required />
+            </div>
+            <input type="time" [(ngModel)]="editForm.clockInTime" name="editClockInTime" class="time-field w-28" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Odchod</label>
+          <div class="flex gap-2">
+            <div class="date-field flex-1">
+              <input type="date" appDate [(ngModel)]="editForm.clockOutDate" name="editClockOutDate" [fpMinDate]="editForm.clockInDate" />
+            </div>
+            <input type="time" [(ngModel)]="editForm.clockOutTime" name="editClockOutTime" class="time-field w-28"
+                   [min]="editForm.clockInDate && editForm.clockInDate === editForm.clockOutDate ? editForm.clockInTime : ''" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Poznámka</label>
+          <input type="text" [(ngModel)]="editForm.note" name="editNote" maxlength="500"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+                 placeholder="Komentár&hellip;" />
+        </div>
+        <div class="flex items-end gap-3">
+          <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-white px-6 py-2 rounded-md transition-colors">Aktualizovať</button>
+          <button type="button" (click)="editingEntry.set(null)" class="px-4 py-2 border border-slate-300 rounded-md text-slate-600 hover:text-slate-800 transition-colors">Zrušiť</button>
+        </div>
+      </form>
+    </div>
+  }
+
+  <div class="bg-white rounded-lg shadow overflow-hidden">
+    <table class="w-full">
+      <thead class="bg-slate-50">
+        <tr>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Zamestnanec</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Pracovisko</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Príchod</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Odchod</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Hodiny</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Poznámka</th>
+          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Akcie</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (entry of entries(); track entry.id) {
+          <tr class="border-t border-slate-100"
+              [class.bg-amber-50]="editingEntry()?.id === entry.id">
+            <td class="px-4 py-3">{{ entry.employeeName }}</td>
+            <td class="px-4 py-3">{{ entry.locationName }}</td>
+            <td class="px-4 py-3">{{ entry.clockIn | date:'dd/MM/yyyy HH:mm' }}</td>
+            <td class="px-4 py-3">{{ entry.clockOut ? (entry.clockOut | date:'dd/MM/yyyy HH:mm') : 'Aktívny' }}</td>
+            <td class="px-4 py-3">{{ entry.hoursWorked | hm }}</td>
+            <td class="px-4 py-3 text-sm text-slate-500">{{ entry.note || '' }}</td>
+            <td class="px-4 py-3">
+              <button (click)="onEdit(entry)"
+                      class="text-amber-600 hover:text-amber-800 text-sm font-medium mr-3">Upraviť</button>
+              <button (click)="onDelete(entry)"
+                      class="text-red-600 hover:text-red-800 text-sm font-medium">Odstrániť</button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    @if (entries().length === 0) {
+      <div class="p-8 text-center text-slate-500">Žiadne záznamy dochádzky.</div>
+    }
+  </div>
+</div>

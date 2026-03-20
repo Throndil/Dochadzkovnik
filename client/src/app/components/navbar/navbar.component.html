@@ -1,0 +1,26 @@
+<nav class="bg-slate-800 text-white shadow-lg">
+  <div class="max-w-7xl mx-auto px-4">
+    <div class="flex justify-between h-14 items-center">
+      <a routerLink="/admin/dashboard" class="text-lg font-bold tracking-wide">Dochadzkovnik</a>
+      <div class="flex gap-4 items-center">
+        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-400"
+           class="hover:text-amber-300 transition-colors">Prehľad</a>
+        <a routerLink="/admin/employees" routerLinkActive="text-amber-400"
+           class="hover:text-amber-300 transition-colors">Zamestnanci</a>
+        <a routerLink="/admin/locations" routerLinkActive="text-amber-400"
+           class="hover:text-amber-300 transition-colors">Pracoviská</a>
+        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-400"
+           class="hover:text-amber-300 transition-colors">Záznamy</a>
+        <a routerLink="/admin/reports" routerLinkActive="text-amber-400"
+           class="hover:text-amber-300 transition-colors">Správy</a>
+        <span class="text-slate-400 ml-4">{{ auth.displayName() }}</span>
+        <a routerLink="/admin/account" class="ml-2 px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-sm transition-colors">
+          Účet
+        </a>
+        <button (click)="onLogout()" class="ml-2 px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors">
+          Odhlásiť
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
