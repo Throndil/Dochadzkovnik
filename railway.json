@@ -4,15 +4,12 @@
 
   "build": {
 
-    "builder": "NIXPACKS",
-
-    "buildCommand": "dotnet restore API/API.csproj && dotnet publish API/API.csproj -c Release -o /app/publish"
+    "builder": "NIXPACKS"
 
   },
 
   "deploy": {
 
-    "startCommand": "dotnet /app/publish/API.dll --urls http://*:$PORT",
 
     "restartPolicyType": "ON_FAILURE",
 

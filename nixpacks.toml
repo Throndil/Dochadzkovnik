@@ -1,0 +1,8 @@
+[phases.install]
+cmds = ["dotnet restore API/API.csproj"]
+
+[phases.build]
+cmds = ["dotnet publish API/API.csproj -c Release -o /app/publish"]
+
+[start]
+cmd = "dotnet /app/publish/API.dll --urls http://*:$PORT"
