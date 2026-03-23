@@ -12,8 +12,23 @@ using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
 // Database
+var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    {
+        if (!string.IsNullOrEmpty(databaseUrl))
+        {
+            var uri = new Uri(databaseUrl);
+            var userInfo = uri.UserInfo.Split(':');
+            var connStr = $"Host={uri.Host};Port={uri.Port};Database={uri.AbsolutePath.TrimStart('/')};Password={userInfo[1]};SSL Mode=Require;Trust Server Certificate=true";
+            options.UseNpgsql(connStr);
+        }
+        else {
+            options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"));
+        
+        }
+    }
+
+);
 
 // Identity
 builder.Services.AddIdentityCore<AppUser>(opt =>
