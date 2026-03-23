@@ -30,6 +30,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
             var connStr = $"Host={uri.Host};Port={uri.Port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
 
             options.UseNpgsql(connStr);
+            options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 
         }
         else {
