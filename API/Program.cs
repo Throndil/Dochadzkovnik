@@ -17,8 +17,20 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     {
         if (!string.IsNullOrEmpty(databaseUrl))
         {
-            var npgsqlUrl = databaseUrl.Replace("postgres://", "postgresql://");
-            options.UseNpgsql(npgsqlUrl);
+            var uri = new Uri(databaseUrl);
+
+            var userInfo = uri.UserInfo.Split(new char[] { ':' }, 2);
+
+            var username = Uri.UnescapeDataString(userInfo[0]);
+
+            var password = Uri.UnescapeDataString(userInfo[1]);
+
+            var database = uri.AbsolutePath.TrimStart('/');
+
+            var connStr = $"Host={uri.Host};Port={uri.Port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+
+            options.UseNpgsql(connStr);
+
         }
         else {
             options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"));
