@@ -100,7 +100,7 @@ export class KioskPage implements OnInit {
         this.resetAfterDelay();
       },
       error: (err) => {
-        this.response.set({ message: err.error || 'Clock-in failed', employeeName: '', timestamp: new Date().toISOString() });
+        this.response.set({ message: err.error || 'Prihlásenie zlyhalo', employeeName: '', timestamp: new Date().toISOString() });
         this.responseError.set(true);
         this.loading.set(false);
       }
@@ -117,7 +117,7 @@ export class KioskPage implements OnInit {
         this.resetAfterDelay();
       },
       error: (err) => {
-        this.response.set({ message: err.error || 'Clock-out failed', employeeName: '', timestamp: new Date().toISOString() });
+        this.response.set({ message: err.error || 'Odhlásenie zlyhalo', employeeName: '', timestamp: new Date().toISOString() });
         this.responseError.set(true);
         this.loading.set(false);
       }

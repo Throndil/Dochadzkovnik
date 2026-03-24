@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 
@@ -8,6 +8,8 @@ import { AuthService } from '../../services/auth.service';
   templateUrl: './navbar.component.html'
 })
 export class NavbarComponent {
+  menuOpen = signal(false);
+
   constructor(public auth: AuthService) {}
 
   onLogout() {

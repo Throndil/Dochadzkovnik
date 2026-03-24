@@ -14,6 +14,7 @@ namespace API.Controllers;
 public class ReportsController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private static readonly TimeZoneInfo _tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
 
     public ReportsController(AppDbContext db)
     {
@@ -23,7 +24,7 @@ public class ReportsController : ControllerBase
     [HttpGet("daily")]
     public async Task<ActionResult<DailyReportDto>> GetDaily([FromQuery] DateTime? date)
     {
-        var d = (date ?? DateTime.UtcNow).Date;
+        var d = (date ?? TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz)).Date;
 
         var entries = await _db.TimeEntries
             .Include(t => t.Employee)
@@ -106,7 +107,7 @@ public class ReportsController : ControllerBase
         var entries = await query.OrderBy(t => t.ClockIn).ToListAsync();
 
         var sb = new StringBuilder();
-        sb.AppendLine("Employee,Location,Clock In,Clock Out,Hours Worked,Note");
+        sb.AppendLine("Zamestnanec,Pracovisko,Príchod,Odchod,Hodiny,Poznámka");
 
         foreach (var t in entries)
         {

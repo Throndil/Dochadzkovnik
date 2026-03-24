@@ -2,7 +2,9 @@
   <div class="max-w-7xl mx-auto px-4">
     <div class="flex justify-between h-14 items-center">
       <a routerLink="/admin/dashboard" class="text-lg font-bold tracking-wide">Dochadzkovnik</a>
-      <div class="flex gap-4 items-center">
+
+      <!-- Desktop nav -->
+      <div class="hidden md:flex gap-4 items-center">
         <a routerLink="/admin/dashboard" routerLinkActive="text-amber-400"
            class="hover:text-amber-300 transition-colors">Prehľad</a>
         <a routerLink="/admin/employees" routerLinkActive="text-amber-400"
@@ -21,6 +23,43 @@
           Odhlásiť
         </button>
       </div>
+
+      <!-- Mobile hamburger -->
+      <button (click)="menuOpen.set(!menuOpen())" class="md:hidden p-2 rounded hover:bg-slate-700 transition-colors">
+        @if (menuOpen()) {
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        } @else {
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        }
+      </button>
     </div>
+
+    <!-- Mobile menu -->
+    @if (menuOpen()) {
+      <div class="md:hidden pb-4 border-t border-slate-700 mt-1 pt-3 space-y-1">
+        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Prehľad</a>
+        <a routerLink="/admin/employees" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Zamestnanci</a>
+        <a routerLink="/admin/locations" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Pracoviská</a>
+        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Záznamy</a>
+        <a routerLink="/admin/reports" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Správy</a>
+        <div class="border-t border-slate-700 mt-2 pt-2 px-3 flex items-center gap-3">
+          <span class="text-slate-400 text-sm">{{ auth.displayName() }}</span>
+          <a routerLink="/admin/account" (click)="menuOpen.set(false)"
+             class="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-sm transition-colors">Účet</a>
+          <button (click)="onLogout()" class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors">
+            Odhlásiť
+          </button>
+        </div>
+      </div>
+    }
   </div>
 </nav>

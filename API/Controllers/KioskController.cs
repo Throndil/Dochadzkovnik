@@ -12,6 +12,9 @@ public class KioskController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IPinHasher _pinHasher;
+    private static readonly TimeZoneInfo _tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
+
+    private static DateTime Now => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz);
 
     public KioskController(AppDbContext db, IPinHasher pinHasher)
     {
@@ -40,23 +43,23 @@ public class KioskController : ControllerBase
     {
         var employee = await FindEmployeeByPin(dto.Pin);
         if (employee == null)
-            return Unauthorized("Invalid PIN");
+            return Unauthorized("Neplatný PIN");
 
         var openEntry = await _db.TimeEntries
             .FirstOrDefaultAsync(t => t.EmployeeId == employee.Id && t.ClockOut == null);
 
         if (openEntry != null)
-            return BadRequest("Already clocked in. Please clock out first.");
+            return BadRequest("Už ste prihlásený. Najskôr sa odhláste.");
 
         var location = await _db.Locations.FindAsync(dto.LocationId);
         if (location == null || !location.IsActive)
-            return BadRequest("Invalid location");
+            return BadRequest("Neplatné pracovisko");
 
         var entry = new Models.TimeEntry
         {
             EmployeeId = employee.Id,
             LocationId = dto.LocationId,
-            ClockIn = DateTime.UtcNow
+            ClockIn = Now
         };
 
         _db.TimeEntries.Add(entry);
@@ -64,7 +67,7 @@ public class KioskController : ControllerBase
 
         return Ok(new KioskResponseDto
         {
-            Message = $"Clocked in at {location.Name}",
+            Message = $"Príchod na {location.Name}",
             EmployeeName = $"{employee.FirstName} {employee.LastName}",
             Timestamp = entry.ClockIn
         });
@@ -75,16 +78,16 @@ public class KioskController : ControllerBase
     {
         var employee = await FindEmployeeByPin(dto.Pin);
         if (employee == null)
-            return Unauthorized("Invalid PIN");
+            return Unauthorized("Neplatný PIN");
 
         var openEntry = await _db.TimeEntries
             .Include(t => t.Location)
             .FirstOrDefaultAsync(t => t.EmployeeId == employee.Id && t.ClockOut == null);
 
         if (openEntry == null)
-            return BadRequest("Not currently clocked in");
+            return BadRequest("Momentálne nie ste prihlásený");
 
-        openEntry.ClockOut = DateTime.UtcNow;
+        openEntry.ClockOut = Now;
         openEntry.Note = dto.Note;
         await _db.SaveChangesAsync();
 
@@ -92,7 +95,7 @@ public class KioskController : ControllerBase
 
         return Ok(new KioskResponseDto
         {
-            Message = $"Clocked out from {openEntry.Location.Name}. Worked {hours:F1} hours.",
+            Message = $"Odchod z {openEntry.Location.Name}. Odpracované: {hours:F1} hod.",
             EmployeeName = $"{employee.FirstName} {employee.LastName}",
             Timestamp = openEntry.ClockOut.Value
         });
@@ -103,7 +106,7 @@ public class KioskController : ControllerBase
     {
         var employee = await FindEmployeeByPin(dto.Pin);
         if (employee == null)
-            return Unauthorized("Invalid PIN");
+            return Unauthorized("Neplatný PIN");
 
         var query = _db.TimeEntries
             .Include(t => t.Location)
@@ -141,14 +144,14 @@ public class KioskController : ControllerBase
     {
         var employee = await FindEmployeeByPin(dto.Pin);
         if (employee == null)
-            return Unauthorized("Invalid PIN");
+            return Unauthorized("Neplatný PIN");
 
         var location = await _db.Locations.FindAsync(dto.LocationId);
         if (location == null || !location.IsActive)
-            return BadRequest("Invalid location");
+            return BadRequest("Neplatné pracovisko");
 
         if (dto.ClockOut <= dto.ClockIn)
-            return BadRequest("Clock-out must be after clock-in");
+            return BadRequest("Odchod musí byť po príchode");
 
         var entry = new Models.TimeEntry
         {
@@ -165,7 +168,7 @@ public class KioskController : ControllerBase
         var hours = (dto.ClockOut - dto.ClockIn).TotalHours;
         return Ok(new KioskResponseDto
         {
-            Message = $"Entry saved at {location.Name}, {hours:F1} hours.",
+            Message = $"Záznam uložený na {location.Name}, {hours:F1} hod.",
             EmployeeName = $"{employee.FirstName} {employee.LastName}",
             Timestamp = dto.ClockOut
         });
@@ -176,7 +179,7 @@ public class KioskController : ControllerBase
     {
         var employee = await FindEmployeeByPin(dto.Pin);
         if (employee == null)
-            return Unauthorized("Invalid PIN");
+            return Unauthorized("Neplatný PIN");
 
         var openEntry = await _db.TimeEntries
             .Include(t => t.Location)

@@ -1,9 +1,9 @@
 <app-navbar />
-<div class="max-w-7xl mx-auto p-6">
-  <h1 class="text-2xl font-bold text-slate-800 mb-6">Správy</h1>
+<div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
+  <h1 class="text-xl sm:text-2xl font-bold text-slate-800 mb-4 sm:mb-6">Správy</h1>
 
-  <div class="bg-white rounded-lg shadow p-4 mb-6">
-    <div class="flex flex-wrap gap-4 items-end">
+  <div class="bg-white rounded-lg shadow p-4 mb-4 sm:mb-6">
+    <div class="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 items-start sm:items-end">
       <div>
         <label class="block text-sm font-medium text-slate-700 mb-1">Od</label>
         <div class="date-field">
@@ -37,7 +37,7 @@
         </select>
       </div>
       <button (click)="exportCsv()"
-              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md transition-colors">
+              class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md transition-colors">
         Exportovať CSV
       </button>
     </div>
@@ -52,7 +52,8 @@
     </div>
   }
 
-  <div class="bg-white rounded-lg shadow overflow-hidden">
+  <!-- Desktop table -->
+  <div class="hidden sm:block bg-white rounded-lg shadow overflow-hidden">
     <table class="w-full">
       <thead class="bg-slate-50">
         <tr>
@@ -79,6 +80,30 @@
     </table>
     @if (entries().length === 0) {
       <div class="p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
+    }
+  </div>
+
+  <!-- Mobile cards -->
+  <div class="sm:hidden space-y-3">
+    @for (entry of entries(); track entry.id) {
+      <div class="bg-white rounded-lg shadow p-4">
+        <div class="flex justify-between items-start">
+          <div>
+            <div class="font-medium text-slate-800">{{ entry.employeeName }}</div>
+            <div class="text-sm text-slate-500">{{ entry.locationName }}</div>
+          </div>
+          <span class="text-sm font-semibold text-amber-600">{{ entry.hoursWorked | hm }}</span>
+        </div>
+        <div class="text-sm text-slate-600 mt-2">
+          {{ entry.clockIn | date:'dd/MM HH:mm' }} → {{ entry.clockOut ? (entry.clockOut | date:'dd/MM HH:mm') : 'Aktívny' }}
+        </div>
+        @if (entry.note) {
+          <div class="text-sm text-slate-400 mt-1">{{ entry.note }}</div>
+        }
+      </div>
+    }
+    @if (entries().length === 0) {
+      <div class="bg-white rounded-lg shadow p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
     }
   </div>
 </div>
