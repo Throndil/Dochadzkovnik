@@ -106,6 +106,50 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
 
+    // Fix boolean columns that may have been created as INTEGER by the SQLite provider
+
+    if (!string.IsNullOrEmpty(databaseUrl))
+
+    {
+
+        await db.Database.ExecuteSqlRawAsync(@"
+
+            DO $$
+
+            BEGIN
+
+                IF EXISTS (
+
+                    SELECT 1 FROM information_schema.columns
+
+                    WHERE table_name = 'AspNetUsers'
+
+                      AND column_name = 'EmailConfirmed'
+
+                      AND data_type = 'integer'
+
+                ) THEN
+
+                    ALTER TABLE ""AspNetUsers"" ALTER COLUMN ""EmailConfirmed"" TYPE boolean USING ""EmailConfirmed""::boolean;
+
+                    ALTER TABLE ""AspNetUsers"" ALTER COLUMN ""PhoneNumberConfirmed"" TYPE boolean USING ""PhoneNumberConfirmed""::boolean;
+
+                    ALTER TABLE ""AspNetUsers"" ALTER COLUMN ""TwoFactorEnabled"" TYPE boolean USING ""TwoFactorEnabled""::boolean;
+
+                    ALTER TABLE ""AspNetUsers"" ALTER COLUMN ""LockoutEnabled"" TYPE boolean USING ""LockoutEnabled""::boolean;
+
+                    ALTER TABLE ""Employees"" ALTER COLUMN ""IsActive"" TYPE boolean USING ""IsActive""::boolean;
+
+                    ALTER TABLE ""Locations"" ALTER COLUMN ""IsActive"" TYPE boolean USING ""IsActive""::boolean;
+
+                END IF;
+
+            END $$;
+
+        ");
+
+    }
+
     var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
     if (!userManager.Users.Any())
     {
