@@ -17,7 +17,7 @@ public class LocationsController : ControllerBase
     private readonly IBlobStorageService? _blobStorage;
     private readonly IConfiguration _config;
 
-    public LocationsController(AppDbContext db,  IConfiguration config, IBlobStorageService? blobStorage = null)
+    public LocationsController(AppDbContext db, IConfiguration config, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _blobStorage = blobStorage;
@@ -122,8 +122,7 @@ public class LocationsController : ControllerBase
 
         if (!string.IsNullOrEmpty(loc.PhotoUrl) && _blobStorage != null)
         {
-            var container = _config["AzureBlobStorage:LocationPhotosContainer"] ?? "location-photos";
-            await _blobStorage.DeleteAsync(loc.PhotoUrl, container);
+            await _blobStorage.DeleteAsync(loc.PhotoUrl, "location-photos");
         }
 
         _db.TimeEntries.RemoveRange(loc.TimeEntries);
@@ -147,19 +146,15 @@ public class LocationsController : ControllerBase
             return BadRequest("Only image files (jpg, png, gif, webp) are allowed");
 
         if (_blobStorage == null)
-        {
-            return StatusCode(503, "Not configured photo service.");
-        }
+            return StatusCode(503, "Photo storage is not configured");
 
         if (!string.IsNullOrEmpty(loc.PhotoUrl))
         {
-            var container = _config["AzureBlobStorage:LocationPhotosContainer"] ?? "location-photos";
-            await _blobStorage.DeleteAsync(loc.PhotoUrl, container);
+            await _blobStorage.DeleteAsync(loc.PhotoUrl, "location-photos");
         }
 
         using var stream = file.OpenReadStream();
-        var containerName = _config["AzureBlobStorage:LocationPhotosContainer"] ?? "location-photos";
-        loc.PhotoUrl = await _blobStorage.UploadAsync(stream, file.FileName, containerName);
+        loc.PhotoUrl = await _blobStorage.UploadAsync(stream, file.FileName, "location-photos");
         await _db.SaveChangesAsync();
 
         return Ok(loc.PhotoUrl);

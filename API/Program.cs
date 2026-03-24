@@ -2,7 +2,7 @@ using System.Text;
 using API.Data;
 using API.Models;
 using API.Services;
-using Azure.Storage.Blobs;
+using CloudinaryDotNet;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -63,12 +63,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
-// Azure Blob Storage
-var blobConnectionString = builder.Configuration["AzureBlobStorage:ConnectionString"];
-if (!string.IsNullOrEmpty(blobConnectionString))
+// Cloudinary image storage
+var cloudName = builder.Configuration["Cloudinary:CloudName"];
+var cloudApiKey = builder.Configuration["Cloudinary:ApiKey"];
+var cloudApiSecret = builder.Configuration["Cloudinary:ApiSecret"];
+if (!string.IsNullOrEmpty(cloudName) && !string.IsNullOrEmpty(cloudApiKey) && !string.IsNullOrEmpty(cloudApiSecret))
 {
-    builder.Services.AddSingleton(new BlobServiceClient(blobConnectionString));
-    builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
+    var account = new Account(cloudName, cloudApiKey, cloudApiSecret);
+    builder.Services.AddSingleton(new Cloudinary(account));
+    builder.Services.AddScoped<IBlobStorageService, CloudinaryStorageService>();
 }
 
 // App services
@@ -156,53 +159,29 @@ using (var scope = app.Services.CreateScope())
     }
 
     // Fix DateTime columns created as TEXT by the old SQLite-specific type annotations
-
     if (!string.IsNullOrEmpty(databaseUrl))
-
     {
-
         await db.Database.ExecuteSqlRawAsync(@"
-
             DO $$
-
             BEGIN
-
                 IF EXISTS (
-
                     SELECT 1 FROM information_schema.columns
-
                     WHERE table_name = 'Employees' AND column_name = 'CreatedAt' AND data_type = 'text'
-
                 ) THEN
-
                     ALTER TABLE ""Employees""
-
                         ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-
                         ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-
                     ALTER TABLE ""Locations""
-
                         ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-
                         ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-
                     ALTER TABLE ""TimeEntries""
-
                         ALTER COLUMN ""ClockIn""   TYPE timestamp without time zone USING ""ClockIn""::timestamptz::timestamp,
-
                         ALTER COLUMN ""ClockOut""  TYPE timestamp without time zone USING ""ClockOut""::timestamptz::timestamp,
-
                         ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-
                         ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-
                 END IF;
-
             END $$;
-
         ");
-
     }
 
     // Fix boolean columns that may have been created as INTEGER by the SQLite provider

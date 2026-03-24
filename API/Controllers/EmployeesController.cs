@@ -19,7 +19,7 @@ public class EmployeesController : ControllerBase
     private readonly IConfiguration _config;
 
     public EmployeesController(AppDbContext db, IPinHasher pinHasher,
-         IConfiguration config, IBlobStorageService? blobStorage = null)
+        IConfiguration config, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _pinHasher = pinHasher;
@@ -194,19 +194,15 @@ public class EmployeesController : ControllerBase
             return BadRequest("Only image files (jpg, png, gif, webp) are allowed");
 
         if (_blobStorage == null)
-        {
-            return StatusCode(503, "Not configured photo service.");
-        }
+            return StatusCode(503, "Photo storage is not configured");
 
         if (!string.IsNullOrEmpty(emp.PhotoUrl))
         {
-            var container = _config["AzureBlobStorage:EmployeePhotosContainer"] ?? "employee-photos";
-            await _blobStorage.DeleteAsync(emp.PhotoUrl, container);
+            await _blobStorage.DeleteAsync(emp.PhotoUrl, "employee-photos");
         }
 
         using var stream = file.OpenReadStream();
-        var containerName = _config["AzureBlobStorage:EmployeePhotosContainer"] ?? "employee-photos";
-        emp.PhotoUrl = await _blobStorage.UploadAsync(stream, file.FileName, containerName);
+        emp.PhotoUrl = await _blobStorage.UploadAsync(stream, file.FileName, "employee-photos");
         await _db.SaveChangesAsync();
 
         return Ok(emp.PhotoUrl);

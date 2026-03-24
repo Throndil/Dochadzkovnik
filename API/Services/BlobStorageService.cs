@@ -1,57 +1,66 @@
-using Azure.Storage.Blobs;
-using Azure.Storage.Blobs.Models;
+using CloudinaryDotNet;
+using CloudinaryDotNet.Actions;
 
 namespace API.Services;
 
 public interface IBlobStorageService
 {
-    Task<string> UploadAsync(Stream stream, string fileName, string containerName);
-    Task DeleteAsync(string blobName, string containerName);
+    Task<string> UploadAsync(Stream stream, string fileName, string folder);
+    Task DeleteAsync(string url, string folder);
 }
 
-public class BlobStorageService : IBlobStorageService
+public class CloudinaryStorageService : IBlobStorageService
 {
-    private readonly BlobServiceClient _blobServiceClient;
+    private readonly Cloudinary _cloudinary;
 
-    public BlobStorageService(BlobServiceClient blobServiceClient)
+    public CloudinaryStorageService(Cloudinary cloudinary)
     {
-        _blobServiceClient = blobServiceClient;
+        _cloudinary = cloudinary;
     }
 
-    public async Task<string> UploadAsync(Stream stream, string fileName, string containerName)
+    public async Task<string> UploadAsync(Stream stream, string fileName, string folder)
     {
-        var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
-        await containerClient.CreateIfNotExistsAsync(PublicAccessType.Blob);
-
-        var blobName = $"{Guid.NewGuid()}{Path.GetExtension(fileName)}";
-        var blobClient = containerClient.GetBlobClient(blobName);
-
-        await blobClient.UploadAsync(stream, new BlobHttpHeaders
+        var publicId = $"{folder}/{Guid.NewGuid()}";
+        var uploadParams = new ImageUploadParams
         {
-            ContentType = GetContentType(fileName)
-        });
-
-        return blobClient.Uri.ToString();
-    }
-
-    public async Task DeleteAsync(string blobUrl, string containerName)
-    {
-        var uri = new Uri(blobUrl);
-        var blobName = Path.GetFileName(uri.LocalPath);
-        var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
-        await containerClient.DeleteBlobIfExistsAsync(blobName);
-    }
-
-    private static string GetContentType(string fileName)
-    {
-        var ext = Path.GetExtension(fileName).ToLowerInvariant();
-        return ext switch
-        {
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".png" => "image/png",
-            ".gif" => "image/gif",
-            ".webp" => "image/webp",
-            _ => "application/octet-stream"
+            File = new FileDescription(fileName, stream),
+            PublicId = publicId,
+            Overwrite = true
         };
+
+        var result = await _cloudinary.UploadAsync(uploadParams);
+        if (result.Error != null)
+            throw new Exception($"Cloudinary upload failed: {result.Error.Message}");
+
+        return result.SecureUrl.ToString();
+    }
+
+    public async Task DeleteAsync(string url, string folder)
+    {
+        // Extract public ID from the Cloudinary URL
+        // URL format: https://res.cloudinary.com/{cloud}/image/upload/v123/{folder}/{id}.ext
+        try
+        {
+            var uri = new Uri(url);
+            var path = uri.AbsolutePath; // /image/upload/v123/folder/id.ext
+            var uploadIndex = path.IndexOf("/upload/", StringComparison.Ordinal);
+            if (uploadIndex < 0) return;
+
+            var afterUpload = path[(uploadIndex + 8)..]; // v123/folder/id.ext
+            // Skip version segment (v123/)
+            var slashIndex = afterUpload.IndexOf('/');
+            if (slashIndex < 0) return;
+
+            var publicIdWithExt = afterUpload[(slashIndex + 1)..]; // folder/id.ext
+            var publicId = Path.GetFileNameWithoutExtension(publicIdWithExt);
+            var dirPart = Path.GetDirectoryName(publicIdWithExt)?.Replace('\\', '/');
+            var fullPublicId = string.IsNullOrEmpty(dirPart) ? publicId : $"{dirPart}/{publicId}";
+
+            await _cloudinary.DestroyAsync(new DeletionParams(fullPublicId));
+        }
+        catch
+        {
+            // Best-effort deletion; don't fail the request
+        }
     }
 }
