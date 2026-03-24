@@ -155,6 +155,56 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
+    // Fix DateTime columns created as TEXT by the old SQLite-specific type annotations
+
+    if (!string.IsNullOrEmpty(databaseUrl))
+
+    {
+
+        await db.Database.ExecuteSqlRawAsync(@"
+
+            DO $$
+
+            BEGIN
+
+                IF EXISTS (
+
+                    SELECT 1 FROM information_schema.columns
+
+                    WHERE table_name = 'Employees' AND column_name = 'CreatedAt' AND data_type = 'text'
+
+                ) THEN
+
+                    ALTER TABLE ""Employees""
+
+                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
+
+                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
+
+                    ALTER TABLE ""Locations""
+
+                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
+
+                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
+
+                    ALTER TABLE ""TimeEntries""
+
+                        ALTER COLUMN ""ClockIn""   TYPE timestamp without time zone USING ""ClockIn""::timestamptz::timestamp,
+
+                        ALTER COLUMN ""ClockOut""  TYPE timestamp without time zone USING ""ClockOut""::timestamptz::timestamp,
+
+                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
+
+                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
+
+                END IF;
+
+            END $$;
+
+        ");
+
+    }
+
     // Fix boolean columns that may have been created as INTEGER by the SQLite provider
     if (!string.IsNullOrEmpty(databaseUrl))
     {
