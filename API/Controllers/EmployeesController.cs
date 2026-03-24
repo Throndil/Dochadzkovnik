@@ -15,11 +15,11 @@ public class EmployeesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IPinHasher _pinHasher;
-    private readonly IBlobStorageService _blobStorage;
+    private readonly IBlobStorageService? _blobStorage;
     private readonly IConfiguration _config;
 
     public EmployeesController(AppDbContext db, IPinHasher pinHasher,
-        IBlobStorageService blobStorage, IConfiguration config)
+         IConfiguration config, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _pinHasher = pinHasher;
@@ -192,6 +192,11 @@ public class EmployeesController : ControllerBase
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!allowed.Contains(ext))
             return BadRequest("Only image files (jpg, png, gif, webp) are allowed");
+
+        if (_blobStorage == null)
+        {
+            return StatusCode(503, "Not configured photo service.");
+        }
 
         if (!string.IsNullOrEmpty(emp.PhotoUrl))
         {

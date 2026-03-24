@@ -14,10 +14,10 @@ namespace API.Controllers;
 public class LocationsController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly IBlobStorageService _blobStorage;
+    private readonly IBlobStorageService? _blobStorage;
     private readonly IConfiguration _config;
 
-    public LocationsController(AppDbContext db, IBlobStorageService blobStorage, IConfiguration config)
+    public LocationsController(AppDbContext db,  IConfiguration config, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _blobStorage = blobStorage;
@@ -145,6 +145,11 @@ public class LocationsController : ControllerBase
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!allowed.Contains(ext))
             return BadRequest("Only image files (jpg, png, gif, webp) are allowed");
+
+        if (_blobStorage == null)
+        {
+            return StatusCode(503, "Not configured photo service.");
+        }
 
         if (!string.IsNullOrEmpty(loc.PhotoUrl))
         {
