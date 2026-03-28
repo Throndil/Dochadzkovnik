@@ -1,4 +1,4 @@
-import { Component, signal, OnInit, OnDestroy } from '@angular/core';
+import { Component, signal, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow } from '../../services/kiosk.service';
@@ -14,7 +14,8 @@ type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'result';
 @Component({
   selector: 'app-kiosk',
   imports: [FormsModule, DatePipe, DecimalPipe, HmPipe, DatepickerDirective],
-  templateUrl: './kiosk.page.html'
+  templateUrl: './kiosk.page.html',
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class KioskPage implements OnInit, OnDestroy {
 
@@ -64,6 +65,9 @@ export class KioskPage implements OnInit, OnDestroy {
   myHoursEmployeeName = signal('');
   myHoursLoaded = signal(false);
   myHoursLoading = signal(false);
+
+  readonly numpadDigits = ['1','2','3','4','5','6','7','8','9'];
+  readonly pinSlots = [0,1,2,3,4,5];
 
   private clockTimeout?: ReturnType<typeof setTimeout>;
   private resetTimer?: ReturnType<typeof setTimeout>;
