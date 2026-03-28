@@ -114,7 +114,8 @@ using (var scope = app.Services.CreateScope())
                 -- Employees
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'Employees' AND column_name = 'Id' AND column_default IS NOT NULL
+                    WHERE table_name = 'Employees' AND column_name = 'Id'
+                      AND (column_default IS NOT NULL OR is_identity = 'YES')
                 ) THEN
                     CREATE SEQUENCE IF NOT EXISTS ""Employees_Id_seq"";
                     ALTER TABLE ""Employees"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""Employees_Id_seq""');
@@ -123,7 +124,8 @@ using (var scope = app.Services.CreateScope())
                 -- Locations
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'Locations' AND column_name = 'Id' AND column_default IS NOT NULL
+                    WHERE table_name = 'Locations' AND column_name = 'Id'
+                      AND (column_default IS NOT NULL OR is_identity = 'YES')
                 ) THEN
                     CREATE SEQUENCE IF NOT EXISTS ""Locations_Id_seq"";
                     ALTER TABLE ""Locations"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""Locations_Id_seq""');
@@ -132,7 +134,8 @@ using (var scope = app.Services.CreateScope())
                 -- TimeEntries
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'TimeEntries' AND column_name = 'Id' AND column_default IS NOT NULL
+                    WHERE table_name = 'TimeEntries' AND column_name = 'Id'
+                      AND (column_default IS NOT NULL OR is_identity = 'YES')
                 ) THEN
                     CREATE SEQUENCE IF NOT EXISTS ""TimeEntries_Id_seq"";
                     ALTER TABLE ""TimeEntries"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""TimeEntries_Id_seq""');
@@ -141,7 +144,8 @@ using (var scope = app.Services.CreateScope())
                 -- AspNetRoleClaims
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'AspNetRoleClaims' AND column_name = 'Id' AND column_default IS NOT NULL
+                    WHERE table_name = 'AspNetRoleClaims' AND column_name = 'Id'
+                      AND (column_default IS NOT NULL OR is_identity = 'YES')
                 ) THEN
                     CREATE SEQUENCE IF NOT EXISTS ""AspNetRoleClaims_Id_seq"";
                     ALTER TABLE ""AspNetRoleClaims"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""AspNetRoleClaims_Id_seq""');
@@ -150,7 +154,8 @@ using (var scope = app.Services.CreateScope())
                 -- AspNetUserClaims
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'AspNetUserClaims' AND column_name = 'Id' AND column_default IS NOT NULL
+                    WHERE table_name = 'AspNetUserClaims' AND column_name = 'Id'
+                      AND (column_default IS NOT NULL OR is_identity = 'YES')
                 ) THEN
                     CREATE SEQUENCE IF NOT EXISTS ""AspNetUserClaims_Id_seq"";
                     ALTER TABLE ""AspNetUserClaims"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""AspNetUserClaims_Id_seq""');
@@ -238,7 +243,8 @@ using (var scope = app.Services.CreateScope())
                 -- Ensure Cars.Id has a sequence (same pattern as other tables)
                 IF NOT EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'Cars' AND column_name = 'Id' AND column_default IS NOT NULL
+                    WHERE table_name = 'Cars' AND column_name = 'Id'
+                      AND (column_default IS NOT NULL OR is_identity = 'YES')
                 ) THEN
                     CREATE SEQUENCE IF NOT EXISTS ""Cars_Id_seq"";
                     ALTER TABLE ""Cars"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""Cars_Id_seq""');
