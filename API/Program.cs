@@ -92,7 +92,9 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(opts =>
+        opts.JsonSerializerOptions.Converters.Add(new API.Converters.UtcDateTimeConverter()));
 builder.Services.AddOpenApi();
 
 var app = builder.Build();

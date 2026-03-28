@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "flatpickr/dist/flatpickr.min.css";
 
+/* ── Dark mode via .dark class on <html> ───────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ── Flatpickr amber theme ─────────────────────────────────────── */
 .flatpickr-calendar {
   font-family: inherit;
@@ -101,7 +104,53 @@ input[type="datetime-local"] {
   padding: 0;
 }
 
-/* Time inputs */
+/* Time picker wrapper (flatpickr time-only, styled like .date-field) */
+.time-field-wrap {
+  position: relative;
+  display: block;
+  min-width: 110px;
+}
+
+.time-field-wrap::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  z-index: 1;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f59e0b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.time-field-wrap input[type="text"] {
+  width: 100%;
+  padding-left: 34px;
+  padding-right: 10px;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #fff;
+  font-size: 0.875rem;
+  color: #0f172a;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.06);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.time-field-wrap input[type="text"]:hover { border-color: #f59e0b; }
+.time-field-wrap input[type="text"]:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgb(245 158 11 / 0.2);
+}
+
+/* Legacy native time inputs (kept for compatibility) */
 .time-field {
   padding: 0.5rem 0.625rem;
   border: 1.5px solid #cbd5e1;
@@ -126,3 +175,58 @@ input[type="datetime-local"] {
   -webkit-text-security: disc;
   text-security: disc;
 }
+
+/* ── Dark mode overrides ───────────────────────────────────────── */
+.dark input[type="date"],
+.dark input[type="datetime-local"] {
+  color-scheme: dark;
+}
+
+.dark .date-field input[type="date"],
+.dark .date-field input[type="datetime-local"],
+.dark .date-field input[type="text"] {
+  background-color: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+.dark .time-field-wrap input[type="text"] {
+  background-color: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+.dark .time-field {
+  background-color: #1e293b;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
+.dark .flatpickr-calendar {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 10px 40px -5px rgb(0 0 0 / 0.5);
+}
+
+.dark .flatpickr-months .flatpickr-month,
+.dark .flatpickr-months .flatpickr-prev-month,
+.dark .flatpickr-months .flatpickr-next-month {
+  color: #f1f5f9;
+  fill: #f1f5f9;
+}
+
+.dark .flatpickr-weekday { color: #94a3b8; }
+
+.dark .flatpickr-day { color: #cbd5e1; }
+.dark .flatpickr-day:hover:not(.flatpickr-disabled) {
+  background: #334155;
+  border-color: #475569;
+}
+.dark .flatpickr-day.flatpickr-disabled { color: #475569; }
+
+.dark .flatpickr-time input {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+.dark .flatpickr-time input:hover,
+.dark .flatpickr-time input:focus { background: #334155; }

@@ -9,6 +9,8 @@ export interface TimeEntry {
   employeePhotoUrl?: string;
   locationId: number;
   locationName: string;
+  carId?: number;
+  carName?: string;
   clockIn: string;
   clockOut?: string;
   hoursWorked?: number;

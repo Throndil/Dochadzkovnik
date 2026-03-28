@@ -45,13 +45,18 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/location-detail/location-detail.page').then(m => m.LocationDetailPage)
       },
       {
+        path: 'cars',
+        loadComponent: () => import('./pages/cars/cars.page').then(m => m.CarsPage)
+      },
+      {
+        path: 'cars/:id',
+        loadComponent: () => import('./pages/car-detail/car-detail.page').then(m => m.CarDetailPage)
+      },
+      {
         path: 'time-entries',
         loadComponent: () => import('./pages/time-entries/time-entries.page').then(m => m.TimeEntriesPage)
       },
-      {
-        path: 'reports',
-        loadComponent: () => import('./pages/reports/reports.page').then(m => m.ReportsPage)
-      },
+      { path: 'reports', redirectTo: 'time-entries', pathMatch: 'full' },
       {
         path: 'account',
         loadComponent: () => import('./pages/account/account.page').then(m => m.AccountPage)

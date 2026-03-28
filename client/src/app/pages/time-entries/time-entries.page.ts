@@ -1,36 +1,46 @@
-﻿import { Component, signal, OnInit } from '@angular/core';
+import { Component, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
+import { ReportService } from '../../services/report.service';
 import { EmployeeService, Employee } from '../../services/employee.service';
 import { LocationService, Location } from '../../services/location.service';
+import { CarService, Car } from '../../services/car.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
+import { TimepickerDirective } from '../../directives/timepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 
 @Component({
   selector: 'app-time-entries',
-  imports: [NavbarComponent, FormsModule, DatePipe, HmPipe, DatepickerDirective],
+  imports: [NavbarComponent, FormsModule, DatePipe, HmPipe, DatepickerDirective, TimepickerDirective],
   templateUrl: './time-entries.page.html'
 })
 export class TimeEntriesPage implements OnInit {
   entries = signal<TimeEntry[]>([]);
   employees = signal<Employee[]>([]);
   locations = signal<Location[]>([]);
+  cars = signal<Car[]>([]);
   showAddForm = signal(false);
   editingEntry = signal<TimeEntry | null>(null);
-  newEntry = { employeeId: 0, locationId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
-  editForm = { clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
+  newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
+  editForm = { carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
   from = '';
   to = '';
   filterEmployeeId = 0;
   filterLocationId = 0;
 
+  totalHours = computed(() =>
+    this.entries().reduce((sum, e) => sum + (e.hoursWorked ?? 0), 0)
+  );
+
   constructor(
     private timeEntryService: TimeEntryService,
+    private reportService: ReportService,
     private employeeService: EmployeeService,
     private locationService: LocationService,
+    private carService: CarService,
     private route: ActivatedRoute
   ) {}
 
@@ -47,19 +57,35 @@ export class TimeEntriesPage implements OnInit {
 
     this.employeeService.getAll().subscribe(e => this.employees.set(e));
     this.locationService.getAll().subscribe(l => this.locations.set(l));
+    this.carService.getAll().subscribe(c => this.cars.set(c.filter(x => x.isActive)));
     const params = this.route.snapshot.queryParams;
     if (params['employeeId']) this.filterEmployeeId = +params['employeeId'];
     if (params['locationId']) this.filterLocationId = +params['locationId'];
     this.load();
   }
 
-  load() {
+  private getFilters() {
     const filters: any = {};
     if (this.from) filters.from = this.from;
     if (this.to) filters.to = this.to;
     if (this.filterEmployeeId) filters.employeeId = this.filterEmployeeId;
     if (this.filterLocationId) filters.locationId = this.filterLocationId;
-    this.timeEntryService.getAll(filters).subscribe(e => this.entries.set(e));
+    return filters;
+  }
+
+  load() {
+    this.timeEntryService.getAll(this.getFilters()).subscribe(e => this.entries.set(e));
+  }
+
+  exportCsv() {
+    this.reportService.exportCsv(this.getFilters()).subscribe(blob => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'zaznamy-dochadzky.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    });
   }
 
   onDelete(entry: TimeEntry) {
@@ -76,7 +102,7 @@ export class TimeEntriesPage implements OnInit {
       const today = new Date();
       const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const fmtTime = (d: Date) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-      this.newEntry = { employeeId: 0, locationId: 0, clockInDate: fmt(today), clockInTime: fmtTime(today), clockOutDate: '', clockOutTime: '', note: '' };
+      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: fmt(today), clockInTime: fmtTime(today), clockOutDate: '', clockOutTime: '', note: '' };
       this.showAddForm.set(true);
     }
   }
@@ -86,6 +112,7 @@ export class TimeEntriesPage implements OnInit {
     const dto: any = {
       employeeId: this.newEntry.employeeId,
       locationId: this.newEntry.locationId,
+      carId: this.newEntry.carId || undefined,
       clockIn: `${this.newEntry.clockInDate}T${this.newEntry.clockInTime || '00:00'}:00`,
       note: this.newEntry.note || undefined
     };
@@ -95,7 +122,7 @@ export class TimeEntriesPage implements OnInit {
     }
     this.timeEntryService.create(dto).subscribe(() => {
       this.showAddForm.set(false);
-      this.newEntry = { employeeId: 0, locationId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
+      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
       this.load();
     });
   }
@@ -108,7 +135,7 @@ export class TimeEntriesPage implements OnInit {
     };
     const [ciDate, ciTime] = toLocal(entry.clockIn).split('T');
     const [coDate, coTime] = entry.clockOut ? toLocal(entry.clockOut).split('T') : ['', ''];
-    this.editForm = { clockInDate: ciDate, clockInTime: ciTime, clockOutDate: coDate, clockOutTime: coTime, note: entry.note || '' };
+    this.editForm = { carId: entry.carId ?? 0, clockInDate: ciDate, clockInTime: ciTime, clockOutDate: coDate, clockOutTime: coTime, note: entry.note || '' };
     this.editingEntry.set(entry);
     this.showAddForm.set(false);
   }
@@ -117,6 +144,7 @@ export class TimeEntriesPage implements OnInit {
     const entry = this.editingEntry();
     if (!entry || !this.editForm.clockInDate) return;
     const dto: any = {
+      carId: this.editForm.carId || undefined,
       clockIn: `${this.editForm.clockInDate}T${this.editForm.clockInTime || '00:00'}:00`,
       note: this.editForm.note || undefined
     };

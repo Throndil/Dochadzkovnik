@@ -46,7 +46,7 @@ export class AuthService {
   }
 
   getMe() {
-    return this.http.get<{ email: string }>(`${environment.apiUrl}/auth/me`);
+    return this.http.get<{ email: string; userName: string }>(`${environment.apiUrl}/auth/me`);
   }
 
   logout() {

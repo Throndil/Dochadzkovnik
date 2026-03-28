@@ -30,7 +30,7 @@ export class DatepickerDirective implements AfterViewInit, OnDestroy {
     this.fp = flatpickr(el, {
       dateFormat: this.enableTime ? 'Y-m-dTH:i' : 'Y-m-d',
       altInput: true,
-      altFormat: this.enableTime ? 'd/m/Y H:i' : 'd/m/Y',
+      altFormat: this.enableTime ? 'd.m.Y H:i' : 'd.m.Y',
       enableTime: this.enableTime,
       time_24hr: true,
       disableMobile: true,

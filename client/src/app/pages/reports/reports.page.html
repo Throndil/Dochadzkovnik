@@ -1,109 +1,122 @@
 <app-navbar />
-<div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
-  <h1 class="text-xl sm:text-2xl font-bold text-slate-800 mb-4 sm:mb-6">Správy</h1>
+<div class="min-h-screen bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
+    <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mb-4 sm:mb-6">Správy</h1>
 
-  <div class="bg-white rounded-lg shadow p-4 mb-4 sm:mb-6">
-    <div class="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 items-start sm:items-end">
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Od</label>
-        <div class="date-field">
-          <input type="date" appDate [(ngModel)]="from" (ngModelChange)="load()" name="from" [fpMaxDate]="to" />
-        </div>
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Do</label>
-        <div class="date-field">
-          <input type="date" appDate [(ngModel)]="to" (ngModelChange)="load()" name="to" [fpMinDate]="from" />
-        </div>
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Zamestnanec</label>
-        <select [(ngModel)]="employeeId" (ngModelChange)="load()" name="employee"
-                class="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500">
-          <option [ngValue]="0">Všetci</option>
-          @for (emp of employees(); track emp.id) {
-            <option [ngValue]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
-          }
-        </select>
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">Pracovisko</label>
-        <select [(ngModel)]="locationId" (ngModelChange)="load()" name="location"
-                class="px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500">
-          <option [ngValue]="0">Všetky</option>
-          @for (loc of locations(); track loc.id) {
-            <option [ngValue]="loc.id">{{ loc.name }}</option>
-          }
-        </select>
-      </div>
-      <button (click)="exportCsv()"
-              class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md transition-colors">
-        Exportovať CSV
-      </button>
-    </div>
-  </div>
-
-  @if (entries().length > 0) {
-    <div class="bg-white rounded-lg shadow p-4 mb-4">
-      <div class="text-lg font-semibold text-slate-800">
-        Celkovo hodín: <span class="text-amber-600">{{ totalHours() | hm }}</span>
-        &nbsp;·&nbsp; Záznamy: {{ entries().length }}
-      </div>
-    </div>
-  }
-
-  <!-- Desktop table -->
-  <div class="hidden sm:block bg-white rounded-lg shadow overflow-hidden">
-    <table class="w-full">
-      <thead class="bg-slate-50">
-        <tr>
-          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Zamestnanec</th>
-          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Pracovisko</th>
-          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Príchod</th>
-          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Odchod</th>
-          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Hodiny</th>
-          <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Poznámka</th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (entry of entries(); track entry.id) {
-          <tr class="border-t border-slate-100 hover:bg-slate-50">
-            <td class="px-4 py-3">{{ entry.employeeName }}</td>
-            <td class="px-4 py-3">{{ entry.locationName }}</td>
-            <td class="px-4 py-3">{{ entry.clockIn | date:'dd/MM/yyyy HH:mm' }}</td>
-            <td class="px-4 py-3">{{ entry.clockOut ? (entry.clockOut | date:'dd/MM/yyyy HH:mm') : 'Aktívny' }}</td>
-            <td class="px-4 py-3">{{ entry.hoursWorked | hm }}</td>
-            <td class="px-4 py-3 text-sm text-slate-500">{{ entry.note || '' }}</td>
-          </tr>
-        }
-      </tbody>
-    </table>
-    @if (entries().length === 0) {
-      <div class="p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
-    }
-  </div>
-
-  <!-- Mobile cards -->
-  <div class="sm:hidden space-y-3">
-    @for (entry of entries(); track entry.id) {
-      <div class="bg-white rounded-lg shadow p-4">
-        <div class="flex justify-between items-start">
-          <div>
-            <div class="font-medium text-slate-800">{{ entry.employeeName }}</div>
-            <div class="text-sm text-slate-500">{{ entry.locationName }}</div>
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 mb-4 sm:mb-6">
+      <div class="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 items-start sm:items-end">
+        <div>
+          <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Od</label>
+          <div class="date-field">
+            <input type="date" appDate [(ngModel)]="from" (ngModelChange)="load()" name="from" [fpMaxDate]="to" />
           </div>
-          <span class="text-sm font-semibold text-amber-600">{{ entry.hoursWorked | hm }}</span>
         </div>
-        <div class="text-sm text-slate-600 mt-2">
-          {{ entry.clockIn | date:'dd/MM HH:mm' }} → {{ entry.clockOut ? (entry.clockOut | date:'dd/MM HH:mm') : 'Aktívny' }}
+        <div>
+          <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Do</label>
+          <div class="date-field">
+            <input type="date" appDate [(ngModel)]="to" (ngModelChange)="load()" name="to" [fpMinDate]="from" />
+          </div>
         </div>
-        @if (entry.note) {
-          <div class="text-sm text-slate-400 mt-1">{{ entry.note }}</div>
-        }
+        <div>
+          <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Zamestnanec</label>
+          <select [(ngModel)]="employeeId" (ngModelChange)="load()" name="employee"
+                  class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option [ngValue]="0">Všetci</option>
+            @for (emp of employees(); track emp.id) {
+              <option [ngValue]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
+            }
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Pracovisko</label>
+          <select [(ngModel)]="locationId" (ngModelChange)="load()" name="location"
+                  class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
+            <option [ngValue]="0">Všetky</option>
+            @for (loc of locations(); track loc.id) {
+              <option [ngValue]="loc.id">{{ loc.name }}</option>
+            }
+          </select>
+        </div>
+        <button (click)="exportCsv()"
+                class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors">
+          Exportovať CSV
+        </button>
+      </div>
+    </div>
+
+    @if (entries().length > 0) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
+        <div class="text-lg font-semibold text-slate-900 dark:text-white">
+          Celkovo hodín: <span class="text-amber-400">{{ totalHours() | hm }}</span>
+          &nbsp;·&nbsp; <span class="text-slate-500 dark:text-slate-400">Záznamy: {{ entries().length }}</span>
+        </div>
       </div>
     }
-    @if (entries().length === 0) {
-      <div class="bg-white rounded-lg shadow p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
-    }
+
+    <!-- Desktop table -->
+    <div class="hidden sm:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <table class="w-full">
+        <thead class="bg-slate-100 dark:bg-slate-700/50">
+          <tr>
+            <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Zamestnanec</th>
+            <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Pracovisko</th>
+            <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Auto</th>
+            <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Príchod</th>
+            <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Odchod</th>
+            <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hodiny</th>
+            <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Poznámka</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (entry of entries(); track entry.id) {
+            <tr class="border-t border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/50">
+              <td class="px-4 py-3 text-slate-900 dark:text-white">{{ entry.employeeName }}</td>
+              <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ entry.locationName }}</td>
+              <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                @if (entry.carName) {
+                  <span class="inline-flex items-center gap-1 text-sm">🚗 {{ entry.carName }}</span>
+                } @else {
+                  <span class="text-slate-600">—</span>
+                }
+              </td>
+              <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ entry.clockIn | date:'dd.MM.yyyy, HH:mm' }}</td>
+              <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ entry.clockOut ? (entry.clockOut | date:'dd.MM.yyyy, HH:mm') : 'Aktívny' }}</td>
+              <td class="px-4 py-3 text-amber-400 font-medium">{{ entry.hoursWorked | hm }}</td>
+              <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ entry.note || '' }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      @if (entries().length === 0) {
+        <div class="p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
+      }
+    </div>
+
+    <!-- Mobile cards -->
+    <div class="sm:hidden space-y-3">
+      @for (entry of entries(); track entry.id) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <div class="flex justify-between items-start">
+            <div>
+              <div class="font-medium text-slate-900 dark:text-white">{{ entry.employeeName }}</div>
+              <div class="text-sm text-slate-500 dark:text-slate-400">{{ entry.locationName }}</div>
+              @if (entry.carName) {
+                <div class="text-sm text-slate-500 dark:text-slate-400">🚗 {{ entry.carName }}</div>
+              }
+            </div>
+            <span class="text-sm font-semibold text-amber-400">{{ entry.hoursWorked | hm }}</span>
+          </div>
+          <div class="text-sm text-slate-600 dark:text-slate-300 mt-2">
+            {{ entry.clockIn | date:'dd.MM HH:mm' }} → {{ entry.clockOut ? (entry.clockOut | date:'dd.MM HH:mm') : 'Aktívny' }}
+          </div>
+          @if (entry.note) {
+            <div class="text-sm text-slate-500 mt-1">{{ entry.note }}</div>
+          }
+        </div>
+      }
+      @if (entries().length === 0) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
+      }
+    </div>
   </div>
 </div>

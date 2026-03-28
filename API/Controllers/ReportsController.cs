@@ -29,6 +29,7 @@ public class ReportsController : ControllerBase
         var entries = await _db.TimeEntries
             .Include(t => t.Employee)
             .Include(t => t.Location)
+            .Include(t => t.Car)
             .Where(t => t.ClockIn.Date == d)
             .OrderBy(t => t.ClockIn)
             .ToListAsync();
@@ -40,6 +41,7 @@ public class ReportsController : ControllerBase
             {
                 EmployeeName = $"{t.Employee.FirstName} {t.Employee.LastName}",
                 LocationName = t.Location.Name,
+                CarName = t.Car?.Name,
                 ClockIn = t.ClockIn,
                 ClockOut = t.ClockOut,
                 HoursWorked = t.ClockOut.HasValue ? (t.ClockOut.Value - t.ClockIn).TotalHours : null
@@ -60,6 +62,7 @@ public class ReportsController : ControllerBase
         var query = _db.TimeEntries
             .Include(t => t.Employee)
             .Include(t => t.Location)
+            .Include(t => t.Car)
             .AsQueryable();
 
         if (from.HasValue) query = query.Where(t => t.ClockIn >= from.Value);
@@ -77,6 +80,8 @@ public class ReportsController : ControllerBase
                 EmployeePhotoUrl = t.Employee.PhotoUrl,
                 LocationId = t.LocationId,
                 LocationName = t.Location.Name,
+                CarId = t.CarId,
+                CarName = t.Car != null ? t.Car.Name : null,
                 ClockIn = t.ClockIn,
                 ClockOut = t.ClockOut,
                 HoursWorked = t.ClockOut.HasValue
@@ -97,6 +102,7 @@ public class ReportsController : ControllerBase
         var query = _db.TimeEntries
             .Include(t => t.Employee)
             .Include(t => t.Location)
+            .Include(t => t.Car)
             .AsQueryable();
 
         if (from.HasValue) query = query.Where(t => t.ClockIn >= from.Value);
@@ -107,21 +113,31 @@ public class ReportsController : ControllerBase
         var entries = await query.OrderBy(t => t.ClockIn).ToListAsync();
 
         var sb = new StringBuilder();
-        sb.AppendLine("Zamestnanec,Pracovisko,Príchod,Odchod,Hodiny,Poznámka");
+        sb.AppendLine("Zamestnanec,Pracovisko,Auto,Hodiny,Poznámka");
 
         foreach (var t in entries)
         {
-            var hours = t.ClockOut.HasValue
-                ? (t.ClockOut.Value - t.ClockIn).TotalHours.ToString("F2", CultureInfo.InvariantCulture)
-                : "";
+            var hours = "";
+            if (t.ClockOut.HasValue)
+            {
+                var ts = t.ClockOut.Value - t.ClockIn;
+                hours = $"{(int)ts.TotalHours}:{ts.Minutes:D2}";
+            }
             var name = $"{t.Employee.FirstName} {t.Employee.LastName}";
-            var clockIn = t.ClockIn.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
-            var clockOut = t.ClockOut?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) ?? "";
             var note = t.Note?.Replace("\"", "\"\"") ?? "";
+            var car = t.Car?.Name ?? "";
 
-            sb.AppendLine($"\"{name}\",\"{t.Location.Name}\",\"{clockIn}\",\"{clockOut}\",{hours},\"{note}\"");
+            sb.AppendLine($"\"{name}\",\"{t.Location.Name}\",\"{car}\",{hours},\"{note}\"");
         }
 
-        return File(Encoding.UTF8.GetBytes(sb.ToString()), "text/csv", "time-report.csv");
+        // UTF-8 BOM so Excel opens Slovak characters (č, š, ž …) correctly without import wizard.
+        // GetBytes() never includes the preamble — must prepend it explicitly.
+        var enc = System.Text.Encoding.UTF8;
+        var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+        var content = enc.GetBytes(sb.ToString());
+        var csvBytes = new byte[bom.Length + content.Length];
+        bom.CopyTo(csvBytes, 0);
+        content.CopyTo(csvBytes, bom.Length);
+        return File(csvBytes, "text/csv", "zaznamy-dochadzky.csv");
     }
 }

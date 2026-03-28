@@ -38,6 +38,15 @@ public class KioskController : ControllerBase
             .ToListAsync();
     }
 
+    [HttpGet("cars")]
+    public async Task<ActionResult<List<CarDto>>> GetCars()
+    {
+        return await _db.Cars
+            .Where(c => c.IsActive)
+            .Select(c => new CarDto { Id = c.Id, Name = c.Name, LicensePlate = c.LicensePlate, IsActive = c.IsActive })
+            .ToListAsync();
+    }
+
     [HttpPost("clock-in")]
     public async Task<ActionResult<KioskResponseDto>> ClockIn(ClockInDto dto)
     {
@@ -192,6 +201,108 @@ public class KioskController : ControllerBase
             ClockInTime = openEntry?.ClockIn,
             LocationName = openEntry?.Location.Name
         });
+    }
+
+    [HttpPost("log-hours")]
+    public async Task<ActionResult<KioskResponseDto>> LogHours(LogHoursDto dto)
+    {
+        var employee = await FindEmployeeByPin(dto.Pin);
+        if (employee == null)
+            return Unauthorized("Neplatný PIN");
+
+        var location = await _db.Locations.FindAsync(dto.LocationId);
+        if (location == null || !location.IsActive)
+            return BadRequest("Neplatné pracovisko");
+
+        var today = dto.Date?.Date ?? Now.Date;
+        // ClockOut = current time for today, or 17:00 for a past date
+        var clockOut = today == Now.Date ? Now : today.AddHours(17);
+        var clockIn  = clockOut.AddHours(-dto.HoursWorked);
+
+        // Validate car if provided
+        if (dto.CarId.HasValue)
+        {
+            var car = await _db.Cars.FindAsync(dto.CarId.Value);
+            if (car == null || !car.IsActive) return BadRequest("Neplatné vozidlo");
+        }
+
+        var entry = new Models.TimeEntry
+        {
+            EmployeeId = employee.Id,
+            LocationId = dto.LocationId,
+            CarId      = dto.CarId,
+            ClockIn    = clockIn,
+            ClockOut   = clockOut,
+            Note       = dto.Note
+        };
+
+        _db.TimeEntries.Add(entry);
+        await _db.SaveChangesAsync();
+
+        var carPart = dto.CarId.HasValue
+            ? $" ({(await _db.Cars.FindAsync(dto.CarId.Value))?.Name})"
+            : "";
+        return Ok(new KioskResponseDto
+        {
+            Message      = $"Zaznamenaných {dto.HoursWorked:F1} hod. na {location.Name}{carPart}",
+            EmployeeName = $"{employee.FirstName} {employee.LastName}",
+            Timestamp    = clockOut
+        });
+    }
+
+    [HttpGet("overview")]
+    public async Task<ActionResult<WeeklyOverviewDto>> GetOverview([FromQuery] DateTime? weekStart)
+    {
+        var now = Now;
+        var dayOfWeek = (int)now.DayOfWeek;
+        var mondayOffset = dayOfWeek == 0 ? -6 : 1 - dayOfWeek;
+        var monday = now.Date.AddDays(mondayOffset);
+
+        var start = weekStart?.Date ?? monday;
+        var end = start.AddDays(7);
+
+        var employees = await _db.Employees
+            .Where(e => e.IsActive)
+            .OrderBy(e => e.FirstName).ThenBy(e => e.LastName)
+            .ToListAsync();
+
+        var entries = await _db.TimeEntries
+            .Include(t => t.Location)
+            .Where(t => t.ClockIn >= start && t.ClockIn < end)
+            .ToListAsync();
+
+        // Filter to only active employees
+        var activeIds = employees.Select(e => e.Id).ToHashSet();
+        entries = entries.Where(t => activeIds.Contains(t.EmployeeId)).ToList();
+
+        var days = Enumerable.Range(0, 7).Select(i => start.AddDays(i)).ToList();
+
+        var rows = employees.Select(emp =>
+        {
+            var empEntries = entries.Where(t => t.EmployeeId == emp.Id).ToList();
+            return new WeeklyRowDto
+            {
+                EmployeeId = emp.Id,
+                EmployeeName = $"{emp.FirstName} {emp.LastName}",
+                PhotoUrl = emp.PhotoUrl,
+                Days = days.Select(day =>
+                {
+                    var dayEntries = empEntries
+                        .Where(t => t.ClockIn.Date == day && t.ClockOut.HasValue)
+                        .Select(t => new WeeklyEntryDto
+                        {
+                            LocationName = t.Location.Name,
+                            Hours = (t.ClockOut!.Value - t.ClockIn).TotalHours,
+                            Note = t.Note
+                        }).ToList();
+                    return new WeeklyDayDto { Date = day, Entries = dayEntries };
+                }).ToList(),
+                TotalHours = empEntries.Where(t => t.ClockOut.HasValue)
+                    .Sum(t => (t.ClockOut!.Value - t.ClockIn).TotalHours)
+            };
+        }).ToList();
+
+        return Ok(new WeeklyOverviewDto { WeekStart = start, Days = days, Rows = rows });
     }
 
     private async Task<Models.Employee?> FindEmployeeByPin(string pin)

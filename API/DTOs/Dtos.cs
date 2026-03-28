@@ -105,6 +105,7 @@ public class CreateTimeEntryDto
 {
     [Required] public int EmployeeId { get; set; }
     [Required] public int LocationId { get; set; }
+    public int? CarId { get; set; }
     [Required] public DateTime ClockIn { get; set; }
     public DateTime? ClockOut { get; set; }
     public string? Note { get; set; }
@@ -112,6 +113,7 @@ public class CreateTimeEntryDto
 
 public class UpdateTimeEntryDto
 {
+    public int? CarId { get; set; }
     [Required] public DateTime ClockIn { get; set; }
     public DateTime? ClockOut { get; set; }
     public string? Note { get; set; }
@@ -125,6 +127,8 @@ public class TimeEntryDto
     public string? EmployeePhotoUrl { get; set; }
     public int LocationId { get; set; }
     public string LocationName { get; set; } = string.Empty;
+    public int? CarId { get; set; }
+    public string? CarName { get; set; }
     public DateTime ClockIn { get; set; }
     public DateTime? ClockOut { get; set; }
     public double? HoursWorked { get; set; }
@@ -153,6 +157,39 @@ public class ManualEntryDto
     public string? Note { get; set; }
 }
 
+public class LogHoursDto
+{
+    [Required] public string Pin { get; set; } = string.Empty;
+    [Required] public int LocationId { get; set; }
+    [Required, Range(0.25, 24)] public double HoursWorked { get; set; }
+    public int? CarId { get; set; }
+    public string? Note { get; set; }
+    public DateTime? Date { get; set; }
+}
+
+// Car
+public class CarDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? LicensePlate { get; set; }
+    public string? PhotoUrl { get; set; }
+    public bool IsActive { get; set; }
+}
+
+public class CreateCarDto
+{
+    [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
+    [StringLength(20)] public string? LicensePlate { get; set; }
+}
+
+public class UpdateCarDto
+{
+    [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
+    [StringLength(20)] public string? LicensePlate { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
 public class MyHoursDto
 {
     [Required] public string Pin { get; set; } = string.Empty;
@@ -175,6 +212,36 @@ public class KioskResponseDto
     public DateTime Timestamp { get; set; }
 }
 
+// Kiosk weekly overview (public)
+public class WeeklyOverviewDto
+{
+    public DateTime WeekStart { get; set; }
+    public List<DateTime> Days { get; set; } = [];
+    public List<WeeklyRowDto> Rows { get; set; } = [];
+}
+
+public class WeeklyRowDto
+{
+    public int EmployeeId { get; set; }
+    public string EmployeeName { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
+    public List<WeeklyDayDto> Days { get; set; } = [];
+    public double TotalHours { get; set; }
+}
+
+public class WeeklyEntryDto
+{
+    public string LocationName { get; set; } = string.Empty;
+    public double Hours { get; set; }
+    public string? Note { get; set; }
+}
+
+public class WeeklyDayDto
+{
+    public DateTime Date { get; set; }
+    public List<WeeklyEntryDto> Entries { get; set; } = [];
+}
+
 // Reports
 public class ReportFilterDto
 {
@@ -195,6 +262,7 @@ public class DailyReportEntryDto
 {
     public string EmployeeName { get; set; } = string.Empty;
     public string LocationName { get; set; } = string.Empty;
+    public string? CarName { get; set; }
     public DateTime ClockIn { get; set; }
     public DateTime? ClockOut { get; set; }
     public double? HoursWorked { get; set; }

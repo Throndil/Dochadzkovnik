@@ -1,66 +1,89 @@
 <app-navbar />
-<div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
-  <h1 class="text-xl sm:text-2xl font-bold text-slate-800 mb-4 sm:mb-6">Prehľad — Dnešný deň</h1>
+<div class="min-h-screen bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
+    <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mb-4 sm:mb-6">Prehľad — Dnešný deň</h1>
 
-  @if (report()) {
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <div class="bg-white rounded-lg shadow p-6">
-        <div class="text-sm text-slate-500">Celkovo záznamov</div>
-        <div class="text-3xl font-bold text-slate-800">{{ report()!.entries.length }}</div>
+    @if (report()) {
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+          <div class="text-sm text-slate-500 dark:text-slate-400">Celkovo záznamov</div>
+          <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ report()!.entries.length }}</div>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+          <div class="text-sm text-slate-500 dark:text-slate-400">Celkovo hodín</div>
+          <div class="text-3xl font-bold text-amber-500">{{ report()!.totalHours | number:'1.1-1' }}</div>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+          <div class="text-sm text-slate-500 dark:text-slate-400">Dátum</div>
+          <div class="text-3xl font-bold text-slate-900 dark:text-white">{{ report()!.date | date:'mediumDate' }}</div>
+        </div>
       </div>
-      <div class="bg-white rounded-lg shadow p-6">
-        <div class="text-sm text-slate-500">Celkovo hodín</div>
-        <div class="text-3xl font-bold text-amber-600">{{ report()!.totalHours | number:'1.1-1' }}</div>
-      </div>
-      <div class="bg-white rounded-lg shadow p-6">
-        <div class="text-sm text-slate-500">Dátum</div>
-        <div class="text-3xl font-bold text-slate-800">{{ report()!.date | date:'mediumDate' }}</div>
-      </div>
-    </div>
 
-    @if (report()!.entries.length > 0) {
-      <!-- Desktop table -->
-      <div class="hidden sm:block bg-white rounded-lg shadow overflow-hidden">
-        <table class="w-full">
-          <thead class="bg-slate-50">
-            <tr>
-              <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Zamestnanec</th>
-              <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Pracovisko</th>
-              <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Príchod</th>
-              <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Odchod</th>
-              <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600">Hodiny</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (entry of report()!.entries; track $index) {
-              <tr class="border-t border-slate-100 hover:bg-slate-50">
-                <td class="px-4 py-3">{{ entry.employeeName }}</td>
-                <td class="px-4 py-3">{{ entry.locationName }}</td>
-                <td class="px-4 py-3">{{ entry.clockIn | date:'shortTime' }}</td>
-                <td class="px-4 py-3">{{ entry.clockOut ? (entry.clockOut | date:'shortTime') : 'Aktívny' }}</td>
-                <td class="px-4 py-3">{{ entry.hoursWorked ? (entry.hoursWorked | number:'1.1-1') : '—' }}</td>
+      @if (report()!.entries.length > 0) {
+        <!-- Desktop table -->
+        <div class="hidden sm:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <table class="w-full">
+            <thead class="bg-slate-100 dark:bg-slate-700/50">
+              <tr>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Zamestnanec</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Pracovisko</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Auto</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Vytvorené</th>
+                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hodiny</th>
               </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-      <!-- Mobile cards -->
-      <div class="sm:hidden space-y-3">
-        @for (entry of report()!.entries; track $index) {
-          <div class="bg-white rounded-lg shadow p-4">
-            <div class="font-medium text-slate-800">{{ entry.employeeName }}</div>
-            <div class="text-sm text-slate-500 mt-1">{{ entry.locationName }}</div>
-            <div class="flex justify-between mt-2 text-sm">
-              <span>{{ entry.clockIn | date:'shortTime' }} → {{ entry.clockOut ? (entry.clockOut | date:'shortTime') : 'Aktívny' }}</span>
-              <span class="font-semibold text-amber-600">{{ entry.hoursWorked ? (entry.hoursWorked | number:'1.1-1') + ' hod' : '—' }}</span>
+            </thead>
+            <tbody>
+              @for (entry of report()!.entries; track $index) {
+                <tr class="border-t border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/50">
+                  <td class="px-4 py-3 text-slate-900 dark:text-white">{{ entry.employeeName }}</td>
+                  <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ entry.locationName }}</td>
+                  <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                    @if (entry.carName) {
+                      <span class="inline-flex items-center gap-1 text-sm">🚗 {{ entry.carName }}</span>
+                    } @else {
+                      <span class="text-slate-600">—</span>
+                    }
+                  </td>
+                  <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                    {{ entry.clockIn | date:'HH:mm' }}
+                    @if (!entry.clockOut) {
+                      <span class="ml-2 text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full">Aktívny</span>
+                    }
+                  </td>
+                  <td class="px-4 py-3 text-amber-400 font-medium">{{ entry.hoursWorked ? (entry.hoursWorked | number:'1.1-1') : '—' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        <!-- Mobile cards -->
+        <div class="sm:hidden space-y-3">
+          @for (entry of report()!.entries; track $index) {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+              <div class="flex justify-between items-start">
+                <div>
+                  <div class="font-medium text-slate-900 dark:text-white">{{ entry.employeeName }}</div>
+                  <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ entry.locationName }}</div>
+                  @if (entry.carName) {
+                    <div class="text-sm text-slate-500 dark:text-slate-400">🚗 {{ entry.carName }}</div>
+                  }
+                </div>
+                <span class="font-semibold text-amber-400">{{ entry.hoursWorked ? (entry.hoursWorked | number:'1.1-1') + ' hod' : '—' }}</span>
+              </div>
+              <div class="flex items-center gap-2 mt-2 text-sm text-slate-500 dark:text-slate-400">
+                <span>Príchod {{ entry.clockIn | date:'HH:mm' }}</span>
+                @if (!entry.clockOut) {
+                  <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full">Aktívny</span>
+                }
+              </div>
             </div>
-          </div>
-        }
-      </div>
-    } @else {
-      <div class="bg-white rounded-lg shadow p-8 text-center text-slate-500">
-        Dnes zatiaľ žiadne záznamy.
-      </div>
+          }
+        </div>
+      } @else {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500 dark:text-slate-400">
+          Dnes zatiaľ žiadne záznamy.
+        </div>
+      }
     }
-  }
+  </div>
 </div>

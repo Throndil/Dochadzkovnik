@@ -11,6 +11,9 @@ public class TimeEntry
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    public int? CarId { get; set; }
+
     public Employee Employee { get; set; } = null!;
     public Location Location { get; set; } = null!;
+    public Car? Car { get; set; }
 }

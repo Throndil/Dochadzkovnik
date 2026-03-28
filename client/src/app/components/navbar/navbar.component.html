@@ -1,61 +1,98 @@
-<nav class="bg-slate-800 text-white shadow-lg">
+<nav class="bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-lg border-b border-slate-200 dark:border-slate-700">
   <div class="max-w-7xl mx-auto px-4">
     <div class="flex justify-between h-14 items-center">
       <a routerLink="/admin/dashboard" class="text-lg font-bold tracking-wide">Dochadzkovnik</a>
 
       <!-- Desktop nav -->
       <div class="hidden md:flex gap-4 items-center">
-        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-400"
-           class="hover:text-amber-300 transition-colors">Prehľad</a>
-        <a routerLink="/admin/employees" routerLinkActive="text-amber-400"
-           class="hover:text-amber-300 transition-colors">Zamestnanci</a>
-        <a routerLink="/admin/locations" routerLinkActive="text-amber-400"
-           class="hover:text-amber-300 transition-colors">Pracoviská</a>
-        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-400"
-           class="hover:text-amber-300 transition-colors">Záznamy</a>
-        <a routerLink="/admin/reports" routerLinkActive="text-amber-400"
-           class="hover:text-amber-300 transition-colors">Správy</a>
-        <span class="text-slate-400 ml-4">{{ auth.displayName() }}</span>
-        <a routerLink="/admin/account" class="ml-2 px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-sm transition-colors">
+        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-500 dark:text-amber-400"
+           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Prehľad</a>
+        <a routerLink="/admin/employees" routerLinkActive="text-amber-500 dark:text-amber-400"
+           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Zamestnanci</a>
+        <a routerLink="/admin/locations" routerLinkActive="text-amber-500 dark:text-amber-400"
+           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Pracoviská</a>
+        <a routerLink="/admin/cars" routerLinkActive="text-amber-500 dark:text-amber-400"
+           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Autá</a>
+        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400"
+           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Záznamy</a>
+        <span class="text-slate-500 dark:text-slate-400 ml-4">{{ auth.displayName() }}</span>
+
+        <!-- Theme toggle -->
+        <button (click)="theme.toggleTheme()"
+                class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300"
+                [title]="theme.isDark() ? 'Prepnúť na svetlý režim' : 'Prepnúť na tmavý režim'">
+          @if (theme.isDark()) {
+            <!-- Sun icon -->
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+            </svg>
+          } @else {
+            <!-- Moon icon -->
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+            </svg>
+          }
+        </button>
+
+        <a routerLink="/admin/account" routerLinkActive="ring-2 ring-amber-400"
+           class="ml-2 px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-lg font-medium transition-colors">
           Účet
         </a>
-        <button (click)="onLogout()" class="ml-2 px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors">
+        <button (click)="onLogout()" class="ml-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-white transition-colors">
           Odhlásiť
         </button>
       </div>
 
-      <!-- Mobile hamburger -->
-      <button (click)="menuOpen.set(!menuOpen())" class="md:hidden p-2 rounded hover:bg-slate-700 transition-colors">
-        @if (menuOpen()) {
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        } @else {
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        }
-      </button>
+      <!-- Mobile right side: theme toggle + hamburger -->
+      <div class="md:hidden flex items-center gap-1">
+        <button (click)="theme.toggleTheme()"
+                class="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300">
+          @if (theme.isDark()) {
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+            </svg>
+          } @else {
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+            </svg>
+          }
+        </button>
+        <button (click)="menuOpen.set(!menuOpen())" class="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+          @if (menuOpen()) {
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          } @else {
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          }
+        </button>
+      </div>
     </div>
 
     <!-- Mobile menu -->
     @if (menuOpen()) {
-      <div class="md:hidden pb-4 border-t border-slate-700 mt-1 pt-3 space-y-1">
-        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Prehľad</a>
-        <a routerLink="/admin/employees" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Zamestnanci</a>
-        <a routerLink="/admin/locations" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Pracoviská</a>
-        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Záznamy</a>
-        <a routerLink="/admin/reports" routerLinkActive="text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-700 transition-colors">Správy</a>
-        <div class="border-t border-slate-700 mt-2 pt-2 px-3 flex items-center gap-3">
-          <span class="text-slate-400 text-sm">{{ auth.displayName() }}</span>
+      <div class="md:hidden pb-4 border-t border-slate-200 dark:border-slate-700 mt-1 pt-3 space-y-1">
+        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Prehľad</a>
+        <a routerLink="/admin/employees" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Zamestnanci</a>
+        <a routerLink="/admin/locations" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Pracoviská</a>
+        <a routerLink="/admin/cars" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Autá</a>
+        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Záznamy</a>
+        <div class="border-t border-slate-200 dark:border-slate-700 mt-2 pt-2 px-3 flex items-center gap-3">
+          <span class="text-slate-500 dark:text-slate-400 text-sm">{{ auth.displayName() }}</span>
           <a routerLink="/admin/account" (click)="menuOpen.set(false)"
-             class="px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-sm transition-colors">Účet</a>
-          <button (click)="onLogout()" class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors">
+             class="px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-lg font-medium transition-colors">Účet</a>
+          <button (click)="onLogout()" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-white transition-colors">
             Odhlásiť
           </button>
         </div>

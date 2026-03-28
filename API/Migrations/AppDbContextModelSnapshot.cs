@@ -85,6 +85,39 @@ namespace API.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("API.Models.Car", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LicensePlate")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PhotoUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Cars");
+                });
+
             modelBuilder.Entity("API.Models.Employee", b =>
                 {
                     b.Property<int>("Id")
@@ -185,6 +218,9 @@ namespace API.Migrations
                     b.Property<int>("EmployeeId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("CarId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("LocationId")
                         .HasColumnType("INTEGER");
 
@@ -195,6 +231,8 @@ namespace API.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CarId");
 
                     b.HasIndex("LocationId");
 
@@ -333,6 +371,11 @@ namespace API.Migrations
 
             modelBuilder.Entity("API.Models.TimeEntry", b =>
                 {
+                    b.HasOne("API.Models.Car", "Car")
+                        .WithMany("TimeEntries")
+                        .HasForeignKey("CarId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("API.Models.Employee", "Employee")
                         .WithMany("TimeEntries")
                         .HasForeignKey("EmployeeId")
@@ -344,6 +387,8 @@ namespace API.Migrations
                         .HasForeignKey("LocationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("Car");
 
                     b.Navigation("Employee");
 
@@ -402,6 +447,11 @@ namespace API.Migrations
                 });
 
             modelBuilder.Entity("API.Models.Employee", b =>
+                {
+                    b.Navigation("TimeEntries");
+                });
+
+            modelBuilder.Entity("API.Models.Car", b =>
                 {
                     b.Navigation("TimeEntries");
                 });

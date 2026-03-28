@@ -12,6 +12,7 @@ export interface DailyReport {
 export interface DailyReportEntry {
   employeeName: string;
   locationName: string;
+  carName?: string;
   clockIn: string;
   clockOut?: string;
   hoursWorked?: number;

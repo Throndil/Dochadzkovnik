@@ -11,6 +11,7 @@ import { AuthService } from '../../services/auth.service';
 export class AccountPage implements OnInit {
   // Recovery email
   recoveryEmail = '';
+  adminUsername = signal('');
   emailSaving = signal(false);
   emailSaved = signal(false);
   emailError = signal('');
@@ -30,7 +31,10 @@ export class AccountPage implements OnInit {
   constructor(private auth: AuthService) {}
 
   ngOnInit() {
-    this.auth.getMe().subscribe({ next: (me) => { this.recoveryEmail = me.email ?? ''; } });
+    this.auth.getMe().subscribe({ next: (me) => {
+      this.recoveryEmail = me.email ?? '';
+      this.adminUsername.set(me.userName ?? '');
+    }});
   }
 
   onSaveEmail() {

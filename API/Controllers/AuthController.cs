@@ -100,6 +100,6 @@ public class AuthController : ControllerBase
     {
         var user = await _userManager.FindByNameAsync(User.Identity!.Name!);
         if (user == null) return Unauthorized();
-        return Ok(new { user.Email });
+        return Ok(new { user.Email, user.UserName });
     }
 }

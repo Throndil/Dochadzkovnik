@@ -29,6 +29,7 @@ public class TimeEntriesController : ControllerBase
         var query = _db.TimeEntries
             .Include(t => t.Employee)
             .Include(t => t.Location)
+            .Include(t => t.Car)
             .AsQueryable();
 
         if (from.HasValue)
@@ -53,6 +54,8 @@ public class TimeEntriesController : ControllerBase
                 EmployeePhotoUrl = t.Employee.PhotoUrl,
                 LocationId = t.LocationId,
                 LocationName = t.Location.Name,
+                CarId = t.CarId,
+                CarName = t.Car != null ? t.Car.Name : null,
                 ClockIn = t.ClockIn,
                 ClockOut = t.ClockOut,
                 HoursWorked = t.ClockOut.HasValue
@@ -76,6 +79,7 @@ public class TimeEntriesController : ControllerBase
         {
             EmployeeId = dto.EmployeeId,
             LocationId = dto.LocationId,
+            CarId = dto.CarId,
             ClockIn = dto.ClockIn,
             ClockOut = dto.ClockOut,
             Note = dto.Note
@@ -106,6 +110,7 @@ public class TimeEntriesController : ControllerBase
         var entry = await _db.TimeEntries.FindAsync(id);
         if (entry == null) return NotFound();
 
+        entry.CarId = dto.CarId;
         entry.ClockIn = dto.ClockIn;
         entry.ClockOut = dto.ClockOut;
         entry.Note = dto.Note;

@@ -10,6 +10,7 @@ public class AppDbContext : IdentityDbContext<AppUser>
 
     public DbSet<Employee> Employees => Set<Employee>();
     public DbSet<Location> Locations => Set<Location>();
+    public DbSet<Car> Cars => Set<Car>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -30,6 +31,12 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.Property(x => x.Address).HasMaxLength(500);
         });
 
+        builder.Entity<Car>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.LicensePlate).HasMaxLength(20);
+        });
+
         builder.Entity<TimeEntry>(e =>
         {
             e.HasOne(x => x.Employee)
@@ -41,6 +48,11 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 .WithMany(x => x.TimeEntries)
                 .HasForeignKey(x => x.LocationId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.Car)
+                .WithMany(x => x.TimeEntries)
+                .HasForeignKey(x => x.CarId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             e.HasIndex(x => new { x.EmployeeId, x.ClockIn });
         });
@@ -74,6 +86,11 @@ public class AppDbContext : IdentityDbContext<AppUser>
             {
                 loc.UpdatedAt = DateTime.UtcNow;
                 if (entry.State == EntityState.Added) loc.CreatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is Car car)
+            {
+                car.UpdatedAt = DateTime.UtcNow;
+                if (entry.State == EntityState.Added) car.CreatedAt = DateTime.UtcNow;
             }
             else if (entry.Entity is TimeEntry te)
             {

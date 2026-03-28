@@ -1,0 +1,79 @@
+<app-navbar />
+<div class="min-h-screen bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-5xl mx-auto px-4 py-4 sm:p-6">
+    <div class="flex justify-between items-center mb-4 sm:mb-6">
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Vozidlá</h1>
+      <button (click)="showForm() ? cancelForm() : showForm.set(true)"
+              class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
+        {{ showForm() ? 'Zrušiť' : '+ Pridať vozidlo' }}
+      </button>
+    </div>
+
+    @if (showForm()) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6">
+        <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-4">Nové vozidlo</h2>
+        <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Názov vozidla</label>
+            <input type="text" [(ngModel)]="newCar.name" name="name" required
+                   placeholder="napr. VW Golf"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder-slate-400 dark:placeholder-slate-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">ŠPZ <span class="text-slate-500 font-normal">(voliteľné)</span></label>
+            <input type="text" [(ngModel)]="newCar.licensePlate" name="licensePlate" maxlength="20"
+                   placeholder="napr. BA123AB"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder-slate-400 dark:placeholder-slate-500" />
+          </div>
+          <div class="flex items-end">
+            <button type="submit" [disabled]="!newCar.name.trim()"
+                    class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-40">
+              Vytvoriť
+            </button>
+          </div>
+        </form>
+      </div>
+    }
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      @for (car of cars(); track car.id) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          @if (car.photoUrl) {
+            <img [src]="car.photoUrl" class="w-full h-40 object-cover" alt="Car photo" />
+          } @else {
+            <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl">🚗</div>
+          }
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-2 mb-1">
+              <p class="text-slate-900 dark:text-white font-semibold text-base leading-tight">{{ car.name }}</p>
+              <span [class]="car.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
+                    class="px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap">
+                {{ car.isActive ? 'Aktívne' : 'Neaktívne' }}
+              </span>
+            </div>
+            @if (car.licensePlate) {
+              <p class="text-slate-500 dark:text-slate-400 text-sm mb-3">{{ car.licensePlate }}</p>
+            }
+            <div class="flex flex-wrap gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+              <a [routerLink]="['/admin/cars', car.id]"
+                 class="text-amber-400 hover:text-amber-300 text-sm font-medium transition-colors">Upraviť</a>
+              <button (click)="onToggleActive(car)"
+                      class="text-sm font-medium transition-colors"
+                      [class]="car.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
+                {{ car.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+              </button>
+              <button (click)="onDelete(car)"
+                      class="text-red-400 hover:text-red-300 text-sm font-medium transition-colors">Odstrániť</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      @if (cars().length === 0) {
+        <div class="col-span-3 py-12 text-center text-slate-500">
+          Žiadne vozidlá. Pridajte prvé vozidlo pomocou tlačidla vyššie.
+        </div>
+      }
+    </div>
+  </div>
+</div>
