@@ -186,6 +186,68 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
+    // Self-heal: ensure Cars table and related schema exist (migration may not have run on prod)
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                -- Create Cars table if it was never migrated
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_name = 'Cars'
+                ) THEN
+                    CREATE TABLE ""Cars"" (
+                        ""Id""           SERIAL PRIMARY KEY,
+                        ""Name""         VARCHAR(200) NOT NULL,
+                        ""LicensePlate"" VARCHAR(20),
+                        ""IsActive""     BOOLEAN NOT NULL DEFAULT TRUE,
+                        ""PhotoUrl""     VARCHAR(1000),
+                        ""CreatedAt""    TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""UpdatedAt""    TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    -- Mark both Cars migrations as applied so MigrateAsync won't try to run them
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260328100000_AddCars', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260328120000_AddCarPhotoUrl', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                END IF;
+
+                -- Add PhotoUrl to Cars if missing (migration 2 may have been skipped)
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'Cars' AND column_name = 'PhotoUrl'
+                ) THEN
+                    ALTER TABLE ""Cars"" ADD COLUMN ""PhotoUrl"" VARCHAR(1000);
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260328120000_AddCarPhotoUrl', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                END IF;
+
+                -- Add CarId FK column to TimeEntries if missing
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'TimeEntries' AND column_name = 'CarId'
+                ) THEN
+                    ALTER TABLE ""TimeEntries"" ADD COLUMN ""CarId"" INTEGER REFERENCES ""Cars""(""Id"") ON DELETE SET NULL;
+                    CREATE INDEX IF NOT EXISTS ""IX_TimeEntries_CarId"" ON ""TimeEntries"" (""CarId"");
+                END IF;
+
+                -- Ensure Cars.Id has a sequence (same pattern as other tables)
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'Cars' AND column_name = 'Id' AND column_default IS NOT NULL
+                ) THEN
+                    CREATE SEQUENCE IF NOT EXISTS ""Cars_Id_seq"";
+                    ALTER TABLE ""Cars"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""Cars_Id_seq""');
+                    PERFORM setval('""Cars_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""Cars""), 0) + 1, false);
+                END IF;
+            END $$;
+        ");
+    }
+
     // Fix boolean columns that may have been created as INTEGER by the SQLite provider
     if (!string.IsNullOrEmpty(databaseUrl))
     {
