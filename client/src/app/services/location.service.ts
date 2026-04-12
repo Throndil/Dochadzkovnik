@@ -21,6 +21,14 @@ export interface UpdateLocation {
   isActive: boolean;
 }
 
+export interface LocationPhoto {
+  timeEntryId?: number;   // null for standalone WorkPhotos
+  workPhotoId?: number;   // null for TimeEntry photos
+  employeeName: string;
+  date: string;
+  photoUrl: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LocationService {
   private url = `${environment.apiUrl}/locations`;
@@ -59,5 +67,17 @@ export class LocationService {
     const formData = new FormData();
     formData.append('file', file);
     return this.http.post<string>(`${this.url}/${id}/photo`, formData);
+  }
+
+  getPhotos(id: number, from: string, to: string) {
+    return this.http.get<LocationPhoto[]>(`${this.url}/${id}/photos?from=${from}&to=${to}`);
+  }
+
+  bulkDeletePhotos(id: number, before: string) {
+    return this.http.delete<number>(`${this.url}/${id}/photos?before=${before}`);
+  }
+
+  deleteWorkPhoto(workPhotoId: number) {
+    return this.http.delete(`${environment.apiUrl}/work-photos/${workPhotoId}`);
   }
 }

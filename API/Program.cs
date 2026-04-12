@@ -74,6 +74,9 @@ if (!string.IsNullOrEmpty(cloudName) && !string.IsNullOrEmpty(cloudApiKey) && !s
     builder.Services.AddScoped<IBlobStorageService, CloudinaryStorageService>();
 }
 
+// Image processing (normalise all uploads to PNG)
+builder.Services.AddScoped<IImageProcessingService, ImageProcessingService>();
+
 // App services
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPinHasher, PinHasher>();
@@ -254,6 +257,53 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
+    // Self-heal: add PhotoUrl column to TimeEntries if missing (migration may not have run on prod)
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'TimeEntries' AND column_name = 'PhotoUrl'
+                ) THEN
+                    ALTER TABLE ""TimeEntries"" ADD COLUMN ""PhotoUrl"" VARCHAR(1000);
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260411000000_AddTimeEntryPhotoUrl', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                END IF;
+            END $$;
+        ");
+    }
+
+    // Self-heal: ensure WorkPhotos table exists (migration may not have run on prod)
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_name = 'WorkPhotos'
+                ) THEN
+                    CREATE TABLE ""WorkPhotos"" (
+                        ""Id""         SERIAL PRIMARY KEY,
+                        ""EmployeeId"" INTEGER NOT NULL REFERENCES ""Employees""(""Id"") ON DELETE RESTRICT,
+                        ""LocationId"" INTEGER NOT NULL REFERENCES ""Locations""(""Id"") ON DELETE RESTRICT,
+                        ""PhotoUrl""   VARCHAR(1000) NOT NULL,
+                        ""Note""       TEXT,
+                        ""CreatedAt""  TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_WorkPhotos_LocationId_CreatedAt""
+                        ON ""WorkPhotos""(""LocationId"", ""CreatedAt"");
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260412000000_AddWorkPhotos', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                END IF;
+            END $$;
+        ");
+    }
+
     // Fix boolean columns that may have been created as INTEGER by the SQLite provider
     if (!string.IsNullOrEmpty(databaseUrl))
     {
@@ -277,15 +327,31 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
-    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
-    if (!userManager.Users.Any())
+    var userManager    = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
+    var targetUsername = builder.Configuration["AdminSeed:Username"]    ?? "vladosroka";
+    var targetPassword = builder.Configuration["AdminSeed:Password"]    ?? "Nikolasko1";
+    var targetDisplay  = builder.Configuration["AdminSeed:DisplayName"] ?? "Administrator";
+
+    var admin = userManager.Users.FirstOrDefault();
+    if (admin == null)
     {
-        var admin = new AppUser
+        // First run — create the admin user
+        admin = new AppUser { UserName = targetUsername, DisplayName = targetDisplay };
+        await userManager.CreateAsync(admin, targetPassword);
+    }
+    else
+    {
+        // Sync username if it changed
+        if (admin.UserName != targetUsername)
         {
-            UserName = builder.Configuration["AdminSeed:Username"] ?? "admin",
-            DisplayName = builder.Configuration["AdminSeed:DisplayName"] ?? "Administrator"
-        };
-        await userManager.CreateAsync(admin, builder.Configuration["AdminSeed:Password"] ?? "Admin123!");
+            admin.UserName           = targetUsername;
+            admin.NormalizedUserName = targetUsername.ToUpperInvariant();
+            admin.DisplayName        = targetDisplay;
+            await userManager.UpdateAsync(admin);
+        }
+        // Always reset password so Railway env var changes take effect on next deploy
+        var token = await userManager.GeneratePasswordResetTokenAsync(admin);
+        await userManager.ResetPasswordAsync(admin, token, targetPassword);
     }
 }
 

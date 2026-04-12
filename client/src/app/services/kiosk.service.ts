@@ -9,6 +9,7 @@ export interface KioskResponse {
   message: string;
   employeeName: string;
   timestamp: string;
+  timeEntryId?: number;
 }
 
 export interface KioskStatus {
@@ -85,4 +86,26 @@ export class KioskService {
   getMyHours(pin: string, from: string, to: string) {
     return this.http.post<TimeEntry[]>(`${this.url}/my-hours`, { pin, from, to });
   }
+
+  uploadEntryPhoto(timeEntryId: number, pin: string, file: File) {
+    const form = new FormData();
+    form.append('pin', pin);
+    form.append('photo', file, file.name);
+    return this.http.post<{ photoUrl: string }>(`${this.url}/photo/${timeEntryId}`, form);
+  }
+
+  uploadWorkPhoto(pin: string, locationId: number, file: File) {
+    const form = new FormData();
+    form.append('pin', pin);
+    form.append('locationId', locationId.toString());
+    form.append('photo', file, file.name);
+    return this.http.post<WorkPhotoResult>(`${this.url}/work-photo`, form);
+  }
+}
+
+export interface WorkPhotoResult {
+  photoUrl: string;
+  employeeName: string;
+  locationName: string;
+  createdAt: string;
 }

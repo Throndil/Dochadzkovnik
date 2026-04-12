@@ -3,6 +3,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { EmployeeService, Employee } from '../../services/employee.service';
+import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-employee-detail',
@@ -87,8 +88,9 @@ export class EmployeeDetailPage implements OnInit {
   }
 
   async processPhotoFile(file: File): Promise<void> {
-    if (!file.type.startsWith('image/')) return;
-    const resized = await this.resizeImage(file);
+    if (!file.type.startsWith('image/') && !file.name.match(/\.(heic|heif)$/i)) return;
+    const normalised = await normaliseFile(file);   // HEIC → PNG before canvas decode
+    const resized = await this.resizeImage(normalised);
     this.employeeService.uploadPhoto(this.id, resized).subscribe(url => {
       this.employee.update(e => e ? { ...e, photoUrl: url } : e);
       this.photoPreview.set(url);

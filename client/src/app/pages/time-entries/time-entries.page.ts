@@ -11,6 +11,7 @@ import { CarService, Car } from '../../services/car.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { TimepickerDirective } from '../../directives/timepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
+import { normaliseFile, fileToDataUrl } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-time-entries',
@@ -31,6 +32,13 @@ export class TimeEntriesPage implements OnInit {
   filterEmployeeId = 0;
   filterLocationId = 0;
 
+  // Photo state
+  newPhotoFile = signal<File | null>(null);
+  newPhotoPreview = signal<string | null>(null);
+  editPhotoFile = signal<File | null>(null);
+  editPhotoPreview = signal<string | null>(null);
+  lightboxUrl = signal<string | null>(null);
+
   totalHours = computed(() =>
     this.entries().reduce((sum, e) => sum + (e.hoursWorked ?? 0), 0)
   );
@@ -46,14 +54,10 @@ export class TimeEntriesPage implements OnInit {
 
   ngOnInit() {
     const today = new Date();
-    const monday = new Date(today);
-    const daysToMonday = today.getDay() === 0 ? 6 : today.getDay() - 1;
-    monday.setDate(today.getDate() - daysToMonday);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
     const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    this.from = fmt(monday);
-    this.to = fmt(sunday);
+    this.from = fmt(monthStart);
+    this.to = fmt(today);
 
     this.employeeService.getAll().subscribe(e => this.employees.set(e));
     this.locationService.getAll().subscribe(l => this.locations.set(l));
@@ -94,10 +98,54 @@ export class TimeEntriesPage implements OnInit {
     }
   }
 
+  viewPhoto(url: string) {
+    this.lightboxUrl.set(url);
+  }
+
+  async onNewPhotoSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const raw = input.files?.[0];
+    if (!raw) return;
+    input.value = '';
+    const file = await normaliseFile(raw);
+    this.newPhotoFile.set(file);
+    this.newPhotoPreview.set(await fileToDataUrl(file));
+  }
+
+  removeNewPhoto() {
+    this.newPhotoFile.set(null);
+    this.newPhotoPreview.set(null);
+  }
+
+  async onEditPhotoSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const raw = input.files?.[0];
+    if (!raw) return;
+    input.value = '';
+    const file = await normaliseFile(raw);
+    this.editPhotoFile.set(file);
+    this.editPhotoPreview.set(await fileToDataUrl(file));
+  }
+
+  onEditDeletePhoto() {
+    const entry = this.editingEntry();
+    if (!entry) return;
+    if (!confirm('Odstrániť foto z tohto záznamu?')) return;
+    this.timeEntryService.deletePhoto(entry.id).subscribe(() => {
+      this.editPhotoFile.set(null);
+      this.editPhotoPreview.set(null);
+      this.load();
+    });
+  }
+
   cancelAll() {
     if (this.showAddForm() || this.editingEntry()) {
       this.showAddForm.set(false);
       this.editingEntry.set(null);
+      this.newPhotoFile.set(null);
+      this.newPhotoPreview.set(null);
+      this.editPhotoFile.set(null);
+      this.editPhotoPreview.set(null);
     } else {
       const today = new Date();
       const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -120,10 +168,20 @@ export class TimeEntriesPage implements OnInit {
       dto.clockOut = `${this.newEntry.clockOutDate}T${this.newEntry.clockOutTime || '00:00'}:00`;
       if (dto.clockOut <= dto.clockIn) { alert('Odchod musí byť po príchode.'); return; }
     }
-    this.timeEntryService.create(dto).subscribe(() => {
-      this.showAddForm.set(false);
-      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
-      this.load();
+    const photoFile = this.newPhotoFile();
+    this.showAddForm.set(false);
+    this.timeEntryService.create(dto).subscribe(created => {
+      const finish = () => {
+        this.newPhotoFile.set(null);
+        this.newPhotoPreview.set(null);
+        this.newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
+        this.load();
+      };
+      if (photoFile) {
+        this.timeEntryService.uploadPhoto(created.id, photoFile).subscribe({ next: finish, error: finish });
+      } else {
+        finish();
+      }
     });
   }
 
@@ -136,6 +194,8 @@ export class TimeEntriesPage implements OnInit {
     const [ciDate, ciTime] = toLocal(entry.clockIn).split('T');
     const [coDate, coTime] = entry.clockOut ? toLocal(entry.clockOut).split('T') : ['', ''];
     this.editForm = { carId: entry.carId ?? 0, clockInDate: ciDate, clockInTime: ciTime, clockOutDate: coDate, clockOutTime: coTime, note: entry.note || '' };
+    this.editPhotoFile.set(null);
+    this.editPhotoPreview.set(entry.photoUrl ?? null);
     this.editingEntry.set(entry);
     this.showAddForm.set(false);
   }
@@ -152,9 +212,19 @@ export class TimeEntriesPage implements OnInit {
       dto.clockOut = `${this.editForm.clockOutDate}T${this.editForm.clockOutTime || '00:00'}:00`;
       if (dto.clockOut <= dto.clockIn) { alert('Odchod musí byť po príchode.'); return; }
     }
+    const photoFile = this.editPhotoFile();
     this.timeEntryService.update(entry.id, dto).subscribe(() => {
-      this.editingEntry.set(null);
-      this.load();
+      const finish = () => {
+        this.editingEntry.set(null);
+        this.editPhotoFile.set(null);
+        this.editPhotoPreview.set(null);
+        this.load();
+      };
+      if (photoFile) {
+        this.timeEntryService.uploadPhoto(entry.id, photoFile).subscribe({ next: finish, error: finish });
+      } else {
+        finish();
+      }
     });
   }
 }

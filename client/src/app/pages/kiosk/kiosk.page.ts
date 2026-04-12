@@ -1,15 +1,17 @@
 import { Component, signal, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow } from '../../services/kiosk.service';
+import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow, WorkPhotoResult } from '../../services/kiosk.service';
 import { TimeEntry } from '../../services/time-entry.service';
 import { Location } from '../../services/location.service';
 import { Car } from '../../services/car.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
+import { normaliseFile, fileToDataUrl } from '../../utils/image-utils';
 
-type View = 'main' | 'manual' | 'my-hours';
+type View = 'main' | 'photo-upload' | 'my-hours';
 type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'result';
+type WuStep = 'pin' | 'location' | 'photo' | 'result';
 
 @Component({
   selector: 'app-kiosk',
@@ -44,16 +46,22 @@ export class KioskPage implements OnInit, OnDestroy {
   responseError = signal(false);
   loading = signal(false);
 
-  // ─── Manual entry ────────────────────────────────────────────────
-  manualPin = '';
-  showManualPin = signal(false);
-  manualLocationId = 0;
-  manualFrom = '';
-  manualTo = '';
-  manualNote = '';
-  manualResponse = signal<KioskResponse | null>(null);
-  manualResponseError = signal(false);
-  manualLoading = signal(false);
+  // ─── Photo (hours modal) ─────────────────────────────────────────
+  photoFile = signal<File | null>(null);
+  photoPreview = signal<string | null>(null);
+  photoUploaded = signal(false); // shown on result step
+
+  // ─── Work photo upload (Nahrať fotografiu tab) ──────────────────
+  wuStep = signal<WuStep | null>(null);
+  wuPin = '';
+  wuPinDisplay = signal<string[]>([]);
+  wuPinError = signal('');
+  wuSelectedLocation = signal<Location | null>(null);
+  wuPhotoFile = signal<File | null>(null);
+  wuPhotoPreview = signal<string | null>(null);
+  wuLoading = signal(false);
+  wuResult = signal<WorkPhotoResult | null>(null);
+  wuResultError = signal('');
 
   // ─── My Hours ────────────────────────────────────────────────────
   myHoursPin = '';
@@ -114,13 +122,9 @@ export class KioskPage implements OnInit, OnDestroy {
 
   private initDateDefaults() {
     const today = new Date();
-    const monday = this.getMonday(today);
-    this.myHoursFrom = this.fmt(monday);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    this.myHoursFrom = this.fmt(monthStart);
     this.myHoursTo = this.fmt(today);
-    const fmtTime = (d: Date) =>
-      `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    this.manualFrom = `${this.fmt(today)}T06:00`;
-    this.manualTo = `${this.fmt(today)}T${fmtTime(today)}`;
   }
 
   getDayName(dateStr: string): string {
@@ -131,6 +135,27 @@ export class KioskPage implements OnInit, OnDestroy {
 
   getDayNum(dateStr: string): number {
     return new Date(dateStr).getDate();
+  }
+
+  /** Total completed hours for today. Returns -1 if today is not in the current week view. */
+  getTodayHours(row: WeeklyRow): number {
+    const todayData = row.days.find(d => this.isToday(d.date));
+    if (!todayData) return -1;
+    return todayData.entries.reduce((sum, e) => sum + e.hours, 0);
+  }
+
+  /** Returns the full Tailwind class string for an employee tile based on today's hours. */
+  getTileClass(row: WeeklyRow): string {
+    const base = 'border rounded-xl p-3 flex flex-col items-center gap-2 transition-colors active:scale-95 cursor-pointer';
+    const hours = this.getTodayHours(row);
+    if (hours < 0)   // today not in the viewed week — neutral
+      return `${base} bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600 hover:border-amber-500`;
+    if (hours === 0) // no hours at all — red
+      return `${base} bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 border-red-400 dark:border-red-500 hover:border-red-400`;
+    if (hours >= 8)  // full day — green
+      return `${base} bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-900/40 border-green-400 dark:border-green-500 hover:border-green-400`;
+    // partial hours (0 < h < 8) — neutral
+    return `${base} bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border-slate-300 dark:border-slate-600 hover:border-amber-500`;
   }
 
   isToday(dateStr: string): boolean {
@@ -208,7 +233,26 @@ export class KioskPage implements OnInit, OnDestroy {
     this.selectedCar.set('none');
     this.response.set(null);
     this.responseError.set(false);
+    this.photoFile.set(null);
+    this.photoPreview.set(null);
+    this.photoUploaded.set(false);
     if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = undefined; }
+  }
+
+  async onPhotoSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const raw = input.files?.[0];
+    if (!raw) return;
+    input.value = ''; // allow re-selecting the same file
+    const file = await normaliseFile(raw);
+    this.photoFile.set(file);
+    const preview = await fileToDataUrl(file);
+    this.photoPreview.set(preview);
+  }
+
+  removePhoto() {
+    this.photoFile.set(null);
+    this.photoPreview.set(null);
   }
 
   // PIN numpad
@@ -253,6 +297,12 @@ export class KioskPage implements OnInit, OnDestroy {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
+  twoDaysAgoString(): string {
+    const d = new Date();
+    d.setDate(d.getDate() - 2);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   selectLocation(loc: Location) {
     this.selectedLocation.set(loc);
     this.hoursWorked = 8.0;
@@ -285,6 +335,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.loading.set(true);
     const car = this.selectedCar();
     const carId = car !== 'none' && car !== null ? car.id : undefined;
+    const photoFile = this.photoFile();
 
     this.kioskService.logHours(
       this.pin,
@@ -297,10 +348,31 @@ export class KioskPage implements OnInit, OnDestroy {
       next: res => {
         this.response.set(res);
         this.responseError.set(false);
-        this.loading.set(false);
-        this.clockStep.set('result');
-        this.scheduleReset();
         this.loadOverview();
+
+        if (photoFile && res.timeEntryId) {
+          // Upload via the kiosk endpoint (no JWT needed — PIN already verified above)
+          this.kioskService.uploadEntryPhoto(res.timeEntryId, this.pin, photoFile).subscribe({
+            next: () => {
+              this.photoUploaded.set(true);
+              this.loading.set(false);
+              this.clockStep.set('result');
+              this.scheduleReset();
+            },
+            error: () => {
+              // Hours saved, photo failed — show warning in result
+              const current = this.response();
+              this.response.set({ ...current!, message: current!.message + ' (foto sa nepodarilo nahrať)' });
+              this.loading.set(false);
+              this.clockStep.set('result');
+              this.scheduleReset();
+            }
+          });
+        } else {
+          this.loading.set(false);
+          this.clockStep.set('result');
+          this.scheduleReset();
+        }
       },
       error: err => {
         this.response.set({
@@ -327,42 +399,102 @@ export class KioskPage implements OnInit, OnDestroy {
       this.myHoursLoaded.set(false);
       this.myHoursEntries.set([]);
     }
-    if (v === 'manual') {
-      this.manualResponse.set(null);
+    if (v === 'photo-upload') {
+      this.wuReset();
+      this.wuStep.set('pin');
     }
   }
 
-  // ─── Manual entry ────────────────────────────────────────────────
+  // ─── Work photo upload flow ──────────────────────────────────────
 
-  canSubmitManual(): boolean {
-    return this.manualPin.length >= 4 &&
-      this.manualLocationId > 0 &&
-      !!this.manualFrom && !!this.manualTo &&
-      this.manualFrom < this.manualTo &&
-      !!this.manualNote.trim();
+  wuReset() {
+    this.wuPin = '';
+    this.wuPinDisplay.set([]);
+    this.wuPinError.set('');
+    this.wuSelectedLocation.set(null);
+    this.wuPhotoFile.set(null);
+    this.wuPhotoPreview.set(null);
+    this.wuLoading.set(false);
+    this.wuResult.set(null);
+    this.wuResultError.set('');
   }
 
-  submitManual() {
-    this.manualLoading.set(true);
-    this.manualResponse.set(null);
-    this.kioskService.manualEntry(
-      this.manualPin, this.manualLocationId, this.manualFrom, this.manualTo,
-      this.manualNote || undefined
-    ).subscribe({
-      next: res => {
-        this.manualResponse.set(res);
-        this.manualResponseError.set(false);
-        this.manualLoading.set(false);
-        this.loadOverview();
+  wuNumpadPress(digit: string) {
+    if (this.wuPin.length >= 6) return;
+    this.wuPin += digit;
+    this.wuPinDisplay.set(Array(this.wuPin.length).fill('●'));
+    this.wuPinError.set('');
+  }
+
+  wuNumpadDelete() {
+    if (!this.wuPin.length) return;
+    this.wuPin = this.wuPin.slice(0, -1);
+    this.wuPinDisplay.set(Array(this.wuPin.length).fill('●'));
+    this.wuPinError.set('');
+  }
+
+  wuSubmitPin() {
+    if (this.wuPin.length < 4) {
+      this.wuPinError.set('Zadajte aspoň 4-miestny PIN');
+      return;
+    }
+    this.wuLoading.set(true);
+    this.wuPinError.set('');
+    this.kioskService.getStatus(this.wuPin).subscribe({
+      next: () => {
+        this.wuLoading.set(false);
+        this.wuStep.set('location');
+      },
+      error: () => {
+        this.wuPinError.set('Neplatný PIN');
+        this.wuPin = '';
+        this.wuPinDisplay.set([]);
+        this.wuLoading.set(false);
+      }
+    });
+  }
+
+  wuSelectLocation(loc: Location) {
+    this.wuSelectedLocation.set(loc);
+    this.wuStep.set('photo');
+  }
+
+  async onWuPhotoSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const raw = input.files?.[0];
+    if (!raw) return;
+    input.value = '';
+    const file = await normaliseFile(raw);
+    this.wuPhotoFile.set(file);
+    const preview = await fileToDataUrl(file);
+    this.wuPhotoPreview.set(preview);
+  }
+
+  wuRemovePhoto() {
+    this.wuPhotoFile.set(null);
+    this.wuPhotoPreview.set(null);
+  }
+
+  wuSubmitPhoto() {
+    const file = this.wuPhotoFile();
+    const loc = this.wuSelectedLocation();
+    if (!file || !loc) return;
+    this.wuLoading.set(true);
+    this.wuResultError.set('');
+    this.kioskService.uploadWorkPhoto(this.wuPin, loc.id, file).subscribe({
+      next: result => {
+        this.wuResult.set(result);
+        this.wuLoading.set(false);
+        this.wuStep.set('result');
+        // Auto-reset to PIN step after 6 seconds
+        setTimeout(() => {
+          this.wuReset();
+          this.wuStep.set('pin');
+        }, 6000);
       },
       error: err => {
-        this.manualResponse.set({
-          message: err.error || 'Záznam sa nepodarilo uložiť',
-          employeeName: '',
-          timestamp: new Date().toISOString()
-        });
-        this.manualResponseError.set(true);
-        this.manualLoading.set(false);
+        this.wuResultError.set(err.error || 'Foto sa nepodarilo nahrať');
+        this.wuLoading.set(false);
       }
     });
   }

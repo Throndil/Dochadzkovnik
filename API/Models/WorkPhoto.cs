@@ -1,20 +1,19 @@
 namespace API.Models;
 
-public class TimeEntry
+/// <summary>
+/// A standalone proof-of-work photo uploaded by a worker via the kiosk.
+/// Not tied to a specific time entry — used when a worker wants to document
+/// their presence at a location without (or in addition to) logging hours.
+/// </summary>
+public class WorkPhoto
 {
     public int Id { get; set; }
     public int EmployeeId { get; set; }
     public int LocationId { get; set; }
-    public DateTime ClockIn { get; set; }
-    public DateTime? ClockOut { get; set; }
+    public string PhotoUrl { get; set; } = string.Empty;
     public string? Note { get; set; }
-    public string? PhotoUrl { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-
-    public int? CarId { get; set; }
 
     public Employee Employee { get; set; } = null!;
     public Location Location { get; set; } = null!;
-    public Car? Car { get; set; }
 }

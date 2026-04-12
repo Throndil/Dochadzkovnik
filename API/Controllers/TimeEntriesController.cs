@@ -1,6 +1,7 @@
 using API.Data;
 using API.DTOs;
 using API.Models;
+using API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,10 +14,12 @@ namespace API.Controllers;
 public class TimeEntriesController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IBlobStorageService? _blob;
 
-    public TimeEntriesController(AppDbContext db)
+    public TimeEntriesController(AppDbContext db, IBlobStorageService? blob = null)
     {
         _db = db;
+        _blob = blob;
     }
 
     [HttpGet]
@@ -61,7 +64,8 @@ public class TimeEntriesController : ControllerBase
                 HoursWorked = t.ClockOut.HasValue
                     ? (t.ClockOut.Value - t.ClockIn).TotalHours
                     : null,
-                Note = t.Note
+                Note = t.Note,
+                PhotoUrl = t.PhotoUrl
             })
             .ToListAsync();
     }
@@ -100,7 +104,8 @@ public class TimeEntriesController : ControllerBase
             HoursWorked = entry.ClockOut.HasValue
                 ? (entry.ClockOut.Value - entry.ClockIn).TotalHours
                 : null,
-            Note = entry.Note
+            Note = entry.Note,
+            PhotoUrl = entry.PhotoUrl
         });
     }
 
@@ -125,8 +130,64 @@ public class TimeEntriesController : ControllerBase
         var entry = await _db.TimeEntries.FindAsync(id);
         if (entry == null) return NotFound();
 
+        // Remove associated photo from Cloudinary if present
+        if (!string.IsNullOrEmpty(entry.PhotoUrl) && _blob != null)
+            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
+
         _db.TimeEntries.Remove(entry);
         await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // POST /api/time-entries/{id}/photo
+    [HttpPost("{id}/photo")]
+    public async Task<ActionResult<PhotoUploadResultDto>> UploadPhoto(int id, IFormFile photo)
+    {
+        var entry = await _db.TimeEntries
+            .Include(t => t.Location)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        if (entry == null) return NotFound();
+
+        if (_blob == null)
+            return StatusCode(503, "Storage service not configured");
+
+        if (photo == null || photo.Length == 0)
+            return BadRequest("No file provided");
+
+        if (photo.Length > 20 * 1024 * 1024)
+            return BadRequest("File too large (max 20 MB)");
+
+        // Delete old photo if replacing
+        if (!string.IsNullOrEmpty(entry.PhotoUrl))
+            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
+
+        var month = entry.ClockIn.ToString("yyyy-MM");
+        var folder = $"work-photos/{entry.LocationId}/{month}";
+
+        await using var stream = photo.OpenReadStream();
+        var url = await _blob.UploadAsync(stream, photo.FileName, folder);
+
+        entry.PhotoUrl = url;
+        entry.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new PhotoUploadResultDto { PhotoUrl = url });
+    }
+
+    // DELETE /api/time-entries/{id}/photo
+    [HttpDelete("{id}/photo")]
+    public async Task<ActionResult> DeletePhoto(int id)
+    {
+        var entry = await _db.TimeEntries.FindAsync(id);
+        if (entry == null) return NotFound();
+
+        if (!string.IsNullOrEmpty(entry.PhotoUrl) && _blob != null)
+            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
+
+        entry.PhotoUrl = null;
+        entry.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
         return NoContent();
     }
 }

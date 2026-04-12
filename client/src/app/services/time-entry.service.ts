@@ -15,6 +15,7 @@ export interface TimeEntry {
   clockOut?: string;
   hoursWorked?: number;
   note?: string;
+  photoUrl?: string;
 }
 
 export interface CreateTimeEntry {
@@ -56,5 +57,15 @@ export class TimeEntryService {
 
   delete(id: number) {
     return this.http.delete(`${this.url}/${id}`);
+  }
+
+  uploadPhoto(id: number, file: File) {
+    const form = new FormData();
+    form.append('photo', file, file.name);
+    return this.http.post<{ photoUrl: string }>(`${this.url}/${id}/photo`, form);
+  }
+
+  deletePhoto(id: number) {
+    return this.http.delete(`${this.url}/${id}/photo`);
   }
 }

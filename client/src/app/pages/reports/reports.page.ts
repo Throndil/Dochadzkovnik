@@ -32,9 +32,8 @@ export class ReportsPage implements OnInit {
 
   ngOnInit() {
     const today = new Date();
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    this.from = weekAgo.toISOString().split('T')[0];
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    this.from = monthStart.toISOString().split('T')[0];
     this.to = today.toISOString().split('T')[0];
 
     this.employeeService.getAll().subscribe(e => this.employees.set(e));

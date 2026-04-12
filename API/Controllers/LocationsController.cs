@@ -131,6 +131,159 @@ public class LocationsController : ControllerBase
         return NoContent();
     }
 
+    // GET /api/locations/{id}/photos/download?from=YYYY-MM&to=YYYY-MM
+    // Generates a Cloudinary ZIP download URL and redirects to it
+    [HttpGet("{id}/photos/download")]
+    public async Task<ActionResult> DownloadPhotos(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        // Build the same month-based query as GetPhotos
+        var query = _db.TimeEntries
+            .Where(t => t.LocationId == id && t.PhotoUrl != null);
+
+        if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from + "-01", out var fromDate))
+            query = query.Where(t => t.ClockIn >= fromDate);
+
+        if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to + "-01", out var toDate))
+        {
+            var toDateEnd = toDate.AddMonths(1);
+            query = query.Where(t => t.ClockIn < toDateEnd);
+        }
+
+        var photoUrls = await query.Select(t => t.PhotoUrl!).ToListAsync();
+        if (!photoUrls.Any()) return NotFound("No photos found for the selected period");
+
+        // Extract Cloudinary public IDs from URLs
+        var publicIds = photoUrls
+            .Select(url =>
+            {
+                try
+                {
+                    var uri = new Uri(url);
+                    var path = uri.AbsolutePath;
+                    var uploadIdx = path.IndexOf("/upload/", StringComparison.Ordinal);
+                    if (uploadIdx < 0) return null;
+                    var afterUpload = path[(uploadIdx + 8)..];
+                    var slashIdx = afterUpload.IndexOf('/');
+                    if (slashIdx < 0) return null;
+                    var withExt = afterUpload[(slashIdx + 1)..];
+                    var dir = Path.GetDirectoryName(withExt)?.Replace('\\', '/');
+                    var name = Path.GetFileNameWithoutExtension(withExt);
+                    return string.IsNullOrEmpty(dir) ? name : $"{dir}/{name}";
+                }
+                catch { return null; }
+            })
+            .Where(id2 => id2 != null)
+            .Select(id2 => id2!)
+            .ToList();
+
+        if (!publicIds.Any()) return StatusCode(503, "Could not extract Cloudinary public IDs");
+
+        // Build Cloudinary ZIP URL
+        // https://cloudinary.com/documentation/fetch_remote_images#fetching_multiple_images_as_a_zip_file
+        var cloudName = _config["Cloudinary:CloudName"];
+        if (string.IsNullOrEmpty(cloudName)) return StatusCode(503, "Cloudinary not configured");
+
+        var ids = string.Join(",", publicIds.Select(p => Uri.EscapeDataString(p)));
+        var zipUrl = $"https://api.cloudinary.com/v1_1/{cloudName}/image/download?public_ids={ids}&prefixes=work-photos/{id}";
+
+        return Redirect(zipUrl);
+    }
+
+    // GET /api/locations/{id}/photos?from=YYYY-MM&to=YYYY-MM
+    [HttpGet("{id}/photos")]
+    public async Task<ActionResult<List<LocationPhotoDto>>> GetPhotos(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        DateTime? fromDate = null, toDateEnd = null;
+        if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from + "-01", out var fd)) fromDate = fd;
+        if (!string.IsNullOrEmpty(to)   && DateTime.TryParse(to   + "-01", out var td)) toDateEnd = td.AddMonths(1);
+
+        // Photos attached to time entries
+        var entryPhotos = await _db.TimeEntries
+            .Include(t => t.Employee)
+            .Where(t => t.LocationId == id && t.PhotoUrl != null
+                        && (fromDate == null   || t.ClockIn >= fromDate)
+                        && (toDateEnd == null  || t.ClockIn < toDateEnd))
+            .Select(t => new LocationPhotoDto
+            {
+                TimeEntryId  = t.Id,
+                WorkPhotoId  = null,
+                EmployeeName = t.Employee.FirstName + " " + t.Employee.LastName,
+                Date         = t.ClockIn,
+                PhotoUrl     = t.PhotoUrl!
+            })
+            .ToListAsync();
+
+        // Standalone proof-of-work photos
+        var workPhotos = await _db.WorkPhotos
+            .Include(w => w.Employee)
+            .Where(w => w.LocationId == id
+                        && (fromDate == null  || w.CreatedAt >= fromDate)
+                        && (toDateEnd == null || w.CreatedAt < toDateEnd))
+            .Select(w => new LocationPhotoDto
+            {
+                TimeEntryId  = null,
+                WorkPhotoId  = w.Id,
+                EmployeeName = w.Employee.FirstName + " " + w.Employee.LastName,
+                Date         = w.CreatedAt,
+                PhotoUrl     = w.PhotoUrl
+            })
+            .ToListAsync();
+
+        var combined = entryPhotos
+            .Concat(workPhotos)
+            .OrderByDescending(p => p.Date)
+            .ToList();
+
+        return Ok(combined);
+    }
+
+    // DELETE /api/locations/{id}/photos?before=YYYY-MM-DD
+    [HttpDelete("{id}/photos")]
+    public async Task<ActionResult<int>> BulkDeletePhotos(int id, [FromQuery] string before)
+    {
+        if (!DateTime.TryParse(before, out var beforeDate))
+            return BadRequest("Invalid date format");
+
+        // Time-entry photos
+        var entries = await _db.TimeEntries
+            .Where(t => t.LocationId == id && t.PhotoUrl != null && t.ClockIn < beforeDate)
+            .ToListAsync();
+
+        if (_blobStorage != null)
+        {
+            foreach (var entry in entries)
+            {
+                await _blobStorage.DeleteAsync(entry.PhotoUrl!, "work-photos");
+                entry.PhotoUrl = null;
+            }
+        }
+        else
+        {
+            foreach (var entry in entries) entry.PhotoUrl = null;
+        }
+
+        // Standalone WorkPhotos
+        var workPhotos = await _db.WorkPhotos
+            .Where(w => w.LocationId == id && w.CreatedAt < beforeDate)
+            .ToListAsync();
+
+        if (_blobStorage != null)
+        {
+            foreach (var wp in workPhotos)
+                await _blobStorage.DeleteAsync(wp.PhotoUrl, "work-photos");
+        }
+        _db.WorkPhotos.RemoveRange(workPhotos);
+
+        await _db.SaveChangesAsync();
+        return Ok(entries.Count + workPhotos.Count);
+    }
+
     [HttpPost("{id}/photo")]
     public async Task<ActionResult<string>> UploadPhoto(int id, IFormFile file)
     {

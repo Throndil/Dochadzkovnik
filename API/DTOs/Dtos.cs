@@ -133,6 +133,7 @@ public class TimeEntryDto
     public DateTime? ClockOut { get; set; }
     public double? HoursWorked { get; set; }
     public string? Note { get; set; }
+    public string? PhotoUrl { get; set; }
 }
 
 // Kiosk
@@ -210,6 +211,29 @@ public class KioskResponseDto
     public string Message { get; set; } = string.Empty;
     public string EmployeeName { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
+    public int? TimeEntryId { get; set; }
+}
+
+public class PhotoUploadResultDto
+{
+    public string PhotoUrl { get; set; } = string.Empty;
+}
+
+public class LocationPhotoDto
+{
+    public int? TimeEntryId { get; set; }   // null for standalone WorkPhotos
+    public int? WorkPhotoId { get; set; }   // null for TimeEntry photos
+    public string EmployeeName { get; set; } = string.Empty;
+    public DateTime Date { get; set; }
+    public string PhotoUrl { get; set; } = string.Empty;
+}
+
+public class WorkPhotoResultDto
+{
+    public string PhotoUrl { get; set; } = string.Empty;
+    public string EmployeeName { get; set; } = string.Empty;
+    public string LocationName { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
 }
 
 // Kiosk weekly overview (public)

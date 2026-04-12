@@ -12,14 +12,16 @@ public class KioskController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IPinHasher _pinHasher;
+    private readonly IBlobStorageService? _blob;
     private static readonly TimeZoneInfo _tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
 
     private static DateTime Now => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz);
 
-    public KioskController(AppDbContext db, IPinHasher pinHasher)
+    public KioskController(AppDbContext db, IPinHasher pinHasher, IBlobStorageService? blob = null)
     {
         _db = db;
         _pinHasher = pinHasher;
+        _blob = blob;
     }
 
     [HttpGet("locations")]
@@ -179,7 +181,8 @@ public class KioskController : ControllerBase
         {
             Message = $"Záznam uložený na {location.Name}, {hours:F1} hod.",
             EmployeeName = $"{employee.FirstName} {employee.LastName}",
-            Timestamp = dto.ClockOut
+            Timestamp = dto.ClockOut,
+            TimeEntryId = entry.Id
         });
     }
 
@@ -246,7 +249,8 @@ public class KioskController : ControllerBase
         {
             Message      = $"Zaznamenaných {dto.HoursWorked:F1} hod. na {location.Name}{carPart}",
             EmployeeName = $"{employee.FirstName} {employee.LastName}",
-            Timestamp    = clockOut
+            Timestamp    = clockOut,
+            TimeEntryId  = entry.Id
         });
     }
 
@@ -303,6 +307,83 @@ public class KioskController : ControllerBase
         }).ToList();
 
         return Ok(new WeeklyOverviewDto { WeekStart = start, Days = days, Rows = rows });
+    }
+
+    // POST /api/kiosk/photo/{timeEntryId}
+    // PIN-authenticated, no JWT required — for workers uploading photos via kiosk
+    [HttpPost("photo/{timeEntryId}")]
+    public async Task<ActionResult<PhotoUploadResultDto>> UploadEntryPhoto(int timeEntryId, [FromForm] string pin, IFormFile photo)
+    {
+        var employee = await FindEmployeeByPin(pin);
+        if (employee == null) return Unauthorized("Neplatný PIN");
+
+        var entry = await _db.TimeEntries.FindAsync(timeEntryId);
+        if (entry == null) return NotFound();
+
+        // Verify this entry actually belongs to the authenticating employee
+        if (entry.EmployeeId != employee.Id) return Forbid();
+
+        if (_blob == null) return StatusCode(503, "Storage service not configured");
+        if (photo == null || photo.Length == 0) return BadRequest("No file provided");
+        if (photo.Length > 20 * 1024 * 1024) return BadRequest("File too large (max 20 MB)");
+
+        // Delete previous photo if replacing
+        if (!string.IsNullOrEmpty(entry.PhotoUrl))
+            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
+
+        var month = entry.ClockIn.ToString("yyyy-MM");
+        var folder = $"work-photos/{entry.LocationId}/{month}";
+
+        await using var stream = photo.OpenReadStream();
+        var url = await _blob.UploadAsync(stream, photo.FileName, folder);
+
+        entry.PhotoUrl = url;
+        entry.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new PhotoUploadResultDto { PhotoUrl = url });
+    }
+
+    // POST /api/kiosk/work-photo
+    // PIN-authenticated, no JWT — standalone proof-of-work photo (not tied to a time entry)
+    [HttpPost("work-photo")]
+    public async Task<ActionResult<WorkPhotoResultDto>> UploadWorkPhoto([FromForm] string pin, [FromForm] int locationId, IFormFile photo)
+    {
+        var employee = await FindEmployeeByPin(pin);
+        if (employee == null) return Unauthorized("Neplatný PIN");
+
+        var location = await _db.Locations.FindAsync(locationId);
+        if (location == null || !location.IsActive)
+            return BadRequest("Neplatné pracovisko");
+
+        if (_blob == null) return StatusCode(503, "Storage service not configured");
+        if (photo == null || photo.Length == 0) return BadRequest("No file provided");
+        if (photo.Length > 20 * 1024 * 1024) return BadRequest("File too large (max 20 MB)");
+
+        var month = DateTime.UtcNow.ToString("yyyy-MM");
+        var folder = $"work-photos/{locationId}/{month}";
+
+        await using var stream = photo.OpenReadStream();
+        var url = await _blob.UploadAsync(stream, photo.FileName, folder);
+
+        var workPhoto = new Models.WorkPhoto
+        {
+            EmployeeId = employee.Id,
+            LocationId = locationId,
+            PhotoUrl   = url,
+            CreatedAt  = DateTime.UtcNow
+        };
+
+        _db.WorkPhotos.Add(workPhoto);
+        await _db.SaveChangesAsync();
+
+        return Ok(new WorkPhotoResultDto
+        {
+            PhotoUrl     = url,
+            EmployeeName = $"{employee.FirstName} {employee.LastName}",
+            LocationName = location.Name,
+            CreatedAt    = workPhoto.CreatedAt
+        });
     }
 
     private async Task<Models.Employee?> FindEmployeeByPin(string pin)

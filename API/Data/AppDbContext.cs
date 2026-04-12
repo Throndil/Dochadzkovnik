@@ -12,6 +12,7 @@ public class AppDbContext : IdentityDbContext<AppUser>
     public DbSet<Location> Locations => Set<Location>();
     public DbSet<Car> Cars => Set<Car>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
+    public DbSet<WorkPhoto> WorkPhotos => Set<WorkPhoto>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -35,6 +36,21 @@ public class AppDbContext : IdentityDbContext<AppUser>
         {
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.LicensePlate).HasMaxLength(20);
+        });
+
+        builder.Entity<WorkPhoto>(e =>
+        {
+            e.HasOne(x => x.Employee)
+                .WithMany()
+                .HasForeignKey(x => x.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasOne(x => x.Location)
+                .WithMany()
+                .HasForeignKey(x => x.LocationId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            e.HasIndex(x => new { x.LocationId, x.CreatedAt });
         });
 
         builder.Entity<TimeEntry>(e =>
@@ -96,6 +112,10 @@ public class AppDbContext : IdentityDbContext<AppUser>
             {
                 te.UpdatedAt = DateTime.UtcNow;
                 if (entry.State == EntityState.Added) te.CreatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is WorkPhoto wp && entry.State == EntityState.Added)
+            {
+                wp.CreatedAt = DateTime.UtcNow;
             }
         }
     }

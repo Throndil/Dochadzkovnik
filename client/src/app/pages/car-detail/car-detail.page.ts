@@ -3,6 +3,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { CarService } from '../../services/car.service';
+import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-car-detail',
@@ -66,7 +67,7 @@ export class CarDetailPage implements OnInit {
 
   onFileSelected(event: Event) {
     const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) this.setPhoto(file);
+    if (file) normaliseFile(file).then(f => this.setPhoto(f));
   }
 
   onDragOver(event: DragEvent) {
@@ -80,7 +81,8 @@ export class CarDetailPage implements OnInit {
     event.preventDefault();
     this.isDragOver.set(false);
     const file = event.dataTransfer?.files[0];
-    if (file && file.type.startsWith('image/')) this.setPhoto(file);
+    if (file && (file.type.startsWith('image/') || file.name.match(/\.(heic|heif)$/i)))
+      normaliseFile(file).then(f => this.setPhoto(f));
   }
 
   private setPhoto(file: File) {

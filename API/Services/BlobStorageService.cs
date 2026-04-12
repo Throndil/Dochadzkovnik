@@ -12,18 +12,24 @@ public interface IBlobStorageService
 public class CloudinaryStorageService : IBlobStorageService
 {
     private readonly Cloudinary _cloudinary;
+    private readonly IImageProcessingService _imageProcessor;
 
-    public CloudinaryStorageService(Cloudinary cloudinary)
+    public CloudinaryStorageService(Cloudinary cloudinary, IImageProcessingService imageProcessor)
     {
         _cloudinary = cloudinary;
+        _imageProcessor = imageProcessor;
     }
 
     public async Task<string> UploadAsync(Stream stream, string fileName, string folder)
     {
+        // Normalise to PNG before uploading — handles HEIC, JPEG, WebP, BMP, etc.
+        await using var png = await _imageProcessor.NormaliseToPngAsync(stream);
+        var pngFileName = Path.GetFileNameWithoutExtension(fileName) + ".png";
+
         var publicId = $"{folder}/{Guid.NewGuid()}";
         var uploadParams = new ImageUploadParams
         {
-            File = new FileDescription(fileName, stream),
+            File = new FileDescription(pngFileName, png),
             PublicId = publicId,
             Overwrite = true
         };
