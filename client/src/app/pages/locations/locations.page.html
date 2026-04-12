@@ -67,13 +67,17 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       @for (loc of locations(); track loc.id) {
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          @if (loc.photoUrl) {
-            <img [src]="loc.photoUrl" class="w-full h-40 object-cover" alt="Location photo" />
-          } @else {
-            <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl">📍</div>
-          }
+          <!-- Clicking the image opens location detail -->
+          <a [routerLink]="['/admin/locations', loc.id]" class="block cursor-pointer">
+            @if (loc.photoUrl) {
+              <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Location photo" />
+            } @else {
+              <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">📍</div>
+            }
+          </a>
           <div class="p-4">
-            <a [routerLink]="['/admin/time-entries']" [queryParams]="{locationId: loc.id}"
+            <!-- Name links to location detail (gallery + edit) -->
+            <a [routerLink]="['/admin/locations', loc.id]"
                class="font-semibold text-lg text-slate-900 dark:text-white hover:text-amber-400 hover:underline cursor-pointer">
               {{ loc.name }}
             </a>
@@ -86,8 +90,8 @@
                 {{ loc.isActive ? 'Aktívne' : 'Neaktívne' }}
               </span>
               <div class="flex flex-wrap gap-2">
-                <a [routerLink]="['/admin/locations', loc.id]"
-                   class="text-amber-400 hover:text-amber-300 text-sm font-medium">Upraviť</a>
+                <a [routerLink]="['/admin/time-entries']" [queryParams]="{locationId: loc.id}"
+                   class="text-slate-400 hover:text-slate-200 text-sm font-medium">Záznamy</a>
                 <button (click)="onToggleActive(loc)"
                         class="text-sm font-medium"
                         [class]="loc.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">

@@ -22,14 +22,14 @@ public class CloudinaryStorageService : IBlobStorageService
 
     public async Task<string> UploadAsync(Stream stream, string fileName, string folder)
     {
-        // Normalise to PNG before uploading — handles HEIC, JPEG, WebP, BMP, etc.
-        await using var png = await _imageProcessor.NormaliseToPngAsync(stream);
-        var pngFileName = Path.GetFileNameWithoutExtension(fileName) + ".png";
+        // Normalise to JPEG before uploading — handles HEIC, PNG, WebP, BMP, etc.
+        await using var jpeg = await _imageProcessor.NormaliseToJpegAsync(stream);
+        var jpegFileName = Path.GetFileNameWithoutExtension(fileName) + ".jpg";
 
         var publicId = $"{folder}/{Guid.NewGuid()}";
         var uploadParams = new ImageUploadParams
         {
-            File = new FileDescription(pngFileName, png),
+            File = new FileDescription(jpegFileName, jpeg),
             PublicId = publicId,
             Overwrite = true
         };

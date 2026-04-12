@@ -304,6 +304,25 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
+    // Self-heal: make WorkPhotos.EmployeeId nullable (admin gallery uploads have no employee)
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'WorkPhotos' AND column_name = 'EmployeeId' AND is_nullable = 'NO'
+                ) THEN
+                    ALTER TABLE ""WorkPhotos"" ALTER COLUMN ""EmployeeId"" DROP NOT NULL;
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260413000000_WorkPhotoNullableEmployee', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                END IF;
+            END $$;
+        ");
+    }
+
     // Fix boolean columns that may have been created as INTEGER by the SQLite provider
     if (!string.IsNullOrEmpty(databaseUrl))
     {

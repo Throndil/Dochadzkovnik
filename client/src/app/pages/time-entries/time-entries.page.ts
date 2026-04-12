@@ -11,7 +11,7 @@ import { CarService, Car } from '../../services/car.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { TimepickerDirective } from '../../directives/timepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
-import { normaliseFile, fileToDataUrl } from '../../utils/image-utils';
+import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-time-entries',
@@ -107,7 +107,8 @@ export class TimeEntriesPage implements OnInit {
     const raw = input.files?.[0];
     if (!raw) return;
     input.value = '';
-    const file = await normaliseFile(raw);
+    const normalised = await normaliseFile(raw);
+    const file = await compressImage(normalised);
     this.newPhotoFile.set(file);
     this.newPhotoPreview.set(await fileToDataUrl(file));
   }
@@ -122,7 +123,8 @@ export class TimeEntriesPage implements OnInit {
     const raw = input.files?.[0];
     if (!raw) return;
     input.value = '';
-    const file = await normaliseFile(raw);
+    const normalised = await normaliseFile(raw);
+    const file = await compressImage(normalised);
     this.editPhotoFile.set(file);
     this.editPhotoPreview.set(await fileToDataUrl(file));
   }

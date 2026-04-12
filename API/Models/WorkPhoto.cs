@@ -8,12 +8,12 @@ namespace API.Models;
 public class WorkPhoto
 {
     public int Id { get; set; }
-    public int EmployeeId { get; set; }
+    public int? EmployeeId { get; set; }   // null = admin-uploaded photo
     public int LocationId { get; set; }
     public string PhotoUrl { get; set; } = string.Empty;
     public string? Note { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    public Employee Employee { get; set; } = null!;
+    public Employee? Employee { get; set; }
     public Location Location { get; set; } = null!;
 }

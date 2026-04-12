@@ -69,6 +69,12 @@ export class LocationService {
     return this.http.post<string>(`${this.url}/${id}/photo`, formData);
   }
 
+  uploadGalleryPhoto(id: number, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<string>(`${this.url}/${id}/gallery-photo`, formData);
+  }
+
   getPhotos(id: number, from: string, to: string) {
     return this.http.get<LocationPhoto[]>(`${this.url}/${id}/photos?from=${from}&to=${to}`);
   }

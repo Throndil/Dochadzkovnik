@@ -132,14 +132,12 @@ public class LocationsController : ControllerBase
     }
 
     // GET /api/locations/{id}/photos/download?from=YYYY-MM&to=YYYY-MM
-    // Generates a Cloudinary ZIP download URL and redirects to it
     [HttpGet("{id}/photos/download")]
     public async Task<ActionResult> DownloadPhotos(int id, [FromQuery] string? from, [FromQuery] string? to)
     {
         var loc = await _db.Locations.FindAsync(id);
         if (loc == null) return NotFound();
 
-        // Build the same month-based query as GetPhotos
         var query = _db.TimeEntries
             .Where(t => t.LocationId == id && t.PhotoUrl != null);
 
@@ -155,7 +153,6 @@ public class LocationsController : ControllerBase
         var photoUrls = await query.Select(t => t.PhotoUrl!).ToListAsync();
         if (!photoUrls.Any()) return NotFound("No photos found for the selected period");
 
-        // Extract Cloudinary public IDs from URLs
         var publicIds = photoUrls
             .Select(url =>
             {
@@ -181,8 +178,6 @@ public class LocationsController : ControllerBase
 
         if (!publicIds.Any()) return StatusCode(503, "Could not extract Cloudinary public IDs");
 
-        // Build Cloudinary ZIP URL
-        // https://cloudinary.com/documentation/fetch_remote_images#fetching_multiple_images_as_a_zip_file
         var cloudName = _config["Cloudinary:CloudName"];
         if (string.IsNullOrEmpty(cloudName)) return StatusCode(503, "Cloudinary not configured");
 
@@ -203,7 +198,6 @@ public class LocationsController : ControllerBase
         if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from + "-01", out var fd)) fromDate = fd;
         if (!string.IsNullOrEmpty(to)   && DateTime.TryParse(to   + "-01", out var td)) toDateEnd = td.AddMonths(1);
 
-        // Photos attached to time entries
         var entryPhotos = await _db.TimeEntries
             .Include(t => t.Employee)
             .Where(t => t.LocationId == id && t.PhotoUrl != null
@@ -219,7 +213,7 @@ public class LocationsController : ControllerBase
             })
             .ToListAsync();
 
-        // Standalone proof-of-work photos
+        // Includes admin-uploaded photos where EmployeeId is null
         var workPhotos = await _db.WorkPhotos
             .Include(w => w.Employee)
             .Where(w => w.LocationId == id
@@ -229,7 +223,9 @@ public class LocationsController : ControllerBase
             {
                 TimeEntryId  = null,
                 WorkPhotoId  = w.Id,
-                EmployeeName = w.Employee.FirstName + " " + w.Employee.LastName,
+                EmployeeName = w.Employee != null
+                    ? w.Employee.FirstName + " " + w.Employee.LastName
+                    : "Admin",
                 Date         = w.CreatedAt,
                 PhotoUrl     = w.PhotoUrl
             })
@@ -250,7 +246,6 @@ public class LocationsController : ControllerBase
         if (!DateTime.TryParse(before, out var beforeDate))
             return BadRequest("Invalid date format");
 
-        // Time-entry photos
         var entries = await _db.TimeEntries
             .Where(t => t.LocationId == id && t.PhotoUrl != null && t.ClockIn < beforeDate)
             .ToListAsync();
@@ -268,7 +263,6 @@ public class LocationsController : ControllerBase
             foreach (var entry in entries) entry.PhotoUrl = null;
         }
 
-        // Standalone WorkPhotos
         var workPhotos = await _db.WorkPhotos
             .Where(w => w.LocationId == id && w.CreatedAt < beforeDate)
             .ToListAsync();
@@ -284,6 +278,7 @@ public class LocationsController : ControllerBase
         return Ok(entries.Count + workPhotos.Count);
     }
 
+    // POST /api/locations/{id}/photo  — updates the location's cover photo
     [HttpPost("{id}/photo")]
     public async Task<ActionResult<string>> UploadPhoto(int id, IFormFile file)
     {
@@ -302,14 +297,44 @@ public class LocationsController : ControllerBase
             return StatusCode(503, "Photo storage is not configured");
 
         if (!string.IsNullOrEmpty(loc.PhotoUrl))
-        {
             await _blobStorage.DeleteAsync(loc.PhotoUrl, "location-photos");
-        }
 
         using var stream = file.OpenReadStream();
         loc.PhotoUrl = await _blobStorage.UploadAsync(stream, file.FileName, "location-photos");
         await _db.SaveChangesAsync();
 
         return Ok(loc.PhotoUrl);
+    }
+
+    // POST /api/locations/{id}/gallery-photo  — admin adds a photo directly to the gallery
+    [HttpPost("{id}/gallery-photo")]
+    public async Task<ActionResult<string>> UploadGalleryPhoto(int id, IFormFile file)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        if (file == null || file.Length == 0)
+            return BadRequest("No file provided");
+
+        if (_blobStorage == null)
+            return StatusCode(503, "Photo storage is not configured");
+
+        var folder = $"work-photos/{id}/{DateTime.UtcNow:yyyy-MM}";
+        using var stream = file.OpenReadStream();
+        var photoUrl = await _blobStorage.UploadAsync(stream, file.FileName, folder);
+
+        var workPhoto = new WorkPhoto
+        {
+            EmployeeId = null,
+            LocationId = id,
+            PhotoUrl   = photoUrl,
+            Note       = "Admin upload",
+            CreatedAt  = DateTime.UtcNow
+        };
+
+        _db.WorkPhotos.Add(workPhoto);
+        await _db.SaveChangesAsync();
+
+        return Ok(photoUrl);
     }
 }

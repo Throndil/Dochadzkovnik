@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { LocationService, Location, LocationPhoto } from '../../services/location.service';
-import { normaliseFile } from '../../utils/image-utils';
+import { normaliseFile, compressImage, cloudinaryThumb } from '../../utils/image-utils';
 import { TimeEntryService } from '../../services/time-entry.service';
 import { environment } from '../../../environments/environment';
 
@@ -27,6 +27,8 @@ export class LocationDetailPage implements OnInit {
   galleryPhotos = signal<LocationPhoto[]>([]);
   galleryLoading = signal(false);
   galleryLightbox = signal<string | null>(null);
+  galleryUploadLoading = signal(false);
+  readonly thumb = cloudinaryThumb;
 
   get galleryDownloadUrl(): string {
     const ym = this.galleryMonth;
@@ -120,34 +122,29 @@ export class LocationDetailPage implements OnInit {
   async processPhotoFile(file: File): Promise<void> {
     if (!file.type.startsWith('image/') && !file.name.match(/\.(heic|heif)$/i)) return;
     const normalised = await normaliseFile(file);   // HEIC → PNG before canvas decode
-    const resized = await this.resizeImage(normalised);
-    this.locationService.uploadPhoto(this.id, resized).subscribe(url => {
+    const compressed = await compressImage(normalised, 1200, 0.72);
+    this.locationService.uploadPhoto(this.id, compressed).subscribe(url => {
       this.location.update(l => l ? { ...l, photoUrl: url } : l);
       this.photoPreview.set(url);
     });
   }
 
-  private resizeImage(file: File, maxDimension = 800): Promise<File> {
-    return new Promise(resolve => {
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext('2d')!.drawImage(img, 0, 0, w, h);
-        canvas.toBlob(
-          blob => resolve(new File([blob!], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })),
-          'image/jpeg',
-          0.85
-        );
-      };
-      img.src = objectUrl;
-    });
+  async onGalleryFileSelected(event: Event): Promise<void> {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    (event.target as HTMLInputElement).value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/') && !file.name.match(/\.(heic|heif)$/i)) return;
+    this.galleryUploadLoading.set(true);
+    try {
+      const normalised = await normaliseFile(file);
+      const compressed = await compressImage(normalised, 1200, 0.72);
+      this.locationService.uploadGalleryPhoto(this.id, compressed).subscribe({
+        next: () => { this.galleryUploadLoading.set(false); this.loadGallery(); },
+        error: () => this.galleryUploadLoading.set(false)
+      });
+    } catch {
+      this.galleryUploadLoading.set(false);
+    }
   }
 
   onBack() {

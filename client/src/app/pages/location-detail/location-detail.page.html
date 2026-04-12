@@ -77,12 +77,30 @@
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mt-4">
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Fotogaléria</h2>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <input type="month" [(ngModel)]="galleryMonth"
                    class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
             <button (click)="loadGallery()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-1.5 rounded-lg text-sm transition-colors">
               Načítať
             </button>
+            <!-- Admin gallery upload -->
+            <button type="button" (click)="galleryUploadInput.click()" [disabled]="galleryUploadLoading()"
+                    class="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 px-4 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-50">
+              @if (galleryUploadLoading()) {
+                <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                Nahrávam…
+              } @else {
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                Pridať foto
+              }
+            </button>
+            <input #galleryUploadInput type="file" accept="image/*" class="hidden"
+                   (change)="onGalleryFileSelected($event)" />
           </div>
         </div>
 
@@ -108,7 +126,8 @@
             @for (photo of galleryPhotos(); track (photo.workPhotoId ?? photo.timeEntryId)) {
               <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-700 aspect-square cursor-pointer"
                    (click)="galleryLightbox.set(photo.photoUrl)">
-                <img [src]="photo.photoUrl" [alt]="photo.employeeName"
+                <img [src]="thumb(photo.photoUrl, 400, 400)" [alt]="photo.employeeName"
+                     loading="lazy"
                      class="w-full h-full object-cover transition-transform group-hover:scale-105" />
                 <!-- Standalone work photo badge -->
                 @if (photo.workPhotoId) {

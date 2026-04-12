@@ -1,23 +1,23 @@
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
-using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.Formats.Jpeg;
 
 namespace API.Services;
 
 public interface IImageProcessingService
 {
     /// <summary>
-    /// Normalises any image stream to PNG, capping the longest edge at <paramref name="maxDimension"/> px.
+    /// Normalises any image stream to JPEG (quality 75), capping the longest edge at <paramref name="maxDimension"/> px.
     /// The returned stream is positioned at 0 and is ready for upload.
     /// </summary>
-    Task<Stream> NormaliseToPngAsync(Stream input, int maxDimension = 2048);
+    Task<Stream> NormaliseToJpegAsync(Stream input, int maxDimension = 1600);
 }
 
 public class ImageProcessingService : IImageProcessingService
 {
-    public async Task<Stream> NormaliseToPngAsync(Stream input, int maxDimension = 2048)
+    public async Task<Stream> NormaliseToJpegAsync(Stream input, int maxDimension = 1600)
     {
-        // Load — ImageSharp detects format from stream header
+        // Load — ImageSharp auto-detects format from the stream header
         using var image = await Image.LoadAsync(input);
 
         // Resize if either dimension exceeds the cap
@@ -31,7 +31,7 @@ public class ImageProcessingService : IImageProcessingService
         }
 
         var output = new MemoryStream();
-        await image.SaveAsPngAsync(output, new PngEncoder { CompressionLevel = PngCompressionLevel.DefaultCompression });
+        await image.SaveAsJpegAsync(output, new JpegEncoder { Quality = 75 });
         output.Position = 0;
         return output;
     }

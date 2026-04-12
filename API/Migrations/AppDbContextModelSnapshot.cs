@@ -252,7 +252,7 @@ namespace API.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("EmployeeId")
+                    b.Property<int?>("EmployeeId")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("LocationId")
@@ -433,8 +433,7 @@ namespace API.Migrations
                     b.HasOne("API.Models.Employee", "Employee")
                         .WithMany()
                         .HasForeignKey("EmployeeId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("API.Models.Location", "Location")
                         .WithMany()

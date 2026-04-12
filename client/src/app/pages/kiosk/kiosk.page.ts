@@ -7,10 +7,10 @@ import { Location } from '../../services/location.service';
 import { Car } from '../../services/car.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
-import { normaliseFile, fileToDataUrl } from '../../utils/image-utils';
+import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 
 type View = 'main' | 'photo-upload' | 'my-hours';
-type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'result';
+type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'photo-reason' | 'result';
 type WuStep = 'pin' | 'location' | 'photo' | 'result';
 
 @Component({
@@ -50,6 +50,7 @@ export class KioskPage implements OnInit, OnDestroy {
   photoFile = signal<File | null>(null);
   photoPreview = signal<string | null>(null);
   photoUploaded = signal(false); // shown on result step
+  noPhotoReason = '';             // filled on photo-reason step when skipping photo
 
   // ─── Work photo upload (Nahrať fotografiu tab) ──────────────────
   wuStep = signal<WuStep | null>(null);
@@ -62,6 +63,7 @@ export class KioskPage implements OnInit, OnDestroy {
   wuLoading = signal(false);
   wuResult = signal<WorkPhotoResult | null>(null);
   wuResultError = signal('');
+  wuUploadedAt = signal<Date | null>(null);
 
   // ─── My Hours ────────────────────────────────────────────────────
   myHoursPin = '';
@@ -236,6 +238,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.photoFile.set(null);
     this.photoPreview.set(null);
     this.photoUploaded.set(false);
+    this.noPhotoReason = '';
     if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = undefined; }
   }
 
@@ -244,7 +247,8 @@ export class KioskPage implements OnInit, OnDestroy {
     const raw = input.files?.[0];
     if (!raw) return;
     input.value = ''; // allow re-selecting the same file
-    const file = await normaliseFile(raw);
+    const normalised = await normaliseFile(raw);
+    const file = await compressImage(normalised);
     this.photoFile.set(file);
     const preview = await fileToDataUrl(file);
     this.photoPreview.set(preview);
@@ -330,6 +334,18 @@ export class KioskPage implements OnInit, OnDestroy {
     this.hoursWorked = h;
   }
 
+  /** Called from the hours step "Ďalej" button. */
+  proceedFromHours() {
+    if (!this.selectedLocation()) return;
+    // If no photo taken yet, require the worker to take one or give a reason
+    if (!this.photoFile()) {
+      this.noPhotoReason = '';
+      this.clockStep.set('photo-reason');
+      return;
+    }
+    this.submitHours();
+  }
+
   submitHours() {
     if (!this.selectedLocation()) return;
     this.loading.set(true);
@@ -337,11 +353,16 @@ export class KioskPage implements OnInit, OnDestroy {
     const carId = car !== 'none' && car !== null ? car.id : undefined;
     const photoFile = this.photoFile();
 
+    // If a no-photo reason was given, append it to the note
+    const finalComment = this.noPhotoReason
+      ? (this.comment ? `${this.comment} | Dôvod bez foto: ${this.noPhotoReason}` : `Dôvod bez foto: ${this.noPhotoReason}`)
+      : (this.comment || undefined);
+
     this.kioskService.logHours(
       this.pin,
       this.selectedLocation()!.id,
       this.hoursWorked,
-      this.comment || undefined,
+      finalComment,
       this.selectedDate || undefined,
       carId
     ).subscribe({
@@ -417,6 +438,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.wuLoading.set(false);
     this.wuResult.set(null);
     this.wuResultError.set('');
+    this.wuUploadedAt.set(null);
   }
 
   wuNumpadPress(digit: string) {
@@ -464,7 +486,8 @@ export class KioskPage implements OnInit, OnDestroy {
     const raw = input.files?.[0];
     if (!raw) return;
     input.value = '';
-    const file = await normaliseFile(raw);
+    const normalised = await normaliseFile(raw);
+    const file = await compressImage(normalised);
     this.wuPhotoFile.set(file);
     const preview = await fileToDataUrl(file);
     this.wuPhotoPreview.set(preview);
@@ -484,6 +507,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.kioskService.uploadWorkPhoto(this.wuPin, loc.id, file).subscribe({
       next: result => {
         this.wuResult.set(result);
+        this.wuUploadedAt.set(new Date());
         this.wuLoading.set(false);
         this.wuStep.set('result');
         // Auto-reset to PIN step after 6 seconds
