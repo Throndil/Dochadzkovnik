@@ -215,7 +215,9 @@ public class EmployeesController : ControllerBase
 
     private async Task<bool> IsPinTaken(string pin, int? excludeEmployeeId = null)
     {
-        var query = _db.Employees.AsQueryable();
+        const string systemPin = "SYSTEM_ADMIN_GALLERY_UPLOADER";
+        var query = _db.Employees
+            .Where(e => e.Pin != systemPin); // sentinel has a plain-text pin, not a hash — skip it
         if (excludeEmployeeId.HasValue)
             query = query.Where(e => e.Id != excludeEmployeeId.Value);
 
