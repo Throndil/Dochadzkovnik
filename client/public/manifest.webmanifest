@@ -1,0 +1,17 @@
+{
+  "name": "Sichtovnica",
+  "short_name": "Sichtovnica",
+  "description": "Dochádzkovník – evidencia pracovného času",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "profistav_logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

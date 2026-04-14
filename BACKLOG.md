@@ -38,6 +38,18 @@
   - Backend: `SixLabors.ImageSharp` in `API/Services/ImageProcessingService.cs` — normalises all uploads to PNG, caps at 2048px
   - **Note:** Run `npm install heic2any` in `client/` once before building
 
+- [x] **"Nahral fotografiu" / "Nenahral fotografiu" status badges on clocked hours**
+  - Admin "Záznamy dochádzky" table: Foto column shows thumbnail + green "✓ Nahral" badge, or grey "✗ Nenahral" badge (both desktop table and mobile cards)
+  - Kiosk "Moje hodiny" table: new "Fotografia" column with same green/grey badges per row
+
+- [x] **"Moje hodiny" date pickers work on mobile**
+  - Removed `appDate` (flatpickr with `disableMobile: true`) from the Od/Do fields in "Moje hodiny"
+  - Now uses plain `type="date"` with `[color-scheme:dark]` — triggers native mobile date picker
+
+- [x] **Location gallery delete button visible on mobile**
+  - Delete `×` button was `hidden group-hover:flex` (hover-only) — invisible on touch devices
+  - Now always visible as `flex` with semi-transparent red background
+
 - [x] **"Nahrať fotografiu" tab (proof-of-work standalone photos)**
   - Replaced the "Ručný záznam" tab with a new "Nahrať fotografiu" tab on the kiosk
   - Step flow: PIN numpad → location selection → photo capture/pick → result with employee name badge
@@ -52,7 +64,8 @@
 ## 📅 Date / Time Rules
 
 - [x] **Maximum 2 days back for hour logging**
-  - Kiosk date picker now has `[min]="twoDaysAgoString()"` — workers can only log today, yesterday, or the day before
+  - Kiosk date picker has `[min]="twoDaysAgoString()"` and `[max]="todayString()"`
+  - Added `clampSelectedDate()` called on `(change)` and before every `submitHours()` — enforces the range in TypeScript so mobile browsers that allow typing/scrolling past min/max cannot bypass it
   - Manager manual entry remains unrestricted
 
 - [ ] **Date column in CSV export**

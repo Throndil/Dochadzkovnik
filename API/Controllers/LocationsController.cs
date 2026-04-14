@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Security.Claims;
 using API.Data;
 using API.DTOs;
 using API.Models;
@@ -16,12 +18,14 @@ public class LocationsController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IBlobStorageService? _blobStorage;
     private readonly IConfiguration _config;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public LocationsController(AppDbContext db, IConfiguration config, IBlobStorageService? blobStorage = null)
+    public LocationsController(AppDbContext db, IConfiguration config, IHttpClientFactory httpClientFactory, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _blobStorage = blobStorage;
         _config = config;
+        _httpClientFactory = httpClientFactory;
     }
 
     [HttpGet]
@@ -138,53 +142,112 @@ public class LocationsController : ControllerBase
         var loc = await _db.Locations.FindAsync(id);
         if (loc == null) return NotFound();
 
-        var query = _db.TimeEntries
+        // Build date range
+        DateTime? fromDate = null, toDateEnd = null;
+        if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from + "-01", out var fd))
+            fromDate = fd;
+        if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to + "-01", out var td))
+            toDateEnd = td.AddMonths(1);
+
+        // Collect photo URLs from TimeEntries (include employee name)
+        var teQuery = _db.TimeEntries
+            .Include(t => t.Employee)
             .Where(t => t.LocationId == id && t.PhotoUrl != null);
+        if (fromDate.HasValue)   teQuery = teQuery.Where(t => t.ClockIn >= fromDate.Value);
+        if (toDateEnd.HasValue)  teQuery = teQuery.Where(t => t.ClockIn < toDateEnd.Value);
 
-        if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from + "-01", out var fromDate))
-            query = query.Where(t => t.ClockIn >= fromDate);
+        var teRaw = await teQuery
+            .OrderBy(t => t.ClockIn)
+            .Select(t => new
+            {
+                t.PhotoUrl,
+                t.ClockIn,
+                EmployeeName = t.Employee.FirstName + " " + t.Employee.LastName
+            })
+            .ToListAsync();
 
-        if (!string.IsNullOrEmpty(to) && DateTime.TryParse(to + "-01", out var toDate))
+        // Expand comma-separated URLs into individual entries
+        var tePhotos = teRaw
+            .SelectMany(t => t.PhotoUrl!
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(url => new { PhotoUrl = url.Trim(), t.ClockIn, t.EmployeeName }))
+            .ToList();
+
+        // Collect photo URLs from standalone WorkPhotos (include employee name)
+        var wpQuery = _db.WorkPhotos
+            .Include(w => w.Employee)
+            .Where(w => w.LocationId == id);
+        if (fromDate.HasValue)  wpQuery = wpQuery.Where(w => w.CreatedAt >= fromDate.Value);
+        if (toDateEnd.HasValue) wpQuery = wpQuery.Where(w => w.CreatedAt < toDateEnd.Value);
+
+        var wpPhotos = await wpQuery
+            .OrderBy(w => w.CreatedAt)
+            .Select(w => new
+            {
+                PhotoUrl = w.PhotoUrl,
+                ClockIn = w.CreatedAt,
+                EmployeeName = w.Note != null && w.Note != ""
+                    ? w.Note
+                    : (w.Employee != null
+                        ? w.Employee.FirstName + " " + w.Employee.LastName
+                        : "Admin")
+            })
+            .ToListAsync();
+
+        var allPhotos = tePhotos
+            .Select(p => new { p.PhotoUrl, p.ClockIn, p.EmployeeName })
+            .Concat(wpPhotos.Select(p => new { p.PhotoUrl, p.ClockIn, p.EmployeeName }))
+            .OrderBy(p => p.ClockIn)
+            .ToList();
+
+        if (!allPhotos.Any())
+            return NotFound("No photos found for the selected period");
+
+        // Download each photo and pack into a ZIP streamed back to the client
+        var http = _httpClientFactory.CreateClient();
+        var zipMs = new MemoryStream();
+
+        // Track per-day-person counters for unique filenames
+        var nameCounters = new Dictionary<string, int>();
+
+        using (var archive = new ZipArchive(zipMs, ZipArchiveMode.Create, leaveOpen: true))
         {
-            var toDateEnd = toDate.AddMonths(1);
-            query = query.Where(t => t.ClockIn < toDateEnd);
-        }
-
-        var photoUrls = await query.Select(t => t.PhotoUrl!).ToListAsync();
-        if (!photoUrls.Any()) return NotFound("No photos found for the selected period");
-
-        var publicIds = photoUrls
-            .Select(url =>
+            foreach (var p in allPhotos)
             {
                 try
                 {
-                    var uri = new Uri(url);
-                    var path = uri.AbsolutePath;
-                    var uploadIdx = path.IndexOf("/upload/", StringComparison.Ordinal);
-                    if (uploadIdx < 0) return null;
-                    var afterUpload = path[(uploadIdx + 8)..];
-                    var slashIdx = afterUpload.IndexOf('/');
-                    if (slashIdx < 0) return null;
-                    var withExt = afterUpload[(slashIdx + 1)..];
-                    var dir = Path.GetDirectoryName(withExt)?.Replace('\\', '/');
-                    var name = Path.GetFileNameWithoutExtension(withExt);
-                    return string.IsNullOrEmpty(dir) ? name : $"{dir}/{name}";
+                    var bytes = await http.GetByteArrayAsync(p.PhotoUrl!);
+                    var ext = Path.GetExtension(new Uri(p.PhotoUrl!).AbsolutePath);
+                    if (string.IsNullOrEmpty(ext)) ext = ".jpg";
+
+                    // Sanitise employee name: remove diacritics-ish chars unsafe in filenames
+                    var safeEmployee = string.Concat(
+                        p.EmployeeName
+                            .Normalize(System.Text.NormalizationForm.FormD)
+                            .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c)
+                                        != System.Globalization.UnicodeCategory.NonSpacingMark)
+                    ).Replace(' ', '_');
+
+                    var baseKey = $"{p.ClockIn:yyyy-MM-dd}_{safeEmployee}";
+                    nameCounters.TryGetValue(baseKey, out var counter);
+                    counter++;
+                    nameCounters[baseKey] = counter;
+
+                    var filename = counter == 1
+                        ? $"{baseKey}{ext}"
+                        : $"{baseKey}_{counter:D2}{ext}";
+
+                    var entry = archive.CreateEntry(filename, CompressionLevel.Fastest);
+                    await using var es = entry.Open();
+                    await es.WriteAsync(bytes);
                 }
-                catch { return null; }
-            })
-            .Where(id2 => id2 != null)
-            .Select(id2 => id2!)
-            .ToList();
+                catch { /* skip unreachable photos */ }
+            }
+        }
 
-        if (!publicIds.Any()) return StatusCode(503, "Could not extract Cloudinary public IDs");
-
-        var cloudName = _config["Cloudinary:CloudName"];
-        if (string.IsNullOrEmpty(cloudName)) return StatusCode(503, "Cloudinary not configured");
-
-        var ids = string.Join(",", publicIds.Select(p => Uri.EscapeDataString(p)));
-        var zipUrl = $"https://api.cloudinary.com/v1_1/{cloudName}/image/download?public_ids={ids}&prefixes=work-photos/{id}";
-
-        return Redirect(zipUrl);
+        zipMs.Seek(0, SeekOrigin.Begin);
+        var safeName = $"fotky-{loc.Name.Replace(" ", "_")}-{from ?? "all"}.zip";
+        return File(zipMs, "application/zip", safeName);
     }
 
     // GET /api/locations/{id}/photos?from=YYYY-MM&to=YYYY-MM
@@ -198,22 +261,36 @@ public class LocationsController : ControllerBase
         if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from + "-01", out var fd)) fromDate = fd;
         if (!string.IsNullOrEmpty(to)   && DateTime.TryParse(to   + "-01", out var td)) toDateEnd = td.AddMonths(1);
 
-        var entryPhotos = await _db.TimeEntries
+        // Expand comma-separated PhotoUrl strings into individual LocationPhotoDto entries
+        var rawEntryPhotos = await _db.TimeEntries
             .Include(t => t.Employee)
             .Where(t => t.LocationId == id && t.PhotoUrl != null
                         && (fromDate == null   || t.ClockIn >= fromDate)
                         && (toDateEnd == null  || t.ClockIn < toDateEnd))
-            .Select(t => new LocationPhotoDto
+            .Select(t => new
             {
                 TimeEntryId  = t.Id,
-                WorkPhotoId  = null,
                 EmployeeName = t.Employee.FirstName + " " + t.Employee.LastName,
                 Date         = t.ClockIn,
                 PhotoUrl     = t.PhotoUrl!
             })
             .ToListAsync();
 
-        // Includes admin-uploaded photos where EmployeeId is null
+        var entryPhotos = rawEntryPhotos
+            .SelectMany(t => t.PhotoUrl
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(url => new LocationPhotoDto
+                {
+                    TimeEntryId  = t.TimeEntryId,
+                    WorkPhotoId  = null,
+                    EmployeeName = t.EmployeeName,
+                    Date         = t.Date,
+                    PhotoUrl     = url.Trim()
+                }))
+            .ToList();
+
+        // For admin-uploaded WorkPhotos, Note holds the real uploader name from the JWT.
+        // Use Note when set; fall back to the employee name (covers worker-uploaded WorkPhotos).
         var workPhotos = await _db.WorkPhotos
             .Include(w => w.Employee)
             .Where(w => w.LocationId == id
@@ -223,9 +300,11 @@ public class LocationsController : ControllerBase
             {
                 TimeEntryId  = null,
                 WorkPhotoId  = w.Id,
-                EmployeeName = w.Employee != null
-                    ? w.Employee.FirstName + " " + w.Employee.LastName
-                    : "Admin",
+                EmployeeName = w.Note != null && w.Note != ""
+                    ? w.Note
+                    : (w.Employee != null
+                        ? w.Employee.FirstName + " " + w.Employee.LastName
+                        : "Admin"),
                 Date         = w.CreatedAt,
                 PhotoUrl     = w.PhotoUrl
             })
@@ -254,7 +333,9 @@ public class LocationsController : ControllerBase
         {
             foreach (var entry in entries)
             {
-                await _blobStorage.DeleteAsync(entry.PhotoUrl!, "work-photos");
+                // Handle comma-separated multi-photo URLs
+                foreach (var url in entry.PhotoUrl!.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    await _blobStorage.DeleteAsync(url.Trim(), "work-photos");
                 entry.PhotoUrl = null;
             }
         }
@@ -307,8 +388,9 @@ public class LocationsController : ControllerBase
     }
 
     // POST /api/locations/{id}/gallery-photo  — admin adds a photo directly to the gallery
+    // Optional form field: takenAt (ISO date string, e.g. "2026-03-15") — when omitted, defaults to UtcNow
     [HttpPost("{id}/gallery-photo")]
-    public async Task<ActionResult<string>> UploadGalleryPhoto(int id, IFormFile file)
+    public async Task<ActionResult<string>> UploadGalleryPhoto(int id, IFormFile file, [FromForm] string? takenAt)
     {
         var loc = await _db.Locations.FindAsync(id);
         if (loc == null) return NotFound();
@@ -319,17 +401,34 @@ public class LocationsController : ControllerBase
         if (_blobStorage == null)
             return StatusCode(503, "Photo storage is not configured");
 
-        var folder = $"work-photos/{id}/{DateTime.UtcNow:yyyy-MM}";
+        // Use admin-supplied date if valid; otherwise fall back to now
+        DateTime photoDate = DateTime.UtcNow;
+        if (!string.IsNullOrEmpty(takenAt) && DateTime.TryParse(takenAt, out var parsedDate))
+            photoDate = new DateTime(parsedDate.Year, parsedDate.Month, parsedDate.Day, 12, 0, 0, DateTimeKind.Utc);
+
+        // Get the admin's display name from the JWT so the gallery shows who uploaded the photo
+        var adminName = User.FindFirstValue("displayName")
+                        ?? User.Identity?.Name
+                        ?? "Admin";
+
+        // Resolve the system admin Employee (seeded at startup) — needed to satisfy the FK.
+        // IsActive = false so it never appears in the kiosk or employee lists.
+        const string adminPin = "SYSTEM_ADMIN_GALLERY_UPLOADER";
+        var adminEmployee = await _db.Employees.FirstOrDefaultAsync(e => e.Pin == adminPin);
+        if (adminEmployee == null)
+            return StatusCode(500, "System admin employee not found. Please restart the API.");
+
+        var folder = $"work-photos/{id}/{photoDate:yyyy-MM}";
         using var stream = file.OpenReadStream();
         var photoUrl = await _blobStorage.UploadAsync(stream, file.FileName, folder);
 
         var workPhoto = new WorkPhoto
         {
-            EmployeeId = null,
+            EmployeeId = adminEmployee.Id,
             LocationId = id,
             PhotoUrl   = photoUrl,
-            Note       = "Admin upload",
-            CreatedAt  = DateTime.UtcNow
+            Note       = adminName,   // real uploader name from JWT; shown in gallery as EmployeeName
+            CreatedAt  = photoDate
         };
 
         _db.WorkPhotos.Add(workPhoto);

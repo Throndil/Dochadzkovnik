@@ -12,20 +12,50 @@
     @if (showForm()) {
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6">
         <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-4">Nové vozidlo</h2>
-        <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Názov vozidla</label>
             <input type="text" [(ngModel)]="newCar.name" name="name" required
-                   
                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder-slate-400 dark:placeholder-slate-500" />
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">ŠPZ</label>
             <input type="text" [(ngModel)]="newCar.licensePlate" name="licensePlate" maxlength="20"
-                   
                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder-slate-400 dark:placeholder-slate-500" />
           </div>
-          <div class="flex items-end">
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Fotografia (voliteľné)</label>
+            <div class="relative w-40 h-40 rounded-lg cursor-pointer overflow-hidden transition-colors border-2"
+                 [class.border-dashed]="!photoPreview()"
+                 [class.border-amber-400]="isDragOver()"
+                 [class.border-slate-600]="!isDragOver()"
+                 (click)="photoInput.click()"
+                 (dragover)="onDragOver($event)"
+                 (dragleave)="onDragLeave()"
+                 (drop)="onDrop($event)">
+              @if (photoPreview()) {
+                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Preview" />
+                <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <span class="text-white text-xs text-center px-2">Zmeniť foto</span>
+                </div>
+              } @else {
+                <div class="w-full h-full bg-slate-100 dark:bg-slate-700 flex flex-col items-center justify-center gap-2 transition-colors"
+                     [class.bg-amber-900/30]="isDragOver()"
+                     [class.text-amber-400]="isDragOver()"
+                     [class.text-slate-500]="!isDragOver()">
+                  <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span class="text-xs text-center px-2 leading-tight">
+                    {{ isDragOver() ? 'Pustiť sem' : 'Kliknúť alebo pretiahnuť' }}
+                  </span>
+                </div>
+              }
+              <input #photoInput type="file" accept="image/*" class="hidden" (change)="onPhotoSelected($event)" />
+            </div>
+          </div>
+          <div class="md:col-span-2">
             <button type="submit" [disabled]="!newCar.name.trim()"
                     class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-40">
               Vytvoriť

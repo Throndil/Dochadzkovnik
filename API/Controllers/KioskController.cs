@@ -143,7 +143,8 @@ public class KioskController : ControllerBase
                 HoursWorked = t.ClockOut.HasValue
                     ? (t.ClockOut.Value - t.ClockIn).TotalHours
                     : null,
-                Note = t.Note
+                Note = t.Note,
+                PhotoUrl = t.PhotoUrl
             })
             .ToListAsync();
 
@@ -199,9 +200,10 @@ public class KioskController : ControllerBase
 
         return Ok(new KioskStatusDto
         {
+            EmployeeId   = employee.Id,
             EmployeeName = $"{employee.FirstName} {employee.LastName}",
-            IsClockedIn = openEntry != null,
-            ClockInTime = openEntry?.ClockIn,
+            IsClockedIn  = openEntry != null,
+            ClockInTime  = openEntry?.ClockIn,
             LocationName = openEntry?.Location.Name
         });
     }
@@ -310,9 +312,10 @@ public class KioskController : ControllerBase
     }
 
     // POST /api/kiosk/photo/{timeEntryId}
-    // PIN-authenticated, no JWT required — for workers uploading photos via kiosk
+    // PIN-authenticated, no JWT required — for workers uploading photos via kiosk.
+    // Accepts up to 5 photos at once; stores comma-separated URLs in TimeEntry.PhotoUrl.
     [HttpPost("photo/{timeEntryId}")]
-    public async Task<ActionResult<PhotoUploadResultDto>> UploadEntryPhoto(int timeEntryId, [FromForm] string pin, IFormFile photo)
+    public async Task<ActionResult<PhotoUploadResultDto>> UploadEntryPhoto(int timeEntryId, [FromForm] string pin, [FromForm] IFormFileCollection photos)
     {
         var employee = await FindEmployeeByPin(pin);
         if (employee == null) return Unauthorized("Neplatný PIN");
@@ -324,24 +327,36 @@ public class KioskController : ControllerBase
         if (entry.EmployeeId != employee.Id) return Forbid();
 
         if (_blob == null) return StatusCode(503, "Storage service not configured");
-        if (photo == null || photo.Length == 0) return BadRequest("No file provided");
-        if (photo.Length > 20 * 1024 * 1024) return BadRequest("File too large (max 20 MB)");
+        if (photos == null || photos.Count == 0) return BadRequest("No files provided");
 
-        // Delete previous photo if replacing
-        if (!string.IsNullOrEmpty(entry.PhotoUrl))
-            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
+        // Parse existing URLs (comma-separated; single legacy URLs are handled transparently)
+        var existingUrls = string.IsNullOrEmpty(entry.PhotoUrl)
+            ? new List<string>()
+            : entry.PhotoUrl.Split(',', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        const int maxPhotos = 5;
+        int slots = maxPhotos - existingUrls.Count;
+        if (slots <= 0) return BadRequest("Maximum 5 photos already uploaded for this entry");
 
         var month = entry.ClockIn.ToString("yyyy-MM");
         var folder = $"work-photos/{entry.LocationId}/{month}";
 
-        await using var stream = photo.OpenReadStream();
-        var url = await _blob.UploadAsync(stream, photo.FileName, folder);
+        var newUrls = new List<string>();
+        foreach (var photo in photos.Take(slots))
+        {
+            if (photo.Length == 0) continue;
+            if (photo.Length > 20 * 1024 * 1024) continue; // skip oversized, don't abort
+            await using var stream = photo.OpenReadStream();
+            var url = await _blob.UploadAsync(stream, photo.FileName, folder);
+            newUrls.Add(url);
+        }
 
-        entry.PhotoUrl = url;
+        existingUrls.AddRange(newUrls);
+        entry.PhotoUrl = string.Join(",", existingUrls);
         entry.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        return Ok(new PhotoUploadResultDto { PhotoUrl = url });
+        return Ok(new PhotoUploadResultDto { PhotoUrl = entry.PhotoUrl });
     }
 
     // POST /api/kiosk/work-photo
@@ -359,6 +374,16 @@ public class KioskController : ControllerBase
         if (_blob == null) return StatusCode(503, "Storage service not configured");
         if (photo == null || photo.Length == 0) return BadRequest("No file provided");
         if (photo.Length > 20 * 1024 * 1024) return BadRequest("File too large (max 20 MB)");
+
+        // Enforce daily photo limit per employee (max 5 work photos per day)
+        var todayStart = DateTime.UtcNow.Date;
+        var todayEnd   = todayStart.AddDays(1);
+        var todayCount = await _db.WorkPhotos
+            .CountAsync(w => w.EmployeeId == employee.Id
+                          && w.CreatedAt >= todayStart
+                          && w.CreatedAt < todayEnd);
+        if (todayCount >= 5)
+            return BadRequest("Denný limit fotografií (5) bol dosiahnutý");
 
         var month = DateTime.UtcNow.ToString("yyyy-MM");
         var folder = $"work-photos/{locationId}/{month}";
@@ -379,10 +404,11 @@ public class KioskController : ControllerBase
 
         return Ok(new WorkPhotoResultDto
         {
-            PhotoUrl     = url,
-            EmployeeName = $"{employee.FirstName} {employee.LastName}",
-            LocationName = location.Name,
-            CreatedAt    = workPhoto.CreatedAt
+            PhotoUrl       = url,
+            EmployeeName   = $"{employee.FirstName} {employee.LastName}",
+            LocationName   = location.Name,
+            CreatedAt      = workPhoto.CreatedAt,
+            RemainingToday = 5 - (todayCount + 1)   // todayCount was before this upload
         });
     }
 

@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/work-photos")]
 [Authorize]
 public class WorkPhotosController : ControllerBase
 {

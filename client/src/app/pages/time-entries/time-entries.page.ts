@@ -37,7 +37,11 @@ export class TimeEntriesPage implements OnInit {
   newPhotoPreview = signal<string | null>(null);
   editPhotoFile = signal<File | null>(null);
   editPhotoPreview = signal<string | null>(null);
-  lightboxUrl = signal<string | null>(null);
+
+  // Lightbox — supports prev/next across all photos of an entry
+  lightboxPhotos = signal<string[]>([]);
+  lightboxIdx    = signal(0);
+  lightboxPhoto  = computed(() => this.lightboxPhotos()[this.lightboxIdx()] ?? null);
 
   totalHours = computed(() =>
     this.entries().reduce((sum, e) => sum + (e.hoursWorked ?? 0), 0)
@@ -92,14 +96,56 @@ export class TimeEntriesPage implements OnInit {
     });
   }
 
+  exportXlsx() {
+    this.reportService.exportXlsx(this.getFilters()).subscribe(blob => {
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'zaznamy-dochadzky.xlsx';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    });
+  }
+
   onDelete(entry: TimeEntry) {
     if (confirm('Odstrániť záznam dochádzky pre ' + entry.employeeName + '?')) {
       this.timeEntryService.delete(entry.id).subscribe(() => this.load());
     }
   }
 
-  viewPhoto(url: string) {
-    this.lightboxUrl.set(url);
+  /** Parse a photoUrl that may be a single URL or comma-separated list of URLs. */
+  parsePhotoUrls(photoUrl?: string | null): string[] {
+    if (!photoUrl) return [];
+    return photoUrl.split(',').map(u => u.trim()).filter(u => u.length > 0);
+  }
+
+  /** Returns the first URL from a possibly comma-separated photoUrl. */
+  firstPhotoUrl(photoUrl?: string | null): string | null {
+    const urls = this.parsePhotoUrls(photoUrl);
+    return urls.length > 0 ? urls[0] : null;
+  }
+
+  openLightbox(photos: string[], startIdx = 0) {
+    if (!photos.length) return;
+    this.lightboxPhotos.set(photos);
+    this.lightboxIdx.set(startIdx);
+  }
+
+  closeLightbox() {
+    this.lightboxPhotos.set([]);
+    this.lightboxIdx.set(0);
+  }
+
+  lightboxNext() {
+    const len = this.lightboxPhotos().length;
+    if (len < 2) return;
+    this.lightboxIdx.set((this.lightboxIdx() + 1) % len);
+  }
+
+  lightboxPrev() {
+    const len = this.lightboxPhotos().length;
+    if (len < 2) return;
+    this.lightboxIdx.set((this.lightboxIdx() - 1 + len) % len);
   }
 
   async onNewPhotoSelected(event: Event) {

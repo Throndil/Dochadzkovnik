@@ -41,16 +41,18 @@ export class KioskPage implements OnInit, OnDestroy {
   selectedCar = signal<Car | null | 'none'>('none'); // null = not chosen yet, 'none' = no car
   hoursWorked = 8.0;
   selectedDate = '';   // YYYY-MM-DD, defaults to today when location is picked
+  dateClampWarning = signal(false);  // shown when the date was silently clamped
   comment = '';
   response = signal<KioskResponse | null>(null);
   responseError = signal(false);
   loading = signal(false);
 
   // ─── Photo (hours modal) ─────────────────────────────────────────
-  photoFile = signal<File | null>(null);
-  photoPreview = signal<string | null>(null);
+  photoFiles = signal<File[]>([]);
+  photoPreviews = signal<string[]>([]);
   photoUploaded = signal(false); // shown on result step
   noPhotoReason = '';             // filled on photo-reason step when skipping photo
+  readonly MAX_PHOTOS = 5;
 
   // ─── Work photo upload (Nahrať fotografiu tab) ──────────────────
   wuStep = signal<WuStep | null>(null);
@@ -58,16 +60,19 @@ export class KioskPage implements OnInit, OnDestroy {
   wuPinDisplay = signal<string[]>([]);
   wuPinError = signal('');
   wuSelectedLocation = signal<Location | null>(null);
-  wuPhotoFile = signal<File | null>(null);
-  wuPhotoPreview = signal<string | null>(null);
+  wuPhotoFiles = signal<File[]>([]);
+  wuPhotoPreviews = signal<string[]>([]);
   wuLoading = signal(false);
   wuResult = signal<WorkPhotoResult | null>(null);
+  wuResults = signal<WorkPhotoResult[]>([]);
   wuResultError = signal('');
   wuUploadedAt = signal<Date | null>(null);
+  readonly MAX_WU_PHOTOS = 5;
 
   // ─── My Hours ────────────────────────────────────────────────────
   myHoursPin = '';
   showMyHoursPin = signal(false);
+  myHoursMonth = '';   // YYYY-MM — drives the date range
   myHoursFrom = '';
   myHoursTo = '';
   myHoursEntries = signal<TimeEntry[]>([]);
@@ -75,6 +80,24 @@ export class KioskPage implements OnInit, OnDestroy {
   myHoursEmployeeName = signal('');
   myHoursLoaded = signal(false);
   myHoursLoading = signal(false);
+  myHoursLightbox = signal<string | null>(null);
+
+  /** Returns the cover photo URL for a location by id, or null if not found. */
+  getLocationPhoto(locationId: number): string | null {
+    return this.locations().find(l => l.id === locationId)?.photoUrl ?? null;
+  }
+
+  /** Parse a photoUrl that may be a single URL or comma-separated list of URLs. */
+  parsePhotoUrls(photoUrl?: string | null): string[] {
+    if (!photoUrl) return [];
+    return photoUrl.split(',').map(u => u.trim()).filter(u => u.length > 0);
+  }
+
+  /** Returns the first URL from a possibly comma-separated photoUrl. */
+  firstPhotoUrl(photoUrl?: string | null): string | null {
+    const urls = this.parsePhotoUrls(photoUrl);
+    return urls.length > 0 ? urls[0] : null;
+  }
 
   readonly numpadDigits = ['1','2','3','4','5','6','7','8','9'];
   readonly pinSlots = [0,1,2,3,4,5];
@@ -124,9 +147,38 @@ export class KioskPage implements OnInit, OnDestroy {
 
   private initDateDefaults() {
     const today = new Date();
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    this.myHoursFrom = this.fmt(monthStart);
-    this.myHoursTo = this.fmt(today);
+    const ym = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    this.myHoursMonth = ym;
+    this.setMyHoursFromMonth(ym);
+  }
+
+  /** Sets myHoursFrom/To to the full first–last day of the given YYYY-MM month. */
+  setMyHoursFromMonth(ym: string) {
+    const [y, m] = ym.split('-').map(Number);
+    this.myHoursFrom = this.fmt(new Date(y, m - 1, 1));
+    this.myHoursTo   = this.fmt(new Date(y, m, 0));     // day 0 of next month = last day
+  }
+
+  /** Called from the month input's (change) event — updates range and auto-reloads if already showing. */
+  onMyHoursMonthChange(ym: string) {
+    this.setMyHoursFromMonth(ym);
+    if (this.myHoursLoaded()) this.loadMyHours();
+  }
+
+  myHoursPrevMonth() {
+    const [y, m] = this.myHoursMonth.split('-').map(Number);
+    const prev = new Date(y, m - 2, 1); // m-2 because months are 0-indexed
+    this.myHoursMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    this.setMyHoursFromMonth(this.myHoursMonth);
+    if (this.myHoursLoaded()) this.loadMyHours();
+  }
+
+  myHoursNextMonth() {
+    const [y, m] = this.myHoursMonth.split('-').map(Number);
+    const next = new Date(y, m, 1);
+    this.myHoursMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+    this.setMyHoursFromMonth(this.myHoursMonth);
+    if (this.myHoursLoaded()) this.loadMyHours();
   }
 
   getDayName(dateStr: string): string {
@@ -235,8 +287,8 @@ export class KioskPage implements OnInit, OnDestroy {
     this.selectedCar.set('none');
     this.response.set(null);
     this.responseError.set(false);
-    this.photoFile.set(null);
-    this.photoPreview.set(null);
+    this.photoFiles.set([]);
+    this.photoPreviews.set([]);
     this.photoUploaded.set(false);
     this.noPhotoReason = '';
     if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = undefined; }
@@ -244,19 +296,34 @@ export class KioskPage implements OnInit, OnDestroy {
 
   async onPhotoSelected(event: Event) {
     const input = event.target as HTMLInputElement;
-    const raw = input.files?.[0];
-    if (!raw) return;
-    input.value = ''; // allow re-selecting the same file
-    const normalised = await normaliseFile(raw);
-    const file = await compressImage(normalised);
-    this.photoFile.set(file);
-    const preview = await fileToDataUrl(file);
-    this.photoPreview.set(preview);
+    const rawFiles = Array.from(input.files ?? []);
+    if (!rawFiles.length) return;
+    input.value = '';
+
+    const current = this.photoFiles();
+    const slots = this.MAX_PHOTOS - current.length;
+    if (slots <= 0) return;
+    const toProcess = rawFiles.slice(0, slots);
+
+    const newFiles: File[] = [];
+    const newPreviews: string[] = [];
+    for (const raw of toProcess) {
+      const normalised = await normaliseFile(raw);
+      const file = await compressImage(normalised);
+      const preview = await fileToDataUrl(file);
+      newFiles.push(file);
+      newPreviews.push(preview);
+    }
+
+    this.photoFiles.update(f => [...f, ...newFiles]);
+    this.photoPreviews.update(p => [...p, ...newPreviews]);
+    // Discard any no-photo reason once a photo is provided
+    this.noPhotoReason = '';
   }
 
-  removePhoto() {
-    this.photoFile.set(null);
-    this.photoPreview.set(null);
+  removePhoto(index: number) {
+    this.photoFiles.update(f => f.filter((_, i) => i !== index));
+    this.photoPreviews.update(p => p.filter((_, i) => i !== index));
   }
 
   // PIN numpad
@@ -283,6 +350,14 @@ export class KioskPage implements OnInit, OnDestroy {
     this.pinError.set('');
     this.kioskService.getStatus(this.pin).subscribe({
       next: s => {
+        // Verify the PIN belongs to the employee whose tile was tapped
+        if (s.employeeId !== this.selectedEmployee()?.employeeId) {
+          this.pinError.set('Nesprávny PIN');
+          this.pin = '';
+          this.pinDisplay.set([]);
+          this.loading.set(false);
+          return;
+        }
         this.status.set(s);
         this.loading.set(false);
         this.clockStep.set('location');
@@ -305,6 +380,25 @@ export class KioskPage implements OnInit, OnDestroy {
     const d = new Date();
     d.setDate(d.getDate() - 2);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  /** Clamps selectedDate to [twoDaysAgo … today]. Called on (change) and before submit.
+   *  Some mobile browsers allow typing or scrolling outside the min/max range. */
+  clampSelectedDate() {
+    const min = this.twoDaysAgoString();
+    const max = this.todayString();
+    if (!this.selectedDate || this.selectedDate < min) {
+      this.selectedDate = min;
+      this.showDateClampWarning();
+    } else if (this.selectedDate > max) {
+      this.selectedDate = max;
+      this.showDateClampWarning();
+    }
+  }
+
+  private showDateClampWarning() {
+    this.dateClampWarning.set(true);
+    setTimeout(() => this.dateClampWarning.set(false), 3500);
   }
 
   selectLocation(loc: Location) {
@@ -336,9 +430,10 @@ export class KioskPage implements OnInit, OnDestroy {
 
   /** Called from the hours step "Ďalej" button. */
   proceedFromHours() {
+    this.clampSelectedDate();
     if (!this.selectedLocation()) return;
     // If no photo taken yet, require the worker to take one or give a reason
-    if (!this.photoFile()) {
+    if (this.photoFiles().length === 0) {
       this.noPhotoReason = '';
       this.clockStep.set('photo-reason');
       return;
@@ -348,10 +443,11 @@ export class KioskPage implements OnInit, OnDestroy {
 
   submitHours() {
     if (!this.selectedLocation()) return;
+    this.clampSelectedDate(); // enforce date range even if browser skipped min/max
     this.loading.set(true);
     const car = this.selectedCar();
     const carId = car !== 'none' && car !== null ? car.id : undefined;
-    const photoFile = this.photoFile();
+    const photoFiles = this.photoFiles();
 
     // If a no-photo reason was given, append it to the note
     const finalComment = this.noPhotoReason
@@ -371,9 +467,9 @@ export class KioskPage implements OnInit, OnDestroy {
         this.responseError.set(false);
         this.loadOverview();
 
-        if (photoFile && res.timeEntryId) {
-          // Upload via the kiosk endpoint (no JWT needed — PIN already verified above)
-          this.kioskService.uploadEntryPhoto(res.timeEntryId, this.pin, photoFile).subscribe({
+        if (photoFiles.length > 0 && res.timeEntryId) {
+          // Upload all photos via the kiosk endpoint (no JWT needed — PIN already verified above)
+          this.kioskService.uploadEntryPhotos(res.timeEntryId, this.pin, photoFiles).subscribe({
             next: () => {
               this.photoUploaded.set(true);
               this.loading.set(false);
@@ -381,7 +477,7 @@ export class KioskPage implements OnInit, OnDestroy {
               this.scheduleReset();
             },
             error: () => {
-              // Hours saved, photo failed — show warning in result
+              // Hours saved, photos failed — show warning in result
               const current = this.response();
               this.response.set({ ...current!, message: current!.message + ' (foto sa nepodarilo nahrať)' });
               this.loading.set(false);
@@ -433,10 +529,11 @@ export class KioskPage implements OnInit, OnDestroy {
     this.wuPinDisplay.set([]);
     this.wuPinError.set('');
     this.wuSelectedLocation.set(null);
-    this.wuPhotoFile.set(null);
-    this.wuPhotoPreview.set(null);
+    this.wuPhotoFiles.set([]);
+    this.wuPhotoPreviews.set([]);
     this.wuLoading.set(false);
     this.wuResult.set(null);
+    this.wuResults.set([]);
     this.wuResultError.set('');
     this.wuUploadedAt.set(null);
   }
@@ -483,44 +580,70 @@ export class KioskPage implements OnInit, OnDestroy {
 
   async onWuPhotoSelected(event: Event) {
     const input = event.target as HTMLInputElement;
-    const raw = input.files?.[0];
-    if (!raw) return;
+    const rawFiles = Array.from(input.files ?? []);
+    if (!rawFiles.length) return;
     input.value = '';
-    const normalised = await normaliseFile(raw);
-    const file = await compressImage(normalised);
-    this.wuPhotoFile.set(file);
-    const preview = await fileToDataUrl(file);
-    this.wuPhotoPreview.set(preview);
+
+    const current = this.wuPhotoFiles();
+    const slots = this.MAX_WU_PHOTOS - current.length;
+    if (slots <= 0) return;
+    const toProcess = rawFiles.slice(0, slots);
+
+    const newFiles: File[] = [];
+    const newPreviews: string[] = [];
+    for (const raw of toProcess) {
+      const normalised = await normaliseFile(raw);
+      const file = await compressImage(normalised);
+      const preview = await fileToDataUrl(file);
+      newFiles.push(file);
+      newPreviews.push(preview);
+    }
+
+    this.wuPhotoFiles.update(f => [...f, ...newFiles]);
+    this.wuPhotoPreviews.update(p => [...p, ...newPreviews]);
   }
 
-  wuRemovePhoto() {
-    this.wuPhotoFile.set(null);
-    this.wuPhotoPreview.set(null);
+  wuRemovePhoto(index: number) {
+    this.wuPhotoFiles.update(f => f.filter((_, i) => i !== index));
+    this.wuPhotoPreviews.update(p => p.filter((_, i) => i !== index));
   }
 
   wuSubmitPhoto() {
-    const file = this.wuPhotoFile();
+    const files = this.wuPhotoFiles();
     const loc = this.wuSelectedLocation();
-    if (!file || !loc) return;
+    if (!files.length || !loc) return;
     this.wuLoading.set(true);
     this.wuResultError.set('');
-    this.kioskService.uploadWorkPhoto(this.wuPin, loc.id, file).subscribe({
-      next: result => {
-        this.wuResult.set(result);
-        this.wuUploadedAt.set(new Date());
+    this.wuResults.set([]);
+
+    const uploadNext = (index: number) => {
+      if (index >= files.length) {
+        const results = this.wuResults();
+        if (results.length > 0) {
+          this.wuResult.set(results[results.length - 1]);
+          this.wuUploadedAt.set(new Date());
+        }
         this.wuLoading.set(false);
         this.wuStep.set('result');
-        // Auto-reset to PIN step after 6 seconds
         setTimeout(() => {
           this.wuReset();
           this.wuStep.set('pin');
-        }, 6000);
-      },
-      error: err => {
-        this.wuResultError.set(err.error || 'Foto sa nepodarilo nahrať');
-        this.wuLoading.set(false);
+        }, 7000);
+        return;
       }
-    });
+      this.kioskService.uploadWorkPhoto(this.wuPin, loc.id, files[index]).subscribe({
+        next: result => {
+          this.wuResults.update(r => [...r, result]);
+          uploadNext(index + 1);
+        },
+        error: err => {
+          this.wuResultError.set(err.error || 'Foto sa nepodarilo nahrať');
+          this.wuLoading.set(false);
+        }
+      });
+    };
+
+    uploadNext(0);
   }
 
   // ─── My Hours ────────────────────────────────────────────────────

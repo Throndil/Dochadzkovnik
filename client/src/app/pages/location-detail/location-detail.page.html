@@ -78,11 +78,8 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Fotogaléria</h2>
           <div class="flex items-center gap-2 flex-wrap">
-            <input type="month" [(ngModel)]="galleryMonth"
+            <input type="month" [ngModel]="galleryMonth()" (ngModelChange)="galleryMonth.set($event); loadGallery()"
                    class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
-            <button (click)="loadGallery()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-1.5 rounded-lg text-sm transition-colors">
-              Načítať
-            </button>
             <!-- Admin gallery upload -->
             <button type="button" (click)="galleryUploadInput.click()" [disabled]="galleryUploadLoading()"
                     class="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 px-4 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-50">
@@ -106,42 +103,85 @@
 
         @if (galleryLoading()) {
           <div class="text-slate-500 text-sm text-center py-6">Načítavam…</div>
-        } @else if (galleryPhotos().length === 0) {
+        } @else if (galleryGroups().length === 0) {
           <div class="text-slate-500 text-sm text-center py-6">Žiadne fotky za vybraný mesiac.</div>
         } @else {
-          <div class="flex items-center gap-3 mb-4 text-sm">
-            <a [href]="galleryDownloadUrl" target="_blank"
-               class="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors">
+          <!-- Download-before-delete reminder -->
+          <div class="flex items-start gap-2 mb-4 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-lg text-xs text-amber-700 dark:text-amber-300">
+            <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+            <span>Fotky sú uložené len v aplikácii. Pred odstránením si ich stiahnite ako ZIP — po zmazaní ich nie je možné obnoviť.</span>
+          </div>
+
+          <div class="flex items-center gap-3 mb-5 text-sm">
+            <button (click)="locationService.downloadPhotosZip(id, galleryMonth(), location()?.name ?? '')"
+                    class="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
               Stiahnuť všetky (ZIP)
-            </a>
+            </button>
             <span class="text-slate-600">·</span>
             <button (click)="bulkDeleteBefore()" class="text-red-400 hover:text-red-300 transition-colors">
               Odstrániť staré fotky…
             </button>
+            <span class="text-slate-500 ml-auto text-xs">{{ galleryPhotos().length }} fotiek</span>
           </div>
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            @for (photo of galleryPhotos(); track (photo.workPhotoId ?? photo.timeEntryId)) {
-              <div class="group relative rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-700 aspect-square cursor-pointer"
-                   (click)="galleryLightbox.set(photo.photoUrl)">
-                <img [src]="thumb(photo.photoUrl, 400, 400)" [alt]="photo.employeeName"
-                     loading="lazy"
-                     class="w-full h-full object-cover transition-transform group-hover:scale-105" />
-                <!-- Standalone work photo badge -->
-                @if (photo.workPhotoId) {
-                  <div class="absolute top-1 left-1 bg-amber-500/80 rounded-full px-1.5 py-0.5 text-white text-[10px] font-semibold">
-                    Foto
-                  </div>
+
+          <!-- ── Gallery grid: one card per worker-day group ─────── -->
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+            @for (group of galleryGroups(); track group.key) {
+
+              <!-- Stack wrapper — provides the visual depth for multi-photo groups -->
+              <div class="relative cursor-pointer"
+                   (click)="openGroupLightbox(group, 0)">
+
+                <!-- Ghost card 2 (deepest, most rotation) — only when 3+ photos -->
+                @if (group.photos.length >= 3) {
+                  <div class="absolute inset-0 rounded-xl bg-white dark:bg-slate-600 shadow"
+                       style="transform: rotate(5deg) translate(5px, 4px); z-index: 1;"></div>
                 }
-                <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2">
-                  <p class="text-white text-xs font-medium leading-tight truncate">{{ photo.employeeName }}</p>
-                  <p class="text-slate-300 text-xs">{{ photo.date | date:'dd.MM.yyyy' }}</p>
+
+                <!-- Ghost card 1 (middle) — only when 2+ photos -->
+                @if (group.photos.length >= 2) {
+                  <div class="absolute inset-0 rounded-xl bg-white dark:bg-slate-500 shadow"
+                       style="transform: rotate(2.5deg) translate(2.5px, 2px); z-index: 2;"></div>
+                }
+
+                <!-- Main card (top of stack) -->
+                <div class="relative rounded-xl overflow-hidden shadow-lg hover:shadow-2xl hover:scale-[1.03] transition-all duration-200"
+                     style="z-index: 3;">
+
+                  <!-- Cover photo -->
+                  <img [src]="thumb(group.photos[0].photoUrl, 400, 400)" [alt]="group.employeeName"
+                       loading="lazy"
+                       class="w-full aspect-square object-cover" />
+
+                  <!-- Bottom gradient overlay with name + date -->
+                  <div class="absolute inset-0 bg-gradient-to-t from-black/75 via-black/5 to-transparent flex flex-col justify-end p-2.5">
+                    <p class="text-white text-xs font-bold leading-tight truncate">{{ group.employeeName }}</p>
+                    <p class="text-slate-300 text-[11px] mt-0.5">{{ group.date | date:'dd.MM.yyyy' }}</p>
+                  </div>
+
+                  <!-- Photo count badge (top-left) — only when multiple -->
+                  @if (group.photos.length > 1) {
+                    <div class="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-0.5 text-white text-[11px] font-semibold flex items-center gap-1">
+                      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14"/>
+                      </svg>
+                      {{ group.photos.length }}
+                    </div>
+                  }
+
+                  <!-- Work-photo badge (top-right) -->
+                  @if (group.photos[0].workPhotoId) {
+                    <div class="absolute top-2 right-2 bg-amber-500/80 rounded-full px-1.5 py-0.5 text-white text-[10px] font-semibold">Foto</div>
+                  }
+
                 </div>
-                <button class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500/80 hover:bg-red-500 text-white text-xs items-center justify-center hidden group-hover:flex"
-                        (click)="deleteGalleryPhoto(photo, $event)">×</button>
               </div>
+
             }
           </div>
         }
@@ -150,12 +190,68 @@
   }
 </div>
 
-<!-- Gallery lightbox -->
-@if (galleryLightbox()) {
-  <div class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-       (click)="galleryLightbox.set(null)">
-    <img [src]="galleryLightbox()!" alt="foto" class="max-w-full max-h-full rounded-xl shadow-2xl object-contain" (click)="$event.stopPropagation()" />
-    <button class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white text-xl flex items-center justify-center"
-            (click)="galleryLightbox.set(null)">×</button>
+<!-- ══ Group lightbox modal ════════════════════════════════════════ -->
+@if (activeLightboxGroup(); as group) {
+  <div class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4"
+       (click)="closeGroupLightbox()">
+    <div class="relative w-full max-w-lg" (click)="$event.stopPropagation()">
+
+      <!-- Header: worker name, date, counter, close -->
+      <div class="flex items-center justify-between mb-3 px-1">
+        <div>
+          <p class="text-white font-semibold text-base leading-tight">{{ group.employeeName }}</p>
+          <p class="text-slate-400 text-sm">
+            {{ group.date | date:'dd.MM.yyyy' }}
+            @if (group.photos.length > 1) {
+              &nbsp;·&nbsp; {{ activeLightboxIdx() + 1 }}&thinsp;/&thinsp;{{ group.photos.length }}
+            }
+          </p>
+        </div>
+        <button class="w-9 h-9 rounded-full bg-white/15 hover:bg-white/30 text-white text-xl flex items-center justify-center transition-colors"
+                (click)="closeGroupLightbox()">×</button>
+      </div>
+
+      <!-- Photo frame -->
+      <div class="relative rounded-2xl overflow-hidden bg-black shadow-2xl">
+        @if (activeLightboxPhoto(); as photo) {
+          <img [src]="photo.photoUrl" alt="foto"
+               class="w-full max-h-[72vh] object-contain select-none" />
+        }
+
+        <!-- Delete button -->
+        <button class="absolute top-3 right-3 flex items-center gap-1.5 bg-red-500/80 hover:bg-red-500 active:bg-red-600 text-white text-xs font-semibold px-3 py-1.5 rounded-full shadow transition-colors"
+                (click)="deleteActiveLightboxPhoto($event)">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+          </svg>
+          Odstrániť
+        </button>
+
+        <!-- Prev / Next arrows — only shown when group has more than 1 photo -->
+        @if (group.photos.length > 1) {
+          <button class="absolute left-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/50 hover:bg-black/75 active:bg-black/90 text-white text-3xl flex items-center justify-center transition-colors select-none"
+                  (click)="groupLightboxPrev()">‹</button>
+          <button class="absolute right-2 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/50 hover:bg-black/75 active:bg-black/90 text-white text-3xl flex items-center justify-center transition-colors select-none"
+                  (click)="groupLightboxNext()">›</button>
+        }
+      </div>
+
+      <!-- Thumbnail strip — only when group has more than 1 photo -->
+      @if (group.photos.length > 1) {
+        <div class="flex gap-2 mt-3 overflow-x-auto pb-1 justify-center">
+          @for (p of group.photos; track (p.workPhotoId ?? (p.timeEntryId?.toString() ?? '') + p.photoUrl); let j = $index) {
+            <button class="shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition-all duration-150"
+                    [class.border-amber-400]="j === activeLightboxIdx()"
+                    [class.border-transparent]="j !== activeLightboxIdx()"
+                    [class.opacity-60]="j !== activeLightboxIdx()"
+                    (click)="activeLightboxIdx.set(j)">
+              <img [src]="thumb(p.photoUrl, 128, 128)" [alt]="p.employeeName" loading="lazy"
+                   class="w-full h-full object-cover" />
+            </button>
+          }
+        </div>
+      }
+
+    </div>
   </div>
 }

@@ -87,7 +87,7 @@
               <input #newPhotoInput type="file" accept="image/*" class="hidden" (change)="onNewPhotoSelected($event)" />
             } @else {
               <div class="relative inline-block">
-                <img [src]="newPhotoPreview()" alt="preview" class="h-20 w-auto rounded-lg border border-slate-300 dark:border-slate-600 object-contain bg-slate-100 dark:bg-slate-700 cursor-pointer" (click)="viewPhoto(newPhotoPreview()!)" />
+                <img [src]="newPhotoPreview()" alt="preview" class="h-20 w-auto rounded-lg border border-slate-300 dark:border-slate-600 object-contain bg-slate-100 dark:bg-slate-700 cursor-pointer" (click)="openLightbox([newPhotoPreview()!], 0)" />
                 <button type="button" (click)="removeNewPhoto()" class="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-red-500 hover:bg-red-600 text-white text-xs flex items-center justify-center shadow">×</button>
               </div>
             }
@@ -138,7 +138,11 @@
         </div>
         <button (click)="exportCsv()"
                 class="w-full sm:w-auto mt-1 sm:mt-0 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors self-end">
-          ↓ Exportovať CSV
+          ↓ CSV
+        </button>
+        <button (click)="exportXlsx()"
+                class="w-full sm:w-auto mt-1 sm:mt-0 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors self-end">
+          ↓ Excel (s fotkami)
         </button>
       </div>
     </div>
@@ -205,7 +209,7 @@
             <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Foto</label>
             @if (editPhotoPreview()) {
               <div class="flex items-center gap-3">
-                <img [src]="editPhotoPreview()!" alt="foto" class="h-20 w-auto rounded-lg border border-slate-300 dark:border-slate-600 object-contain bg-slate-100 dark:bg-slate-700 cursor-pointer" (click)="viewPhoto(editPhotoPreview()!)" />
+                <img [src]="editPhotoPreview()!" alt="foto" class="h-20 w-auto rounded-lg border border-slate-300 dark:border-slate-600 object-contain bg-slate-100 dark:bg-slate-700 cursor-pointer" (click)="openLightbox([editPhotoPreview()!], 0)" />
                 <div class="flex flex-col gap-1">
                   <button type="button" (click)="editPhotoInput.click()" class="text-xs text-amber-400 hover:text-amber-300">Vymeniť</button>
                   <button type="button" (click)="onEditDeletePhoto()" class="text-xs text-red-400 hover:text-red-300">Odstrániť</button>
@@ -265,10 +269,18 @@
               <td class="px-4 py-3 text-amber-400 font-medium">{{ entry.hoursWorked | hm }}</td>
               <td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{{ entry.note || '' }}</td>
               <td class="px-4 py-3">
-                @if (entry.photoUrl) {
-                  <img [src]="entry.photoUrl" alt="foto" class="w-10 h-10 rounded-lg object-cover cursor-pointer hover:opacity-80 transition-opacity" (click)="viewPhoto(entry.photoUrl!)" />
+                @if (firstPhotoUrl(entry.photoUrl); as first) {
+                  <div class="flex items-center gap-2">
+                    <div class="relative shrink-0 cursor-pointer" (click)="openLightbox(parsePhotoUrls(entry.photoUrl), 0)">
+                      <img [src]="first" alt="foto" class="w-10 h-10 rounded-lg object-cover hover:opacity-80 transition-opacity" />
+                      @if (parsePhotoUrls(entry.photoUrl).length > 1) {
+                        <span class="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-white text-xs rounded-full flex items-center justify-center font-bold leading-none">{{ parsePhotoUrls(entry.photoUrl).length }}</span>
+                      }
+                    </div>
+                    <span class="inline-block text-xs font-medium text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full whitespace-nowrap">✓ Nahral</span>
+                  </div>
                 } @else {
-                  <span class="text-slate-500 text-sm">—</span>
+                  <span class="inline-block text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full whitespace-nowrap">✗ Nenahral</span>
                 }
               </td>
               <td class="px-4 py-3">
@@ -306,8 +318,18 @@
           @if (entry.note) {
             <div class="text-sm text-slate-500 mt-1">{{ entry.note }}</div>
           }
-          @if (entry.photoUrl) {
-            <img [src]="entry.photoUrl" alt="foto" class="mt-2 h-24 w-auto rounded-lg object-cover cursor-pointer hover:opacity-80 transition-opacity" (click)="viewPhoto(entry.photoUrl!)" />
+          @if (firstPhotoUrl(entry.photoUrl); as first) {
+            <div class="mt-2 flex items-start gap-2">
+              <div class="relative cursor-pointer shrink-0" (click)="openLightbox(parsePhotoUrls(entry.photoUrl), 0)">
+                <img [src]="first" alt="foto" class="h-24 w-auto rounded-lg object-cover hover:opacity-80 transition-opacity" />
+                @if (parsePhotoUrls(entry.photoUrl).length > 1) {
+                  <span class="absolute -top-1 -right-1 bg-amber-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5 leading-none">+{{ parsePhotoUrls(entry.photoUrl).length - 1 }}</span>
+                }
+              </div>
+              <span class="text-xs font-medium text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">✓ Nahral fotografiu</span>
+            </div>
+          } @else {
+            <span class="mt-1 inline-block text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full">✗ Nenahral fotografiu</span>
           }
           <div class="flex gap-3 mt-2 text-sm">
             <button (click)="onEdit(entry)" class="text-amber-400 hover:text-amber-300 font-medium">Upraviť</button>
@@ -323,11 +345,50 @@
 </div>
 
 <!-- Photo lightbox -->
-@if (lightboxUrl()) {
-  <div class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-       (click)="lightboxUrl.set(null)">
-    <img [src]="lightboxUrl()!" alt="foto" class="max-w-full max-h-full rounded-xl shadow-2xl object-contain" (click)="$event.stopPropagation()" />
-    <button class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white text-xl flex items-center justify-center"
-            (click)="lightboxUrl.set(null)">×</button>
+@if (lightboxPhoto()) {
+  <div class="fixed inset-0 bg-black/85 z-50 flex flex-col items-center justify-center p-4"
+       (click)="closeLightbox()">
+
+    <!-- Close -->
+    <button class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white text-xl flex items-center justify-center z-10"
+            (click)="closeLightbox()">×</button>
+
+    <!-- Counter -->
+    @if (lightboxPhotos().length > 1) {
+      <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 text-white text-sm px-3 py-1 rounded-full z-10">
+        {{ lightboxIdx() + 1 }} / {{ lightboxPhotos().length }}
+      </div>
+    }
+
+    <!-- Prev arrow -->
+    @if (lightboxPhotos().length > 1) {
+      <button class="absolute left-3 sm:left-6 w-11 h-11 rounded-full bg-white/15 hover:bg-white/30 text-white text-2xl flex items-center justify-center z-10 transition-colors"
+              (click)="$event.stopPropagation(); lightboxPrev()">&#8249;</button>
+    }
+
+    <!-- Photo -->
+    <img [src]="lightboxPhoto()!" alt="foto"
+         class="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain"
+         (click)="$event.stopPropagation()" />
+
+    <!-- Next arrow -->
+    @if (lightboxPhotos().length > 1) {
+      <button class="absolute right-3 sm:right-6 w-11 h-11 rounded-full bg-white/15 hover:bg-white/30 text-white text-2xl flex items-center justify-center z-10 transition-colors"
+              (click)="$event.stopPropagation(); lightboxNext()">&#8250;</button>
+    }
+
+    <!-- Thumbnail strip -->
+    @if (lightboxPhotos().length > 1) {
+      <div class="absolute bottom-4 flex gap-2 overflow-x-auto max-w-full px-4" (click)="$event.stopPropagation()">
+        @for (thumb of lightboxPhotos(); track $index) {
+          <img [src]="thumb" alt="náhľad"
+               class="h-14 w-14 rounded-lg object-cover cursor-pointer shrink-0 transition-all"
+               [class.ring-2]="$index === lightboxIdx()"
+               [class.ring-amber-400]="$index === lightboxIdx()"
+               [class.opacity-50]="$index !== lightboxIdx()"
+               (click)="lightboxIdx.set($index)" />
+        }
+      </div>
+    }
   </div>
 }

@@ -12,6 +12,7 @@ export interface Employee {
   photoUrl?: string;
   isActive: boolean;
   createdAt: string;
+  pinPlain?: string;  // visible to manager on edit page
 }
 
 export interface CreateEmployee {

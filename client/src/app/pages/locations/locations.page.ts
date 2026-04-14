@@ -95,7 +95,10 @@ export class LocationsPage implements OnInit {
         this.load();
       };
       if (this.newLocationPhoto) {
-        this.locationService.uploadPhoto(loc.id, this.newLocationPhoto).subscribe(finish);
+        this.locationService.uploadPhoto(loc.id, this.newLocationPhoto).subscribe({
+          next: () => finish(),
+          error: () => finish()   // close and reload even if photo upload fails
+        });
       } else {
         finish();
       }

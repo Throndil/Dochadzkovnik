@@ -99,6 +99,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(opts =>
         opts.JsonSerializerOptions.Converters.Add(new API.Converters.UtcDateTimeConverter()));
 builder.Services.AddOpenApi();
+builder.Services.AddHttpClient(); // used by LocationsController to stream photos for ZIP download
 
 var app = builder.Build();
 
@@ -106,6 +107,35 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    // SQLite pre-migration: if a column was added manually (self-heal style) before the migration
+    // was recorded, mark it as applied so MigrateAsync() won't try to add it again and crash.
+    if (string.IsNullOrEmpty(databaseUrl)) // SQLite only (no DATABASE_URL = local dev)
+    {
+        try
+        {
+            var conn = db.Database.GetDbConnection();
+            await conn.OpenAsync();
+            // Check if PinPlain already exists in Employees
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'PinPlain'";
+                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                if (count > 0)
+                {
+                    using var ins = conn.CreateCommand();
+                    ins.CommandText = @"
+                        INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                        VALUES ('20260414000000_AddEmployeePinPlain', '9.0.0')";
+                    await ins.ExecuteNonQueryAsync();
+                }
+            }
+
+            await conn.CloseAsync();
+        }
+        catch { /* best-effort — MigrateAsync will surface any real problems */ }
+    }
+
     await db.Database.MigrateAsync();
 
     // Self-heal: add sequences/defaults to int PK columns that were created without them
@@ -163,6 +193,18 @@ using (var scope = app.Services.CreateScope())
                     CREATE SEQUENCE IF NOT EXISTS ""AspNetUserClaims_Id_seq"";
                     ALTER TABLE ""AspNetUserClaims"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""AspNetUserClaims_Id_seq""');
                     PERFORM setval('""AspNetUserClaims_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""AspNetUserClaims""), 0) + 1, false);
+                END IF;
+                -- WorkPhotos: AddWorkPhotos migration used SQLite-only Autoincrement annotation,
+                -- so no SERIAL/IDENTITY was created on PostgreSQL. Fix it here.
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'WorkPhotos')
+                   AND NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'WorkPhotos' AND column_name = 'Id'
+                      AND (column_default IS NOT NULL OR is_identity = 'YES')
+                ) THEN
+                    CREATE SEQUENCE IF NOT EXISTS ""WorkPhotos_Id_seq"";
+                    ALTER TABLE ""WorkPhotos"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""WorkPhotos_Id_seq""');
+                    PERFORM setval('""WorkPhotos_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""WorkPhotos""), 0) + 1, false);
                 END IF;
             END $$;
         ");
@@ -323,6 +365,25 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
+    // Self-heal: add PinPlain column to Employees (stores plain-text PIN for manager view)
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'Employees' AND column_name = 'PinPlain'
+                ) THEN
+                    ALTER TABLE ""Employees"" ADD COLUMN ""PinPlain"" TEXT;
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260414000000_AddEmployeePinPlain', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                END IF;
+            END $$;
+        ");
+    }
+
     // Fix boolean columns that may have been created as INTEGER by the SQLite provider
     if (!string.IsNullOrEmpty(databaseUrl))
     {
@@ -371,6 +432,23 @@ using (var scope = app.Services.CreateScope())
         // Always reset password so Railway env var changes take effect on next deploy
         var token = await userManager.GeneratePasswordResetTokenAsync(admin);
         await userManager.ResetPasswordAsync(admin, token, targetPassword);
+    }
+
+    // Seed the system admin Employee used as the FK target for admin-uploaded gallery photos.
+    // IsActive = false so it is invisible to the kiosk and employee lists.
+    // We identify it by a fixed sentinel PIN value — never a real hashed PIN.
+    const string adminEmployeePin = "SYSTEM_ADMIN_GALLERY_UPLOADER";
+    var adminEmp = await db.Employees.FirstOrDefaultAsync(e => e.Pin == adminEmployeePin);
+    if (adminEmp == null)
+    {
+        db.Employees.Add(new Employee
+        {
+            FirstName = "Admin",
+            LastName  = "",
+            Pin       = adminEmployeePin,
+            IsActive  = false
+        });
+        await db.SaveChangesAsync();
     }
 }
 

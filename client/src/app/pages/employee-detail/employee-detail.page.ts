@@ -18,6 +18,8 @@ export class EmployeeDetailPage implements OnInit {
   address = '';
   city = '';
   isActive = true;
+  currentPin = signal<string | null>(null);
+  showCurrentPin = signal(false);
   newPin = '';
   pinSaved = false;
   photoPreview = signal<string | null>(null);
@@ -43,6 +45,7 @@ export class EmployeeDetailPage implements OnInit {
       this.city = emp.city ?? '';
       this.isActive = emp.isActive;
       this.photoPreview.set(emp.photoUrl ?? null);
+      this.currentPin.set(emp.pinPlain ?? null);
     });
   }
 
@@ -59,7 +62,9 @@ export class EmployeeDetailPage implements OnInit {
 
   onSetPin() {
     if (!/^\d{4,6}$/.test(this.newPin)) return;
-    this.employeeService.setPin(this.id, this.newPin).subscribe(() => {
+    const savedPin = this.newPin;
+    this.employeeService.setPin(this.id, savedPin).subscribe(() => {
+      this.currentPin.set(savedPin);
       this.pinSaved = true;
       this.newPin = '';
       setTimeout(() => this.pinSaved = false, 3000);

@@ -30,7 +30,9 @@ public class EmployeesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<List<EmployeeDto>>> GetAll()
     {
+        const string systemPin = "SYSTEM_ADMIN_GALLERY_UPLOADER";
         return await _db.Employees
+            .Where(e => e.Pin != systemPin)
             .Select(e => new EmployeeDto
             {
                 Id = e.Id,
@@ -62,7 +64,8 @@ public class EmployeesController : ControllerBase
             City = emp.City,
             PhotoUrl = emp.PhotoUrl,
             IsActive = emp.IsActive,
-            CreatedAt = emp.CreatedAt
+            CreatedAt = emp.CreatedAt,
+            PinPlain = emp.PinPlain
         };
     }
 
@@ -94,6 +97,7 @@ public class EmployeesController : ControllerBase
             FirstName = dto.FirstName,
             LastName = dto.LastName,
             Pin = _pinHasher.Hash(dto.Pin),
+            PinPlain = dto.Pin,
             PhoneNumber = dto.PhoneNumber,
             Address = dto.Address,
             City = dto.City
@@ -161,6 +165,7 @@ public class EmployeesController : ControllerBase
             return Conflict("Tento PIN je už priradený inému zamestnancovi.");
 
         emp.Pin = _pinHasher.Hash(dto.Pin);
+        emp.PinPlain = dto.Pin;
         await _db.SaveChangesAsync();
         return NoContent();
     }

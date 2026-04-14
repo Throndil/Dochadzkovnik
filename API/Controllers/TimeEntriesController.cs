@@ -130,9 +130,12 @@ public class TimeEntriesController : ControllerBase
         var entry = await _db.TimeEntries.FindAsync(id);
         if (entry == null) return NotFound();
 
-        // Remove associated photo from Cloudinary if present
+        // Remove associated photos from Cloudinary (PhotoUrl may be comma-separated)
         if (!string.IsNullOrEmpty(entry.PhotoUrl) && _blob != null)
-            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
+        {
+            foreach (var photoUrl in entry.PhotoUrl.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                await _blob.DeleteAsync(photoUrl.Trim(), "work-photos");
+        }
 
         _db.TimeEntries.Remove(entry);
         await _db.SaveChangesAsync();
@@ -174,17 +177,43 @@ public class TimeEntriesController : ControllerBase
         return Ok(new PhotoUploadResultDto { PhotoUrl = url });
     }
 
-    // DELETE /api/time-entries/{id}/photo
+    // DELETE /api/time-entries/{id}/photo?url=<encodedUrl>
+    // If url is provided, removes only that specific photo from the comma-separated list.
+    // If url is omitted, removes ALL photos for the entry (legacy behaviour).
     [HttpDelete("{id}/photo")]
-    public async Task<ActionResult> DeletePhoto(int id)
+    public async Task<ActionResult> DeletePhoto(int id, [FromQuery] string? url)
     {
         var entry = await _db.TimeEntries.FindAsync(id);
         if (entry == null) return NotFound();
 
-        if (!string.IsNullOrEmpty(entry.PhotoUrl) && _blob != null)
-            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
+        if (string.IsNullOrEmpty(entry.PhotoUrl))
+            return NoContent();
 
-        entry.PhotoUrl = null;
+        if (!string.IsNullOrEmpty(url))
+        {
+            // Remove only the specified URL from the comma-separated list
+            var remaining = entry.PhotoUrl
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(u => u.Trim())
+                .Where(u => u != url.Trim())
+                .ToList();
+
+            if (_blob != null)
+                await _blob.DeleteAsync(url.Trim(), "work-photos");
+
+            entry.PhotoUrl = remaining.Count > 0 ? string.Join(",", remaining) : null;
+        }
+        else
+        {
+            // Delete all photos
+            if (_blob != null)
+            {
+                foreach (var u in entry.PhotoUrl.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    await _blob.DeleteAsync(u.Trim(), "work-photos");
+            }
+            entry.PhotoUrl = null;
+        }
+
         entry.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 

@@ -47,4 +47,13 @@ export class ReportService {
     if (filters?.locationId) params = params.set('locationId', filters.locationId.toString());
     return this.http.get(`${this.url}/export/csv`, { params, responseType: 'blob' });
   }
+
+  exportXlsx(filters?: { from?: string; to?: string; employeeId?: number; locationId?: number }) {
+    let params = new HttpParams();
+    if (filters?.from) params = params.set('from', filters.from);
+    if (filters?.to) params = params.set('to', filters.to);
+    if (filters?.employeeId) params = params.set('employeeId', filters.employeeId.toString());
+    if (filters?.locationId) params = params.set('locationId', filters.locationId.toString());
+    return this.http.get(`${this.url}/export/xlsx`, { params, responseType: 'blob' });
+  }
 }

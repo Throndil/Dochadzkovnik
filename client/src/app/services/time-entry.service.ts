@@ -65,7 +65,9 @@ export class TimeEntryService {
     return this.http.post<{ photoUrl: string }>(`${this.url}/${id}/photo`, form);
   }
 
-  deletePhoto(id: number) {
-    return this.http.delete(`${this.url}/${id}/photo`);
+  /** Delete a specific photo URL from a time entry, or all photos if url is omitted. */
+  deletePhoto(id: number, photoUrl?: string) {
+    const params = photoUrl ? `?url=${encodeURIComponent(photoUrl)}` : '';
+    return this.http.delete(`${this.url}/${id}/photo${params}`);
   }
 }

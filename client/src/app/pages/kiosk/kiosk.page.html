@@ -11,7 +11,7 @@
       <span class="mx-2 text-slate-500">|</span>
       <span>{{ currentTime() | date:'EEEE, d. M. yyyy' }}</span>
     </div>
-    <a href="/login" class="text-xs text-slate-500 dark:text-slate-400 hover:text-amber-400 transition-colors">Admin →</a>
+    <a href="/login" class="text-xs text-slate-500 dark:text-slate-400 hover:text-amber-400 transition-colors">Vladimír Sroka →</a>
   </header>
 
   <!-- ══ View tabs ════════════════════════════════════════════════ -->
@@ -277,71 +277,110 @@
           <!-- ── Step: Photo ───────────────────────────────── -->
           @if (wuStep() === 'photo') {
             <div class="p-6">
-              <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-1 text-center">Fotografický dôkaz</h2>
+              <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-1 text-center">Fotografia</h2>
               <p class="text-slate-500 dark:text-slate-400 text-sm text-center mb-1">
                 <span class="font-medium text-amber-400">{{ wuSelectedLocation()?.name }}</span>
               </p>
-              <p class="text-slate-500 dark:text-slate-400 text-xs text-center mb-5">
-                Odfotiť alebo vybrať fotografiu z galérie
+              <p class="text-slate-500 dark:text-slate-400 text-xs text-center mb-4">
+                Pridaj až 5 fotografií ako dôkaz práce
               </p>
 
               @if (wuResultError()) {
                 <p class="text-red-400 text-sm text-center mb-4">{{ wuResultError() }}</p>
               }
 
-              @if (!wuPhotoPreview()) {
-                <div class="flex flex-col gap-3 mb-5">
-                  <!-- Front camera (for identity verification) -->
-                  <button type="button" (click)="wuFrontInput.click()"
-                          class="flex items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-4 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="8" r="3"/>
+              <!-- Photo counter badge -->
+              @if (wuPhotoPreviews().length > 0) {
+                <div class="flex justify-center mb-3">
+                  <span class="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/30 rounded-full px-3 py-1 text-amber-400 text-xs font-semibold">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
                     </svg>
-                    Selfie (predná kamera)
-                  </button>
-                  <!-- Environment / gallery -->
-                  <div class="flex gap-3">
-                    <button type="button" (click)="wuEnvInput.click()"
-                            class="flex-1 flex items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-3 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors text-sm">
-                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
-                      </svg>
-                      Odfotiť
-                    </button>
-                    <button type="button" (click)="wuGalleryInput.click()"
-                            class="flex-1 flex items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-3 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors text-sm">
-                      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                      </svg>
-                      Z galérie
-                    </button>
-                  </div>
+                    {{ wuPhotoPreviews().length }} / {{ MAX_WU_PHOTOS }}
+                  </span>
                 </div>
-              } @else {
-                <!-- Preview + confirm -->
-                <div class="relative mb-5">
-                  <img [src]="wuPhotoPreview()" alt="Náhľad"
-                       class="w-full max-h-52 object-contain rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700" />
-                  <button type="button" (click)="wuRemovePhoto()"
-                          class="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-sm font-bold shadow">
-                    ×
+              }
+
+              <!-- Gallery grid of selected photos -->
+              @if (wuPhotoPreviews().length > 0) {
+                <div class="grid grid-cols-3 gap-2 mb-4">
+                  @for (preview of wuPhotoPreviews(); track $index) {
+                    <div class="relative aspect-square rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 group">
+                      <img [src]="preview" alt="Foto {{ $index + 1 }}"
+                           class="w-full h-full object-cover" />
+                      <button type="button" (click)="wuRemovePhoto($index)"
+                              class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-xs font-bold shadow transition-colors">
+                        ×
+                      </button>
+                      <!-- Photo number badge -->
+                      <div class="absolute bottom-1 left-1 bg-black/50 rounded px-1 py-0.5 text-white text-xs leading-none">
+                        {{ $index + 1 }}
+                      </div>
+                    </div>
+                  }
+
+                  <!-- Add more slot — shown when < 5 photos -->
+                  @if (wuPhotoPreviews().length < MAX_WU_PHOTOS) {
+                    <button type="button" (click)="wuGalleryInput.click()"
+                            class="aspect-square rounded-lg border-2 border-dashed border-slate-400 dark:border-slate-600 flex flex-col items-center justify-center gap-1 text-slate-500 dark:text-slate-400 hover:border-amber-500 hover:text-amber-500 transition-colors">
+                      <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                      </svg>
+                      <span class="text-xs">Pridať</span>
+                    </button>
+                  }
+                </div>
+              }
+
+              <!-- Initial picker buttons — shown when no photos yet -->
+              @if (wuPhotoPreviews().length === 0) {
+                <div class="flex gap-3 mb-5">
+                  <button type="button" (click)="wuEnvInput.click()"
+                          class="flex-1 flex flex-col items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-5 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span class="text-sm font-medium">Odfotiť</span>
+                  </button>
+                  <button type="button" (click)="wuGalleryInput.click()"
+                          class="flex-1 flex flex-col items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-5 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <span class="text-sm font-medium">Z galérie</span>
                   </button>
                 </div>
               }
 
+              <!-- Second-row camera button (when photos already selected but < 5) -->
+              @if (wuPhotoPreviews().length > 0 && wuPhotoPreviews().length < MAX_WU_PHOTOS) {
+                <button type="button" (click)="wuEnvInput.click()"
+                        class="w-full flex items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-3 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors mb-4">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  Odfotiť ďalšiu
+                </button>
+              }
+
               <!-- Hidden file inputs -->
-              <input #wuFrontInput type="file" accept="image/*" capture="user"
-                     class="hidden" (change)="onWuPhotoSelected($event)" />
               <input #wuEnvInput type="file" accept="image/*" capture="environment"
                      class="hidden" (change)="onWuPhotoSelected($event)" />
-              <input #wuGalleryInput type="file" accept="image/*"
+              <input #wuGalleryInput type="file" accept="image/*" multiple
                      class="hidden" (change)="onWuPhotoSelected($event)" />
 
-              <button (click)="wuSubmitPhoto()" [disabled]="!wuPhotoFile() || wuLoading()"
+              <button (click)="wuSubmitPhoto()" [disabled]="wuPhotoPreviews().length === 0 || wuLoading()"
                       class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-4 rounded-xl text-lg transition-colors disabled:opacity-40">
-                {{ wuLoading() ? 'Nahrávam...' : 'Nahrať fotografiu' }}
+                @if (wuLoading()) {
+                  <span>Nahrávam {{ wuResults().length + 1 }} / {{ wuPhotoFiles().length }}…</span>
+                } @else if (wuPhotoPreviews().length > 1) {
+                  <span>Nahrať {{ wuPhotoPreviews().length }} fotografie</span>
+                } @else {
+                  <span>Nahrať fotografiu</span>
+                }
               </button>
 
               <button (click)="wuStep.set('location')"
@@ -355,44 +394,61 @@
           @if (wuStep() === 'result' && wuResult()) {
             <div class="p-6 text-center">
 
-              <!-- Photo with name + time overlay -->
-              @if (wuPhotoPreview()) {
-                <div class="relative rounded-xl overflow-hidden mb-5 shadow-lg">
-                  <img [src]="wuPhotoPreview()" alt="Nahraté foto"
-                       class="w-full max-h-64 object-cover" />
-                  <!-- Overlay bar at bottom of photo -->
-                  <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-4 py-3 text-left">
-                    <p class="text-white font-bold text-base leading-tight">{{ wuResult()!.employeeName }}</p>
-                    <p class="text-slate-300 text-xs mt-0.5">
-                      {{ wuResult()!.locationName }} · {{ wuUploadedAt() | date:'dd.MM.yyyy HH:mm' }}
-                    </p>
-                  </div>
-                  <!-- Green checkmark badge top-right -->
-                  <div class="absolute top-3 right-3 w-9 h-9 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
-                    <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                    </svg>
-                  </div>
-                </div>
-              } @else {
-                <!-- Fallback if preview was cleared -->
-                <div class="w-16 h-16 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center mx-auto mb-4">
-                  <svg class="w-8 h-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <!-- Employee / location info -->
+              <div class="flex items-center justify-center gap-2 mb-4">
+                <div class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center shadow-lg">
+                  <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
                   </svg>
                 </div>
-                <p class="text-slate-900 dark:text-white font-bold text-xl mb-1">{{ wuResult()!.employeeName }}</p>
-                <p class="text-slate-500 dark:text-slate-400 text-sm mb-2">{{ wuResult()!.locationName }}</p>
-                <p class="text-slate-500 dark:text-slate-400 text-sm mb-4">{{ wuUploadedAt() | date:'dd.MM.yyyy HH:mm' }}</p>
+                <div class="text-left">
+                  <p class="text-slate-900 dark:text-white font-bold text-base leading-tight">{{ wuResult()!.employeeName }}</p>
+                  <p class="text-slate-500 dark:text-slate-400 text-xs">{{ wuResult()!.locationName }} · {{ wuUploadedAt() | date:'dd.MM.yyyy HH:mm' }}</p>
+                </div>
+              </div>
+
+              <!-- Photo gallery grid -->
+              @if (wuPhotoPreviews().length > 0) {
+                <div class="grid grid-cols-3 gap-2 mb-4">
+                  @for (preview of wuPhotoPreviews(); track $index) {
+                    <div class="relative aspect-square rounded-lg overflow-hidden border border-green-500/40 bg-slate-100 dark:bg-slate-700 shadow">
+                      <img [src]="preview" alt="Nahraté foto {{ $index + 1 }}"
+                           class="w-full h-full object-cover" />
+                      <!-- Green check overlay per photo -->
+                      <div class="absolute top-1 right-1 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center shadow">
+                        <svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                        </svg>
+                      </div>
+                    </div>
+                  }
+                </div>
               }
 
-              <div class="inline-flex items-center gap-1.5 bg-green-500/10 border border-green-500/30 rounded-full px-4 py-1.5 mb-4">
+              <!-- Success badge -->
+              <div class="inline-flex items-center gap-1.5 bg-green-500/10 border border-green-500/30 rounded-full px-4 py-1.5 mb-3">
                 <svg class="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
                 </svg>
-                <span class="text-green-400 text-sm font-semibold">Foto nahraté</span>
+                @if (wuResults().length > 1) {
+                  <span class="text-green-400 text-sm font-semibold">{{ wuResults().length }} fotografie nahraté</span>
+                } @else {
+                  <span class="text-green-400 text-sm font-semibold">Foto nahraté</span>
+                }
               </div>
+
+              <!-- Daily quota indicator -->
+              @if (wuResult()!.remainingToday > 0) {
+                <p class="text-slate-500 dark:text-slate-400 text-xs mb-3">
+                  Dnes môžeš nahrať ešte
+                  <span class="font-semibold text-amber-400">{{ wuResult()!.remainingToday }}</span>
+                  {{ wuResult()!.remainingToday === 1 ? 'fotografiu' : 'fotografie' }}.
+                </p>
+              } @else {
+                <p class="text-amber-400 text-xs font-medium mb-3">Denný limit (5 fotiek) bol dosiahnutý.</p>
+              }
+
               <p class="text-slate-600 dark:text-slate-500 text-xs">Formulár sa resetuje automaticky…</p>
             </div>
           }
@@ -430,18 +486,21 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-3 mb-4">
-            <div>
-              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Od</label>
-              <div class="date-field">
-                <input type="date" appDate [(ngModel)]="myHoursFrom" name="myHoursFrom" [fpMaxDate]="myHoursTo" />
-              </div>
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Do</label>
-              <div class="date-field">
-                <input type="date" appDate [(ngModel)]="myHoursTo" name="myHoursTo" [fpMinDate]="myHoursFrom" />
-              </div>
+          <!-- Month picker: prev / month input / next -->
+          <div class="mb-4">
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Mesiac</label>
+            <div class="flex items-center gap-2">
+              <button type="button" (click)="myHoursPrevMonth()"
+                      class="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xl flex items-center justify-center transition-colors">
+                ‹
+              </button>
+              <input type="month" [(ngModel)]="myHoursMonth" name="myHoursMonth"
+                     (change)="onMyHoursMonthChange(myHoursMonth)"
+                     class="flex-1 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 [color-scheme:dark] text-center" />
+              <button type="button" (click)="myHoursNextMonth()"
+                      class="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xl flex items-center justify-center transition-colors">
+                ›
+              </button>
             </div>
           </div>
 
@@ -467,17 +526,41 @@
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Príchod</th>
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Odchod</th>
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Hodiny</th>
+                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Foto záznamu</th>
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Poznámka</th>
                     </tr>
                   </thead>
                   <tbody>
                     @for (e of myHoursEntries(); track e.id) {
                       <tr class="border-t border-slate-200 dark:border-slate-700/50 hover:bg-slate-700/30">
-                        <td class="px-4 py-3 text-slate-900 dark:text-white">{{ e.locationName }}</td>
+                        <!-- Pracovisko + location thumbnail -->
+                        <td class="px-4 py-3">
+                          <div class="flex items-center gap-2">
+                            @if (getLocationPhoto(e.locationId)) {
+                              <img [src]="getLocationPhoto(e.locationId)!" [alt]="e.locationName"
+                                   class="w-9 h-9 rounded-lg object-cover shrink-0 border border-slate-300 dark:border-slate-600" />
+                            }
+                            <span class="text-slate-900 dark:text-white font-medium leading-tight">{{ e.locationName }}</span>
+                          </div>
+                        </td>
                         <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.clockIn | date:'dd.MM.yyyy, HH:mm' }}</td>
                         <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.clockOut ? (e.clockOut | date:'dd.MM.yyyy, HH:mm') : '–' }}</td>
                         <td class="px-4 py-3 text-amber-400 font-semibold">{{ e.hoursWorked | hm }}</td>
-                        <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ e.note || '' }}</td>
+                        <!-- Entry photo thumbnail or "Nenahral" badge -->
+                        <td class="px-4 py-3">
+                          @if (firstPhotoUrl(e.photoUrl); as first) {
+                            <div class="relative inline-block cursor-pointer" (click)="myHoursLightbox.set(first)">
+                              <img [src]="first" alt="foto záznamu"
+                                   class="w-12 h-12 rounded-lg object-cover hover:opacity-80 active:opacity-60 transition-opacity border border-slate-300 dark:border-slate-600" />
+                              @if (parsePhotoUrls(e.photoUrl).length > 1) {
+                                <span class="absolute -top-1 -right-1 bg-amber-500 text-white text-xs font-bold rounded-full px-1 py-0.5 leading-none">+{{ parsePhotoUrls(e.photoUrl).length - 1 }}</span>
+                              }
+                            </div>
+                          } @else {
+                            <span class="inline-block text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full whitespace-nowrap">✗ Nenahral</span>
+                          }
+                        </td>
+                        <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-sm">{{ e.note || '' }}</td>
                       </tr>
                     }
                   </tbody>
@@ -485,7 +568,7 @@
                     <tr class="border-t-2 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700/50">
                       <td class="px-4 py-3 text-slate-600 dark:text-slate-300 font-semibold" colspan="3">Spolu</td>
                       <td class="px-4 py-3 text-amber-400 font-bold text-base">{{ myHoursTotalHours() | hm }}</td>
-                      <td></td>
+                      <td colspan="2"></td>
                     </tr>
                   </tfoot>
                 </table>
@@ -502,10 +585,11 @@
 
 <!-- ══ Modal overlay: clock-in/out flow ════════════════════════ -->
 @if (clockStep()) {
-  <div class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-       (click)="onOverlayClick($event)">
+  <div class="fixed inset-0 bg-black/60 z-50 overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4"
+         (click)="onOverlayClick($event)">
 
-    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-300 dark:border-slate-600 shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+    <div class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-300 dark:border-slate-600 shadow-2xl w-full max-w-sm">
 
       <!-- Modal header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
@@ -659,7 +743,13 @@
             </label>
             <input type="date" [(ngModel)]="selectedDate" name="selectedDate"
                    [min]="twoDaysAgoString()" [max]="todayString()"
+                   (change)="clampSelectedDate()"
                    class="w-full px-3 py-3 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 [color-scheme:dark]" />
+            @if (dateClampWarning()) {
+              <p class="mt-1 text-xs text-amber-400 font-medium">
+                Dátum bol upravený — povolený rozsah je maximálne 2 dni dozadu.
+              </p>
+            }
           </div>
 
           <!-- Hours display -->
@@ -706,12 +796,60 @@
           <!-- Photo -->
           <div class="mb-5">
             <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">
-              Foto <span class="text-slate-500 font-normal">(nepovinné)</span>
+              Foto <span class="text-slate-500 font-normal">(nepovinné · max {{ MAX_PHOTOS }})</span>
             </label>
 
-            @if (!photoPreview()) {
+            <!-- Photo counter badge -->
+            @if (photoPreviews().length > 0) {
+              <div class="flex items-center gap-2 mb-2">
+                <span class="inline-flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 rounded-full px-2.5 py-0.5 text-amber-400 text-xs font-semibold">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  {{ photoPreviews().length }} / {{ MAX_PHOTOS }}
+                </span>
+              </div>
+            }
+
+            <!-- Gallery grid of selected photos -->
+            @if (photoPreviews().length > 0) {
+              <div class="grid grid-cols-3 gap-2 mb-3">
+                @for (preview of photoPreviews(); track $index) {
+                  <div class="relative aspect-square rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700">
+                    <img [src]="preview" alt="Foto {{ $index + 1 }}" class="w-full h-full object-cover" />
+                    <button type="button" (click)="removePhoto($index)"
+                            class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-xs font-bold shadow transition-colors">
+                      ×
+                    </button>
+                    <div class="absolute bottom-1 left-1 bg-black/50 rounded px-1 py-0.5 text-white text-xs leading-none">{{ $index + 1 }}</div>
+                  </div>
+                }
+                <!-- Add more slot -->
+                @if (photoPreviews().length < MAX_PHOTOS) {
+                  <button type="button" (click)="galleryInput.click()"
+                          class="aspect-square rounded-lg border-2 border-dashed border-slate-400 dark:border-slate-600 flex flex-col items-center justify-center gap-1 text-slate-500 hover:border-amber-500 hover:text-amber-500 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    <span class="text-xs">Pridať</span>
+                  </button>
+                }
+              </div>
+              <!-- Camera button to take another shot -->
+              @if (photoPreviews().length < MAX_PHOTOS) {
+                <button type="button" (click)="cameraInput.click()"
+                        class="w-full flex items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-2.5 text-slate-500 dark:text-slate-400 hover:border-amber-500 hover:text-amber-500 transition-colors mb-3 text-sm">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  Odfotiť ďalšiu
+                </button>
+              }
+            } @else {
+              <!-- Initial picker buttons -->
               <div class="flex gap-3">
-                <!-- Camera button -->
                 <button type="button" (click)="cameraInput.click()"
                         class="flex-1 flex items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-3 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors">
                   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -720,7 +858,6 @@
                   </svg>
                   Odfotiť
                 </button>
-                <!-- Gallery button -->
                 <button type="button" (click)="galleryInput.click()"
                         class="flex-1 flex items-center justify-center gap-2 border border-dashed border-slate-400 dark:border-slate-600 rounded-xl py-3 text-slate-600 dark:text-slate-300 hover:border-amber-500 hover:text-amber-500 transition-colors">
                   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -729,28 +866,18 @@
                   Z galérie
                 </button>
               </div>
-            } @else {
-              <!-- Preview thumbnail -->
-              <div class="relative inline-block w-full">
-                <img [src]="photoPreview()" alt="Náhľad fotky"
-                     class="w-full max-h-48 object-contain rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700" />
-                <button type="button" (click)="removePhoto()"
-                        class="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-sm font-bold shadow">
-                  ×
-                </button>
-              </div>
             }
 
             <!-- Hidden file inputs -->
             <input #cameraInput type="file" accept="image/*" capture="environment"
                    class="hidden" (change)="onPhotoSelected($event)" />
-            <input #galleryInput type="file" accept="image/*"
+            <input #galleryInput type="file" accept="image/*" multiple
                    class="hidden" (change)="onPhotoSelected($event)" />
           </div>
 
           <button (click)="proceedFromHours()" [disabled]="loading()"
                   class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-4 rounded-xl text-lg transition-colors disabled:opacity-40">
-            {{ loading() ? 'Ukladám...' : (photoFile() ? 'Potvrdiť' : 'Ďalej') }}
+            {{ loading() ? 'Ukladám...' : (photoPreviews().length > 0 ? 'Potvrdiť' : 'Ďalej') }}
           </button>
         </div>
       }
@@ -758,12 +885,49 @@
       <!-- ── Step: Photo or Reason ─────────────────────────── -->
       @if (clockStep() === 'photo-reason') {
         <div class="p-6">
-          <p class="text-center text-slate-400 text-sm mb-5">
+          <p class="text-center text-slate-400 text-sm mb-4">
             Prihláška bez fotky. Pridajte foto alebo napíšte dôvod.
           </p>
 
-          <!-- Photo capture options (same as hours step) -->
-          @if (!photoPreview()) {
+          <!-- Gallery grid (reuse same signals as hours step) -->
+          @if (photoPreviews().length > 0) {
+            <div class="grid grid-cols-3 gap-2 mb-3">
+              @for (preview of photoPreviews(); track $index) {
+                <div class="relative aspect-square rounded-lg overflow-hidden border border-slate-600 bg-slate-700">
+                  <img [src]="preview" alt="Foto {{ $index + 1 }}" class="w-full h-full object-cover" />
+                  <button type="button" (click)="removePhoto($index)"
+                          class="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-xs font-bold shadow transition-colors">
+                    ×
+                  </button>
+                  <div class="absolute bottom-1 left-1 bg-black/50 rounded px-1 py-0.5 text-white text-xs leading-none">{{ $index + 1 }}</div>
+                </div>
+              }
+              @if (photoPreviews().length < MAX_PHOTOS) {
+                <button type="button" (click)="prGalleryInput.click()"
+                        class="aspect-square rounded-lg border-2 border-dashed border-slate-600 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-amber-500 hover:text-amber-500 transition-colors">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                  </svg>
+                  <span class="text-xs">Pridať</span>
+                </button>
+              }
+            </div>
+            @if (photoPreviews().length < MAX_PHOTOS) {
+              <button type="button" (click)="prCameraInput.click()"
+                      class="w-full flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500 rounded-xl py-3 text-amber-400 hover:bg-amber-500/20 transition-colors mb-3">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                Odfotiť ďalšiu
+              </button>
+            }
+            <button (click)="submitHours()" [disabled]="loading()"
+                    class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-4 rounded-xl text-lg transition-colors disabled:opacity-40 mb-3">
+              {{ loading() ? 'Ukladám...' : 'Potvrdiť' }}
+            </button>
+          } @else {
+            <!-- No photos yet — show picker buttons -->
             <div class="flex gap-3 mb-5">
               <button type="button" (click)="prCameraInput.click()"
                       class="flex-1 flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500 rounded-xl py-4 text-amber-400 hover:bg-amber-500/20 transition-colors active:scale-95">
@@ -781,30 +945,8 @@
                 Z galérie
               </button>
             </div>
-          } @else {
-            <!-- Photo selected — show preview and submit directly -->
-            <div class="relative mb-5">
-              <img [src]="photoPreview()" alt="Náhľad"
-                   class="w-full max-h-52 object-contain rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700" />
-              <button type="button" (click)="removePhoto()"
-                      class="absolute top-2 right-2 w-7 h-7 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-sm font-bold shadow">
-                ×
-              </button>
-            </div>
-            <button (click)="submitHours()" [disabled]="loading()"
-                    class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-4 rounded-xl text-lg transition-colors disabled:opacity-40 mb-3">
-              {{ loading() ? 'Ukladám...' : 'Potvrdiť' }}
-            </button>
-          }
 
-          <!-- Hidden file inputs for this step -->
-          <input #prCameraInput type="file" accept="image/*" capture="environment"
-                 class="hidden" (change)="onPhotoSelected($event)" />
-          <input #prGalleryInput type="file" accept="image/*"
-                 class="hidden" (change)="onPhotoSelected($event)" />
-
-          <!-- Divider -->
-          @if (!photoPreview()) {
+            <!-- Divider -->
             <div class="flex items-center gap-3 my-4">
               <div class="flex-1 h-px bg-slate-700"></div>
               <span class="text-slate-500 text-xs uppercase tracking-wider">alebo</span>
@@ -828,6 +970,12 @@
               {{ loading() ? 'Ukladám...' : 'Odoslať bez fotky' }}
             </button>
           }
+
+          <!-- Hidden file inputs for this step -->
+          <input #prCameraInput type="file" accept="image/*" capture="environment"
+                 class="hidden" (change)="onPhotoSelected($event)" />
+          <input #prGalleryInput type="file" accept="image/*" multiple
+                 class="hidden" (change)="onPhotoSelected($event)" />
 
           <button (click)="clockStep.set('hours')" [disabled]="loading()"
                   class="w-full bg-transparent border border-slate-600 hover:border-slate-400 text-slate-400 hover:text-slate-200 font-medium py-3 rounded-xl transition-colors disabled:opacity-40">
@@ -863,7 +1011,11 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
               </svg>
-              <span class="text-green-400 text-xs font-medium">Foto nahraté</span>
+              @if (photoPreviews().length > 1) {
+                <span class="text-green-400 text-xs font-medium">{{ photoPreviews().length }} fotografie nahraté</span>
+              } @else {
+                <span class="text-green-400 text-xs font-medium">Foto nahraté</span>
+              }
             </div>
           }
           <p class="text-slate-600 text-xs mt-4">Okno sa zatvorí automaticky…</p>
@@ -871,5 +1023,18 @@
       }
 
     </div>
+    </div>
+  </div>
+}
+
+<!-- ══ My Hours photo lightbox ══════════════════════════════════ -->
+@if (myHoursLightbox()) {
+  <div class="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4"
+       (click)="myHoursLightbox.set(null)">
+    <img [src]="myHoursLightbox()!" alt="foto záznamu"
+         class="max-w-full max-h-full rounded-xl shadow-2xl object-contain"
+         (click)="$event.stopPropagation()" />
+    <button class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white text-xl flex items-center justify-center"
+            (click)="myHoursLightbox.set(null)">×</button>
   </div>
 }

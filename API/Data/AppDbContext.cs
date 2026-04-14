@@ -113,10 +113,9 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 te.UpdatedAt = DateTime.UtcNow;
                 if (entry.State == EntityState.Added) te.CreatedAt = DateTime.UtcNow;
             }
-            else if (entry.Entity is WorkPhoto wp && entry.State == EntityState.Added)
-            {
-                wp.CreatedAt = DateTime.UtcNow;
-            }
+            // WorkPhoto.CreatedAt is set explicitly by the controller (to support backdating).
+            // The model property initializer (= DateTime.UtcNow) covers the default case,
+            // so we intentionally do NOT override it here.
         }
     }
 }

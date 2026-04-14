@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { CarService, Car, CreateCar } from '../../services/car.service';
+import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-cars',
@@ -13,6 +14,9 @@ export class CarsPage implements OnInit {
   cars = signal<Car[]>([]);
   showForm = signal(false);
   newCar: CreateCar = { name: '', licensePlate: '' };
+  newCarPhoto: File | null = null;
+  photoPreview = signal<string | null>(null);
+  isDragOver = signal(false);
 
   constructor(private carService: CarService) {}
 
@@ -23,12 +27,49 @@ export class CarsPage implements OnInit {
   cancelForm() {
     this.showForm.set(false);
     this.newCar = { name: '', licensePlate: '' };
+    this.newCarPhoto = null;
+    this.photoPreview.set(null);
+    this.isDragOver.set(false);
+  }
+
+  onPhotoSelected(event: Event) {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (file) this.processPhotoFile(file);
+  }
+
+  onDragOver(event: DragEvent) { event.preventDefault(); this.isDragOver.set(true); }
+  onDragLeave() { this.isDragOver.set(false); }
+
+  onDrop(event: DragEvent) {
+    event.preventDefault();
+    this.isDragOver.set(false);
+    const file = event.dataTransfer?.files?.[0];
+    if (file) this.processPhotoFile(file);
+  }
+
+  async processPhotoFile(file: File): Promise<void> {
+    if (!file.type.startsWith('image/') && !file.name.match(/\.(heic|heif)$/i)) return;
+    const normalised = await normaliseFile(file);
+    this.newCarPhoto = normalised;
+    const reader = new FileReader();
+    reader.onload = e => this.photoPreview.set(e.target?.result as string);
+    reader.readAsDataURL(normalised);
   }
 
   onCreate() {
-    this.carService.create({ name: this.newCar.name, licensePlate: this.newCar.licensePlate || undefined }).subscribe(() => {
-      this.cancelForm();
-      this.load();
+    this.carService.create({ name: this.newCar.name, licensePlate: this.newCar.licensePlate || undefined }).subscribe(car => {
+      const finish = () => {
+        this.cancelForm();
+        this.load();
+      };
+      if (this.newCarPhoto) {
+        this.carService.uploadPhoto(car.id, this.newCarPhoto).subscribe({
+          next: () => finish(),
+          error: () => finish()
+        });
+      } else {
+        finish();
+      }
     });
   }
 

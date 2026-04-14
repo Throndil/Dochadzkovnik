@@ -13,6 +13,7 @@ export interface KioskResponse {
 }
 
 export interface KioskStatus {
+  employeeId: number;
   employeeName: string;
   isClockedIn: boolean;
   clockInTime?: string;
@@ -87,10 +88,14 @@ export class KioskService {
     return this.http.post<TimeEntry[]>(`${this.url}/my-hours`, { pin, from, to });
   }
 
-  uploadEntryPhoto(timeEntryId: number, pin: string, file: File) {
+  /** Upload 1–5 photos for a time entry in a single request.
+   *  The backend stores comma-separated URLs; returns the combined photoUrl string. */
+  uploadEntryPhotos(timeEntryId: number, pin: string, files: File[]) {
     const form = new FormData();
     form.append('pin', pin);
-    form.append('photo', file, file.name);
+    for (const file of files) {
+      form.append('photos', file, file.name);
+    }
     return this.http.post<{ photoUrl: string }>(`${this.url}/photo/${timeEntryId}`, form);
   }
 
@@ -108,4 +113,5 @@ export interface WorkPhotoResult {
   employeeName: string;
   locationName: string;
   createdAt: string;
+  remainingToday: number;  // how many more uploads are allowed today (out of 5)
 }

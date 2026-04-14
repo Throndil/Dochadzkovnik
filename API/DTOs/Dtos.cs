@@ -75,6 +75,7 @@ public class EmployeeDto
     public string? PhotoUrl { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string? PinPlain { get; set; }
 }
 
 // Location
@@ -200,6 +201,7 @@ public class MyHoursDto
 
 public class KioskStatusDto
 {
+    public int EmployeeId { get; set; }
     public string EmployeeName { get; set; } = string.Empty;
     public bool IsClockedIn { get; set; }
     public DateTime? ClockInTime { get; set; }
@@ -234,6 +236,7 @@ public class WorkPhotoResultDto
     public string EmployeeName { get; set; } = string.Empty;
     public string LocationName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public int RemainingToday { get; set; }  // how many more uploads the worker can do today
 }
 
 // Kiosk weekly overview (public)

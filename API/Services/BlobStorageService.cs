@@ -1,5 +1,6 @@
 using CloudinaryDotNet;
 using CloudinaryDotNet.Actions;
+using Microsoft.Extensions.Logging;
 
 namespace API.Services;
 
@@ -13,11 +14,14 @@ public class CloudinaryStorageService : IBlobStorageService
 {
     private readonly Cloudinary _cloudinary;
     private readonly IImageProcessingService _imageProcessor;
+    private readonly ILogger<CloudinaryStorageService> _logger;
 
-    public CloudinaryStorageService(Cloudinary cloudinary, IImageProcessingService imageProcessor)
+    public CloudinaryStorageService(Cloudinary cloudinary, IImageProcessingService imageProcessor,
+        ILogger<CloudinaryStorageService> logger)
     {
         _cloudinary = cloudinary;
         _imageProcessor = imageProcessor;
+        _logger = logger;
     }
 
     public async Task<string> UploadAsync(Stream stream, string fileName, string folder)
@@ -50,23 +54,34 @@ public class CloudinaryStorageService : IBlobStorageService
             var uri = new Uri(url);
             var path = uri.AbsolutePath; // /image/upload/v123/folder/id.ext
             var uploadIndex = path.IndexOf("/upload/", StringComparison.Ordinal);
-            if (uploadIndex < 0) return;
+            if (uploadIndex < 0)
+            {
+                _logger.LogWarning("Cloudinary delete skipped — could not find /upload/ in URL: {Url}", url);
+                return;
+            }
 
             var afterUpload = path[(uploadIndex + 8)..]; // v123/folder/id.ext
             // Skip version segment (v123/)
             var slashIndex = afterUpload.IndexOf('/');
-            if (slashIndex < 0) return;
+            if (slashIndex < 0)
+            {
+                _logger.LogWarning("Cloudinary delete skipped — unexpected URL format (no version segment): {Url}", url);
+                return;
+            }
 
             var publicIdWithExt = afterUpload[(slashIndex + 1)..]; // folder/id.ext
             var publicId = Path.GetFileNameWithoutExtension(publicIdWithExt);
             var dirPart = Path.GetDirectoryName(publicIdWithExt)?.Replace('\\', '/');
             var fullPublicId = string.IsNullOrEmpty(dirPart) ? publicId : $"{dirPart}/{publicId}";
 
-            await _cloudinary.DestroyAsync(new DeletionParams(fullPublicId));
+            var result = await _cloudinary.DestroyAsync(new DeletionParams(fullPublicId));
+            if (result.Error != null)
+                _logger.LogWarning("Cloudinary delete failed for public ID {PublicId}: {Error}", fullPublicId, result.Error.Message);
         }
-        catch
+        catch (Exception ex)
         {
-            // Best-effort deletion; don't fail the request
+            // Best-effort deletion — log but don't fail the request
+            _logger.LogError(ex, "Cloudinary delete threw an exception for URL: {Url}", url);
         }
     }
 }

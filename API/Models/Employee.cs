@@ -6,6 +6,7 @@ public class Employee
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string Pin { get; set; } = string.Empty; // Hashed
+    public string? PinPlain { get; set; }            // Stored for manager view
     public string? PhoneNumber { get; set; }
     public string? Address { get; set; }
     public string? City { get; set; }
