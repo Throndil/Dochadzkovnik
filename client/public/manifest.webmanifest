@@ -8,10 +8,28 @@
   "theme_color": "#f59e0b",
   "icons": [
     {
-      "src": "profistav_logo.png",
-      "sizes": "any",
+      "src": "profistav_logo_192.png",
+      "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "profistav_logo_512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "profistav_logo_192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "profistav_logo_512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

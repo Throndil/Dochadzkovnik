@@ -61,6 +61,44 @@
 
 ---
 
+## 📱 Mobile / PWA UX (April 15 call)
+
+- [x] **Disable double-tap zoom on mobile/tablet**
+  - Viewport meta updated: `maximum-scale=1, user-scalable=no`
+  - Global CSS: `touch-action: manipulation` on `<html>` — disables double-tap zoom while keeping normal scroll/tap
+
+- [x] **Fix PWA app icon resolution (distorted on home screen)**
+  - Original logo was 1920×1280 (not square) — looked stretched/cropped when added to home screen
+  - Generated proper square icons: 512×512, 192×192, and 180×180 (apple-touch-icon)
+  - Updated `manifest.webmanifest` with separate `any` and `maskable` purpose entries at correct sizes
+  - Updated `index.html` to reference the new square icons
+
+- [x] **Add car (Auto) column to "Moje Hodiny" kiosk view**
+  - Workers can now see which car was used for each entry when checking their logged hours
+  - Shows 🚗 + car name, or "—" if no car
+
+- [x] **"Záznamy" default to full month with week toggle**
+  - Default date range now covers the entire current month (1st to last day), not just up to today
+  - Added "Mesiac / Týždeň" toggle buttons above the date filters
+  - Manual date changes switch to "custom" mode so the toggle doesn't override user picks
+
+- [x] **Remove Príchod / Odchod columns from "Moje hodiny", add Dátum column**
+  - Table on the kiosk "Moje hodiny" view no longer shows the exact clock-in / clock-out timestamps
+  - Added a Dátum column (formatted `dd.MM.yyyy` from `clockIn`) as the first column so workers can still tell which day each row belongs to
+  - Final column order: Dátum, Pracovisko, Auto, Hodiny, Foto záznamu, Poznámka
+  - Footer "Spolu" colspan adjusted accordingly (3 → Dátum + Pracovisko + Auto)
+
+- [x] **Spolu column on kiosk weekly overview = full-month total**
+  - The per-employee "Spolu" column next to the 7-day grid now sums hours for the whole calendar month that contains the currently viewed week, not just the 7 visible days
+  - Backend `GET /api/kiosk/overview` expands its query range to cover the whole month and restricts `TotalHours` to that month; the daily cells still only show the 7 days of the viewed week
+
+- [x] **Manual time entry (admin) is now hours-based, not clockIn/clockOut**
+  - Replaced Príchod / Odchod date+time fields on the admin Záznamy dochádzky add and edit forms with a single Dátum picker and a Počet hodín control (±0.5h buttons plus preset chips: 0.5, 1, 2, 4, 5, 5.5, 6, 7, 7.5, 8, 9, 10)
+  - Mirrors the kiosk "log hours" UX — easier/faster for managers
+  - Frontend back-calculates clockIn/clockOut before POST/PUT using the same convention as `/api/kiosk/log-hours`: past date → clockOut = 17:00 that day; today → clockOut = now; clockIn = clockOut − hoursWorked. No backend/API change.
+
+---
+
 ## 📅 Date / Time Rules
 
 - [x] **Maximum 2 days back for hour logging**

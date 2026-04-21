@@ -267,6 +267,14 @@ public class KioskController : ControllerBase
         var start = weekStart?.Date ?? monday;
         var end = start.AddDays(7);
 
+        // Spolu column must total the full calendar month that contains the week being viewed.
+        // We fetch entries for max(month, week) so the daily grid still works and the
+        // per-employee TotalHours can sum the whole month.
+        var monthStart = new DateTime(start.Year, start.Month, 1);
+        var monthEnd = monthStart.AddMonths(1);
+        var fetchStart = start < monthStart ? start : monthStart;
+        var fetchEnd = end > monthEnd ? end : monthEnd;
+
         var employees = await _db.Employees
             .Where(e => e.IsActive)
             .OrderBy(e => e.FirstName).ThenBy(e => e.LastName)
@@ -274,7 +282,7 @@ public class KioskController : ControllerBase
 
         var entries = await _db.TimeEntries
             .Include(t => t.Location)
-            .Where(t => t.ClockIn >= start && t.ClockIn < end)
+            .Where(t => t.ClockIn >= fetchStart && t.ClockIn < fetchEnd)
             .ToListAsync();
 
         // Filter to only active employees
@@ -303,7 +311,9 @@ public class KioskController : ControllerBase
                         }).ToList();
                     return new WeeklyDayDto { Date = day, Entries = dayEntries };
                 }).ToList(),
-                TotalHours = empEntries.Where(t => t.ClockOut.HasValue)
+                // Sum the whole calendar month rather than just the currently viewed week
+                TotalHours = empEntries
+                    .Where(t => t.ClockOut.HasValue && t.ClockIn >= monthStart && t.ClockIn < monthEnd)
                     .Sum(t => (t.ClockOut!.Value - t.ClockIn).TotalHours)
             };
         }).ToList();

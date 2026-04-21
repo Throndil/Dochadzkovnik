@@ -1,6 +1,11 @@
 @import "tailwindcss";
 @import "flatpickr/dist/flatpickr.min.css";
 
+/* ── Disable double-tap zoom on mobile/tablet ─────────────────── */
+html {
+  touch-action: manipulation;
+}
+
 /* ── Dark mode via .dark class on <html> ───────────────────────── */
 @custom-variant dark (&:where(.dark, .dark *));
 

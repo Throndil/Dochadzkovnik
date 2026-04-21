@@ -144,6 +144,68 @@ The entire UI and all API messages are in **Slovak**. Error messages, kiosk resp
 
 ---
 
+## Session Log
+
+### 2026-04-21 — Customer change requests
+
+**Implemented:**
+
+- **Removed "Príchod" / "Odchod" columns from kiosk "Moje hodiny"** (`client/src/app/pages/kiosk/kiosk.page.html`)
+  - Dropped the two `<th>` headers and corresponding `<td>` cells that showed `clockIn` and `clockOut` as formatted timestamps
+  - `<tfoot>` "Spolu" row's leading `colspan` reduced from 4 → 2 to stay aligned with the remaining columns (Pracovisko, Auto, Hodiny, Foto záznamu, Poznámka)
+  - API response still carries `clockIn` / `clockOut`; only the rendered table was trimmed
+
+- **Kiosk dashboard "Spolu" column now totals the full month, not the week** (`API/Controllers/KioskController.cs` — `GetOverview`)
+  - `monthStart` / `monthEnd` derived from the incoming `weekStart.Date`
+  - DB query widened to `max(week, month)` so both the 7-day grid and the monthly total can be computed from one fetch
+  - `WeeklyRowDto.TotalHours` now sums entries where `ClockIn` falls inside the calendar month of the viewed week; the 7 day-cells still only show the currently viewed week
+  - No schema change — no migration / self-heal needed
+
+- **Admin "Záznamy dochádzky" add/edit is now hours-based** (`client/src/app/pages/time-entries/time-entries.page.html`, `...page.ts`)
+  - Both the "+ Pridať záznam" form and the "Upraviť záznam" form no longer ask for Príchod / Odchod date+time pairs
+  - New layout: a single Dátum picker + a large Počet hodín display with −/+ 0.5h buttons and a grid of preset chips (`hoursPresets = [0.5, 1, 2, 4, 5, 5.5, 6, 7, 7.5, 8, 9, 10]`)
+  - `newEntry` / `editForm` shapes changed from `{clockInDate, clockInTime, clockOutDate, clockOutTime}` to `{date, hoursWorked}`
+  - Added `adjustNewHours` / `setNewHours` / `adjustEditHours` / `setEditHours` helpers and a private `buildClockWindow(dateStr, hoursWorked)` that re-uses the kiosk convention:
+    - if `date` is today → `clockOut = new Date()` (local now)
+    - otherwise → `clockOut = date at 17:00`
+    - `clockIn = clockOut − hoursWorked * 3600_000`
+  - `onEdit` derives `{date, hoursWorked}` from the existing `entry.clockIn` / `entry.hoursWorked` so editing round-trips cleanly (hours rounded to nearest 0.5). Note: saving an edited entry will re-anchor the stored clockOut to 17:00 (past) / now (today); the original exact timestamps are not preserved. This matches kiosk behaviour and the customer's request.
+  - `TimepickerDirective` import removed (no more `appTime` usage on this page); `DatepickerDirective` kept for the filter row and the new Dátum picker
+  - No backend/API change — `POST /api/time-entries` and `PUT /api/time-entries/{id}` still take `ClockIn` / `ClockOut`
+
+---
+
+### 2026-04-15 — Customer call follow-up
+
+**Implemented:**
+
+- **Disable double-tap zoom** (`client/src/index.html`, `client/src/styles.css`)
+  - Viewport meta: `maximum-scale=1, user-scalable=no`
+  - Global CSS: `touch-action: manipulation` on `html` element
+  - Covers both iOS Safari (viewport meta) and Android Chrome (touch-action)
+
+- **PWA icon fix** (`client/public/`, `client/public/manifest.webmanifest`, `client/src/index.html`)
+  - Original `profistav_logo.png` was 1920×1280 — not square, causing distortion on home screen
+  - Generated `profistav_logo_512.png` (512×512), `profistav_logo_192.png` (192×192), `apple-touch-icon.png` (180×180)
+  - Manifest now lists explicit sizes with separate `any` and `maskable` purpose entries
+  - `index.html` favicon and apple-touch-icon updated to reference new files
+
+- **Car column in "Moje Hodiny"** (`client/src/app/pages/kiosk/kiosk.page.html`)
+  - Added "Auto" column to the kiosk My Hours table
+  - Shows 🚗 + car name if a car was used, "—" otherwise
+  - Footer colspan adjusted from 3 to 4
+
+- **Záznamy: full-month default + Mesiac/Týždeň toggle** (`client/src/app/pages/time-entries/time-entries.page.ts`, `...html`)
+  - Default range now spans the full current month (1st → last day) instead of 1st → today
+  - Added `dateRangeMode: 'month' | 'week' | 'custom'` state
+  - Toggle buttons "Mesiac" / "Týždeň" snap to the current full month or current Mon–Sun week
+  - Manual date picker changes flip mode to `'custom'` so the toggle doesn't override user input
+
+**Deliberately NOT implemented (deferred):**
+- Automatic/scheduled photo deletion from Cloudinary — no such system exists yet, manual admin deletion only. Customer to decide on retention policy before implementing.
+
+---
+
 ## Customer Context
 
 - Construction firm, Slovak market

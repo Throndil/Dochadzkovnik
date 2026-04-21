@@ -522,9 +522,9 @@
                 <table class="w-full text-sm">
                   <thead class="bg-slate-100 dark:bg-slate-700/50">
                     <tr>
+                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Dátum</th>
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Pracovisko</th>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Príchod</th>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Odchod</th>
+                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Auto</th>
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Hodiny</th>
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Foto záznamu</th>
                       <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Poznámka</th>
@@ -533,6 +533,8 @@
                   <tbody>
                     @for (e of myHoursEntries(); track e.id) {
                       <tr class="border-t border-slate-200 dark:border-slate-700/50 hover:bg-slate-700/30">
+                        <!-- Dátum -->
+                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{ e.clockIn | date:'dd.MM.yyyy' }}</td>
                         <!-- Pracovisko + location thumbnail -->
                         <td class="px-4 py-3">
                           <div class="flex items-center gap-2">
@@ -543,8 +545,13 @@
                             <span class="text-slate-900 dark:text-white font-medium leading-tight">{{ e.locationName }}</span>
                           </div>
                         </td>
-                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.clockIn | date:'dd.MM.yyyy, HH:mm' }}</td>
-                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ e.clockOut ? (e.clockOut | date:'dd.MM.yyyy, HH:mm') : '–' }}</td>
+                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                          @if (e.carName) {
+                            <span class="inline-flex items-center gap-1 text-sm">🚗 {{ e.carName }}</span>
+                          } @else {
+                            <span class="text-slate-500">—</span>
+                          }
+                        </td>
                         <td class="px-4 py-3 text-amber-400 font-semibold">{{ e.hoursWorked | hm }}</td>
                         <!-- Entry photo thumbnail or "Nenahral" badge -->
                         <td class="px-4 py-3">

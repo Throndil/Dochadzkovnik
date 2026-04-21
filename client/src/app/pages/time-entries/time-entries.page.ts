@@ -1,6 +1,6 @@
 import { Component, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
@@ -9,13 +9,12 @@ import { EmployeeService, Employee } from '../../services/employee.service';
 import { LocationService, Location } from '../../services/location.service';
 import { CarService, Car } from '../../services/car.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
-import { TimepickerDirective } from '../../directives/timepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-time-entries',
-  imports: [NavbarComponent, FormsModule, DatePipe, HmPipe, DatepickerDirective, TimepickerDirective],
+  imports: [NavbarComponent, FormsModule, DatePipe, DecimalPipe, HmPipe, DatepickerDirective],
   templateUrl: './time-entries.page.html'
 })
 export class TimeEntriesPage implements OnInit {
@@ -25,12 +24,19 @@ export class TimeEntriesPage implements OnInit {
   cars = signal<Car[]>([]);
   showAddForm = signal(false);
   editingEntry = signal<TimeEntry | null>(null);
-  newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
-  editForm = { carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
+  // Admin add/edit forms are hours-based (like the kiosk "log hours" flow),
+  // not clockIn/clockOut timestamps. The backend still stores clockIn + clockOut,
+  // so we back-calculate them on submit.
+  newEntry = { employeeId: 0, locationId: 0, carId: 0, date: '', hoursWorked: 8, note: '' };
+  editForm = { carId: 0, date: '', hoursWorked: 8, note: '' };
   from = '';
   to = '';
   filterEmployeeId = 0;
   filterLocationId = 0;
+  dateRangeMode: 'month' | 'week' | 'custom' = 'month';
+
+  /** Quick-pick hours presets shown as chips under the +/- control. */
+  readonly hoursPresets = [0.5, 1, 2, 4, 5, 5.5, 6, 7, 7.5, 8, 9, 10];
 
   // Photo state
   newPhotoFile = signal<File | null>(null);
@@ -57,11 +63,7 @@ export class TimeEntriesPage implements OnInit {
   ) {}
 
   ngOnInit() {
-    const today = new Date();
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    this.from = fmt(monthStart);
-    this.to = fmt(today);
+    this.setMonthRange();
 
     this.employeeService.getAll().subscribe(e => this.employees.set(e));
     this.locationService.getAll().subscribe(l => this.locations.set(l));
@@ -69,6 +71,46 @@ export class TimeEntriesPage implements OnInit {
     const params = this.route.snapshot.queryParams;
     if (params['employeeId']) this.filterEmployeeId = +params['employeeId'];
     if (params['locationId']) this.filterLocationId = +params['locationId'];
+    this.load();
+  }
+
+  private fmtDate(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  /** Set date range to the full current month. */
+  private setMonthRange() {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0); // last day of month
+    this.from = this.fmtDate(monthStart);
+    this.to = this.fmtDate(monthEnd);
+  }
+
+  /** Set date range to the current week (Monday–Sunday). */
+  private setWeekRange() {
+    const today = new Date();
+    const day = today.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + diffToMonday);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    this.from = this.fmtDate(monday);
+    this.to = this.fmtDate(sunday);
+  }
+
+  /** Quick-switch between month / week / custom date range. */
+  setDateRangeMode(mode: 'month' | 'week') {
+    this.dateRangeMode = mode;
+    if (mode === 'month') this.setMonthRange();
+    else this.setWeekRange();
+    this.load();
+  }
+
+  /** Called when the user manually changes the date inputs — switches to custom mode. */
+  onDateManualChange() {
+    this.dateRangeMode = 'custom';
     this.load();
   }
 
@@ -97,11 +139,16 @@ export class TimeEntriesPage implements OnInit {
   }
 
   exportXlsx() {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const date = `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`;
+    const fromDate = this.from ? new Date(this.from) : now;
+    const month = `${pad(fromDate.getMonth() + 1)}.${fromDate.getFullYear()}`;
     this.reportService.exportXlsx(this.getFilters()).subscribe(blob => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'zaznamy-dochadzky.xlsx';
+      a.download = `Downloaded-${date}_${month}.xlsx`;
       a.click();
       window.URL.revokeObjectURL(url);
     });
@@ -196,33 +243,73 @@ export class TimeEntriesPage implements OnInit {
       this.editPhotoPreview.set(null);
     } else {
       const today = new Date();
-      const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      const fmtTime = (d: Date) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: fmt(today), clockInTime: fmtTime(today), clockOutDate: '', clockOutTime: '', note: '' };
+      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: this.fmtDate(today), hoursWorked: 8, note: '' };
       this.showAddForm.set(true);
     }
   }
 
+  /** Adjust the staged hours for the add form by ±0.5h, clamped to [0.5, 24]. */
+  adjustNewHours(delta: number) {
+    const next = Math.round((this.newEntry.hoursWorked + delta) * 2) / 2;
+    this.newEntry.hoursWorked = Math.min(24, Math.max(0.5, next));
+  }
+  setNewHours(h: number) {
+    this.newEntry.hoursWorked = Math.min(24, Math.max(0.5, h));
+  }
+
+  /** Adjust the staged hours for the edit form by ±0.5h, clamped to [0.5, 24]. */
+  adjustEditHours(delta: number) {
+    const next = Math.round((this.editForm.hoursWorked + delta) * 2) / 2;
+    this.editForm.hoursWorked = Math.min(24, Math.max(0.5, next));
+  }
+  setEditHours(h: number) {
+    this.editForm.hoursWorked = Math.min(24, Math.max(0.5, h));
+  }
+
+  /**
+   * Build clockIn/clockOut ISO-ish strings from a (date, hoursWorked) pair,
+   * using the same convention as the kiosk log-hours endpoint:
+   *   - today  → clockOut = now
+   *   - past   → clockOut = date at 17:00
+   * then clockIn = clockOut − hoursWorked.
+   */
+  private buildClockWindow(dateStr: string, hoursWorked: number): { clockIn: string; clockOut: string } {
+    const [y, m, d] = dateStr.split('-').map(n => parseInt(n, 10));
+    const todayStr = this.fmtDate(new Date());
+    const isToday = dateStr === todayStr;
+    const clockOut = isToday
+      ? new Date()
+      : new Date(y, (m ?? 1) - 1, d ?? 1, 17, 0, 0, 0);
+    const clockIn = new Date(clockOut.getTime() - hoursWorked * 60 * 60 * 1000);
+    const iso = (dt: Date) => {
+      const p = (n: number) => String(n).padStart(2, '0');
+      return `${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())}T${p(dt.getHours())}:${p(dt.getMinutes())}:${p(dt.getSeconds())}`;
+    };
+    return { clockIn: iso(clockIn), clockOut: iso(clockOut) };
+  }
+
   onCreate() {
-    if (!this.newEntry.employeeId || !this.newEntry.locationId || !this.newEntry.clockInDate) return;
+    if (!this.newEntry.employeeId || !this.newEntry.locationId || !this.newEntry.date) return;
+    if (!this.newEntry.hoursWorked || this.newEntry.hoursWorked <= 0) {
+      alert('Zadajte počet hodín.');
+      return;
+    }
+    const { clockIn, clockOut } = this.buildClockWindow(this.newEntry.date, this.newEntry.hoursWorked);
     const dto: any = {
       employeeId: this.newEntry.employeeId,
       locationId: this.newEntry.locationId,
       carId: this.newEntry.carId || undefined,
-      clockIn: `${this.newEntry.clockInDate}T${this.newEntry.clockInTime || '00:00'}:00`,
+      clockIn,
+      clockOut,
       note: this.newEntry.note || undefined
     };
-    if (this.newEntry.clockOutDate) {
-      dto.clockOut = `${this.newEntry.clockOutDate}T${this.newEntry.clockOutTime || '00:00'}:00`;
-      if (dto.clockOut <= dto.clockIn) { alert('Odchod musí byť po príchode.'); return; }
-    }
     const photoFile = this.newPhotoFile();
     this.showAddForm.set(false);
     this.timeEntryService.create(dto).subscribe(created => {
       const finish = () => {
         this.newPhotoFile.set(null);
         this.newPhotoPreview.set(null);
-        this.newEntry = { employeeId: 0, locationId: 0, carId: 0, clockInDate: '', clockInTime: '', clockOutDate: '', clockOutTime: '', note: '' };
+        this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: '', hoursWorked: 8, note: '' };
         this.load();
       };
       if (photoFile) {
@@ -234,14 +321,19 @@ export class TimeEntriesPage implements OnInit {
   }
 
   onEdit(entry: TimeEntry) {
-    const toLocal = (iso: string) => {
-      const d = new Date(iso);
-      const p = (n: number) => n.toString().padStart(2, '0');
-      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    // Derive the local date + total hours from the existing entry so the
+    // manager sees the same value they'd enter on the kiosk.
+    const clockInDate = new Date(entry.clockIn);
+    const dateStr = this.fmtDate(clockInDate);
+    const hours = entry.hoursWorked && entry.hoursWorked > 0
+      ? Math.round(entry.hoursWorked * 2) / 2
+      : 8;
+    this.editForm = {
+      carId: entry.carId ?? 0,
+      date: dateStr,
+      hoursWorked: hours,
+      note: entry.note || ''
     };
-    const [ciDate, ciTime] = toLocal(entry.clockIn).split('T');
-    const [coDate, coTime] = entry.clockOut ? toLocal(entry.clockOut).split('T') : ['', ''];
-    this.editForm = { carId: entry.carId ?? 0, clockInDate: ciDate, clockInTime: ciTime, clockOutDate: coDate, clockOutTime: coTime, note: entry.note || '' };
     this.editPhotoFile.set(null);
     this.editPhotoPreview.set(entry.photoUrl ?? null);
     this.editingEntry.set(entry);
@@ -250,16 +342,18 @@ export class TimeEntriesPage implements OnInit {
 
   onUpdate() {
     const entry = this.editingEntry();
-    if (!entry || !this.editForm.clockInDate) return;
+    if (!entry || !this.editForm.date) return;
+    if (!this.editForm.hoursWorked || this.editForm.hoursWorked <= 0) {
+      alert('Zadajte počet hodín.');
+      return;
+    }
+    const { clockIn, clockOut } = this.buildClockWindow(this.editForm.date, this.editForm.hoursWorked);
     const dto: any = {
       carId: this.editForm.carId || undefined,
-      clockIn: `${this.editForm.clockInDate}T${this.editForm.clockInTime || '00:00'}:00`,
+      clockIn,
+      clockOut,
       note: this.editForm.note || undefined
     };
-    if (this.editForm.clockOutDate) {
-      dto.clockOut = `${this.editForm.clockOutDate}T${this.editForm.clockOutTime || '00:00'}:00`;
-      if (dto.clockOut <= dto.clockIn) { alert('Odchod musí byť po príchode.'); return; }
-    }
     const photoFile = this.editPhotoFile();
     this.timeEntryService.update(entry.id, dto).subscribe(() => {
       const finish = () => {
