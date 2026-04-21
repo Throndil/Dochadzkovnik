@@ -97,6 +97,20 @@
   - Mirrors the kiosk "log hours" UX — easier/faster for managers
   - Frontend back-calculates clockIn/clockOut before POST/PUT using the same convention as `/api/kiosk/log-hours`: past date → clockOut = 17:00 that day; today → clockOut = now; clockIn = clockOut − hoursWorked. No backend/API change.
 
+- [x] **"Týždeň" quick-range button actually updates the Od/Do pickers**
+  - The "Mesiac / Týždeň" toggle on `Záznamy dochádzky` was reassigning `from`/`to` component fields, but flatpickr's visible alt-input didn't re-render because the directive only read `input.value` at initialisation
+  - `DatepickerDirective` now implements `ControlValueAccessor`, so any programmatic `[(ngModel)]` write (e.g. "Týždeň") calls `fp.setDate(...)` and the picker label updates in-place
+  - Side benefit: the same fix applies to any future programmatic date changes on the Reports/Time-entries pages
+
+- [x] **Admin add-entry dropdown filters out inactive employees + backend guard**
+  - A manually added entry for a deactivated employee would be invisible in the kiosk "Moje hodiny" view, because `FindEmployeeByPin` only resolves `IsActive = true` employees. This was the root cause of the "worker can't see their entry" bug reported on 2026-04-21.
+  - The add form now uses `activeEmployees()` (computed from `employees().filter(e => e.isActive)`); the filter dropdown above the list still shows everyone so historical entries remain searchable.
+  - `POST /api/time-entries` also rejects creates for inactive employees with a clear Slovak error message, so the frontend filter is a defensive layer rather than the sole gate.
+
+- [x] **Moje hodiny surfaces backend errors instead of silent empty state**
+  - When the kiosk returned 401 (wrong PIN) or another error, the UI previously cleared entries and showed "Žiadne záznamy za toto obdobie" — indistinguishable from a legitimate empty month
+  - Added a `myHoursError` signal; the result card now renders the backend message in red when the request fails
+
 ---
 
 ## 📅 Date / Time Rules

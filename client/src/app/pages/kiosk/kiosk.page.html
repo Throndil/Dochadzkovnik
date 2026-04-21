@@ -512,7 +512,9 @@
 
         @if (myHoursLoaded()) {
           <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            @if (myHoursEntries().length === 0) {
+            @if (myHoursError()) {
+              <p class="py-10 text-center text-red-600 dark:text-red-400 font-medium px-5">{{ myHoursError() }}</p>
+            } @else if (myHoursEntries().length === 0) {
               <p class="py-10 text-center text-slate-500">Žiadne záznamy za toto obdobie.</p>
             } @else {
               <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
@@ -556,7 +558,7 @@
                         <!-- Entry photo thumbnail or "Nenahral" badge -->
                         <td class="px-4 py-3">
                           @if (firstPhotoUrl(e.photoUrl); as first) {
-                            <div class="relative inline-block cursor-pointer" (click)="myHoursLightbox.set(first)">
+                            <div class="relative inline-block cursor-pointer" (click)="openMyHoursLightbox(parsePhotoUrls(e.photoUrl), 0)">
                               <img [src]="first" alt="foto záznamu"
                                    class="w-12 h-12 rounded-lg object-cover hover:opacity-80 active:opacity-60 transition-opacity border border-slate-300 dark:border-slate-600" />
                               @if (parsePhotoUrls(e.photoUrl).length > 1) {
@@ -1035,13 +1037,36 @@
 }
 
 <!-- ══ My Hours photo lightbox ══════════════════════════════════ -->
-@if (myHoursLightbox()) {
-  <div class="fixed inset-0 bg-black/85 z-50 flex items-center justify-center p-4"
-       (click)="myHoursLightbox.set(null)">
-    <img [src]="myHoursLightbox()!" alt="foto záznamu"
-         class="max-w-full max-h-full rounded-xl shadow-2xl object-contain"
+@if (myHoursLightboxPhoto()) {
+  <div class="fixed inset-0 bg-black/85 z-50 flex flex-col items-center justify-center p-4"
+       (click)="closeMyHoursLightbox()">
+
+    <!-- Close -->
+    <button class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white text-xl flex items-center justify-center z-10"
+            (click)="closeMyHoursLightbox()">×</button>
+
+    <!-- Counter -->
+    @if (myHoursLightboxPhotos().length > 1) {
+      <div class="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 text-white text-sm px-3 py-1 rounded-full z-10">
+        {{ myHoursLightboxIdx() + 1 }} / {{ myHoursLightboxPhotos().length }}
+      </div>
+    }
+
+    <!-- Prev arrow -->
+    @if (myHoursLightboxPhotos().length > 1) {
+      <button class="absolute left-3 sm:left-6 w-11 h-11 rounded-full bg-white/15 hover:bg-white/30 text-white text-2xl flex items-center justify-center z-10 transition-colors"
+              (click)="$event.stopPropagation(); myHoursLightboxPrev()">&#8249;</button>
+    }
+
+    <!-- Photo -->
+    <img [src]="myHoursLightboxPhoto()!" alt="foto záznamu"
+         class="max-w-full max-h-[85vh] rounded-xl shadow-2xl object-contain"
          (click)="$event.stopPropagation()" />
-    <button class="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/20 hover:bg-white/30 text-white text-xl flex items-center justify-center"
-            (click)="myHoursLightbox.set(null)">×</button>
+
+    <!-- Next arrow -->
+    @if (myHoursLightboxPhotos().length > 1) {
+      <button class="absolute right-3 sm:right-6 w-11 h-11 rounded-full bg-white/15 hover:bg-white/30 text-white text-2xl flex items-center justify-center z-10 transition-colors"
+              (click)="$event.stopPropagation(); myHoursLightboxNext()">&#8250;</button>
+    }
   </div>
 }

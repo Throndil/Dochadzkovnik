@@ -53,6 +53,13 @@ export class TimeEntriesPage implements OnInit {
     this.entries().reduce((sum, e) => sum + (e.hoursWorked ?? 0), 0)
   );
 
+  /** Employees the admin is allowed to create NEW entries for.
+   *  The filter dropdown still uses the full list so historical entries for
+   *  deactivated employees remain searchable, but the add form must not offer
+   *  inactive employees — the kiosk only resolves active employees by PIN,
+   *  so any entry booked against an inactive employee is invisible to them. */
+  activeEmployees = computed(() => this.employees().filter(e => e.isActive));
+
   constructor(
     private timeEntryService: TimeEntryService,
     private reportService: ReportService,

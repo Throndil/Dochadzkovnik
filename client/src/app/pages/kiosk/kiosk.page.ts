@@ -1,4 +1,4 @@
-import { Component, signal, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
+import { Component, signal, computed, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow, WorkPhotoResult } from '../../services/kiosk.service';
@@ -80,7 +80,33 @@ export class KioskPage implements OnInit, OnDestroy {
   myHoursEmployeeName = signal('');
   myHoursLoaded = signal(false);
   myHoursLoading = signal(false);
-  myHoursLightbox = signal<string | null>(null);
+  /** Backend error when loading own hours (e.g. "Neplatný PIN"). Empty string = no error. */
+  myHoursError = signal('');
+
+  // Multi-photo lightbox for "Moje hodiny" — prev/next through all photos of a row.
+  myHoursLightboxPhotos = signal<string[]>([]);
+  myHoursLightboxIdx = signal(0);
+  myHoursLightboxPhoto = computed(() => this.myHoursLightboxPhotos()[this.myHoursLightboxIdx()] ?? null);
+
+  openMyHoursLightbox(photos: string[], startIdx = 0) {
+    if (!photos.length) return;
+    this.myHoursLightboxPhotos.set(photos);
+    this.myHoursLightboxIdx.set(Math.min(Math.max(0, startIdx), photos.length - 1));
+  }
+  closeMyHoursLightbox() {
+    this.myHoursLightboxPhotos.set([]);
+    this.myHoursLightboxIdx.set(0);
+  }
+  myHoursLightboxNext() {
+    const len = this.myHoursLightboxPhotos().length;
+    if (len < 2) return;
+    this.myHoursLightboxIdx.set((this.myHoursLightboxIdx() + 1) % len);
+  }
+  myHoursLightboxPrev() {
+    const len = this.myHoursLightboxPhotos().length;
+    if (len < 2) return;
+    this.myHoursLightboxIdx.set((this.myHoursLightboxIdx() - 1 + len) % len);
+  }
 
   /** Returns the cover photo URL for a location by id, or null if not found. */
   getLocationPhoto(locationId: number): string | null {
@@ -651,6 +677,7 @@ export class KioskPage implements OnInit, OnDestroy {
   loadMyHours() {
     if (this.myHoursPin.length < 4 || !this.myHoursFrom || !this.myHoursTo) return;
     this.myHoursLoading.set(true);
+    this.myHoursError.set('');
     this.kioskService.getMyHours(this.myHoursPin, this.myHoursFrom, this.myHoursTo).subscribe({
       next: entries => {
         this.myHoursEntries.set(entries);
@@ -659,8 +686,13 @@ export class KioskPage implements OnInit, OnDestroy {
         this.myHoursLoaded.set(true);
         this.myHoursLoading.set(false);
       },
-      error: () => {
+      error: err => {
         this.myHoursEntries.set([]);
+        // Surface the backend error message so workers know *why* no hours
+        // are shown (e.g. wrong PIN, deactivated account) instead of silently
+        // seeing an empty table.
+        const msg = typeof err?.error === 'string' ? err.error : 'Nepodarilo sa načítať hodiny.';
+        this.myHoursError.set(msg);
         this.myHoursLoaded.set(true);
         this.myHoursLoading.set(false);
       }

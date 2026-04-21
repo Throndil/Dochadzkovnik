@@ -1,6 +1,6 @@
 # Dochadzkovník — Project Notes
 
-> Last updated: 2026-04-10
+> Last updated: 2026-04-21
 
 ## What is this project?
 
@@ -145,6 +145,30 @@ The entire UI and all API messages are in **Slovak**. Error messages, kiosk resp
 ---
 
 ## Session Log
+
+### 2026-04-21 (continued) — Týždeň toggle fix & "worker can't see entry" diagnosis
+
+**Implemented:**
+
+- **`DatepickerDirective` now implements `ControlValueAccessor`** (`client/src/app/directives/datepicker.directive.ts`)
+  - Previously the directive was a plain flatpickr wrapper. ngModel wrote to the underlying input's `value`, but flatpickr's **alt-input** (the visible picker label) ignored programmatic input changes because flatpickr only reads `input.value` at initialisation.
+  - Symptom: clicking the "Týždeň" quick-range toggle on `Záznamy dochádzky` correctly reassigned `from`/`to` on the component and reloaded the list — but the picker labels kept showing the old month range.
+  - Fix: added `NG_VALUE_ACCESSOR` provider and implemented `writeValue` / `registerOnChange` / `registerOnTouched` / `setDisabledState`. `writeValue` now calls `fp.setDate(value || null, false)` (the `false` prevents flatpickr firing `onChange` and creating an ngModel feedback loop).
+  - `onChange` callback also routes into `onChangeCb(dateStr)` so user-picked dates continue to work.
+  - Pending-value handling retained for the case where `writeValue` arrives before `AfterViewInit`.
+
+- **Admin add-entry dropdown filters to active employees only + backend guard** (`client/src/app/pages/time-entries/time-entries.page.ts`, `...page.html`, `API/Controllers/TimeEntriesController.cs`)
+  - Diagnosed the "Mrkvička Janko (PIN 88888) can't see his 8h entry" report: `KioskController.FindEmployeeByPin` only resolves employees with `IsActive = true`. If the admin creates a TimeEntry against an inactive employee, it saves fine and appears in the admin list, but the kiosk PIN lookup returns 401 and the worker's Moje hodiny shows no entries.
+  - Added a `activeEmployees = computed(() => this.employees().filter(e => e.isActive))` and switched the "Nový záznam dochádzky > Zamestnanec" dropdown to use it. The filter dropdown above the list still uses the full `employees()` so historical entries for deactivated workers remain searchable/editable.
+  - `POST /api/time-entries` (`Create`) now rejects `!employee.IsActive` with a clear Slovak message ("Zamestnanec je neaktívny — aktivujte ho pred pridaním záznamu."). This is a backstop in case anything else (e.g. a Swagger / curl call) tries to book for an inactive employee.
+
+- **Kiosk "Moje hodiny" surfaces backend error messages** (`client/src/app/pages/kiosk/kiosk.page.ts`, `...page.html`)
+  - Added `myHoursError = signal('')` and populated it from the error handler. The result card now shows the backend error in red (e.g. "Neplatný PIN") instead of collapsing into the generic "Žiadne záznamy za toto obdobie" empty state, which was indistinguishable from a legitimate empty month.
+
+**Diagnostic note for the reporter:**
+If, after this fix, PIN 88888 still shows an empty Moje hodiny *after* a successful load (name shown, no red error, no entries), the most likely remaining cause is that the entry was booked against a DIFFERENT Employee record that happens to have the same name. On the admin side, open the employee detail page for the employee the entry is actually attached to and confirm their PIN matches 88888.
+
+---
 
 ### 2026-04-21 — Customer change requests
 

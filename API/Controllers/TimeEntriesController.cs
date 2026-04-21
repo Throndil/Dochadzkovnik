@@ -75,6 +75,11 @@ public class TimeEntriesController : ControllerBase
     {
         var employee = await _db.Employees.FindAsync(dto.EmployeeId);
         if (employee == null) return BadRequest("Employee not found");
+        // The kiosk resolves PINs only among IsActive employees. Booking an
+        // entry against an inactive employee would create a record the worker
+        // can never see in "Moje hodiny", which is confusing and almost always
+        // a mistake.
+        if (!employee.IsActive) return BadRequest("Zamestnanec je neaktívny — aktivujte ho pred pridaním záznamu.");
 
         var location = await _db.Locations.FindAsync(dto.LocationId);
         if (location == null) return BadRequest("Location not found");
