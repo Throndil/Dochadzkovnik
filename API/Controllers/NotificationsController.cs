@@ -330,29 +330,45 @@ public class NotificationsController : ControllerBase
             var body = dto.Body ?? $"Toto je testovacie upozornenie. Ak ho vidíš, push funguje. {DateTime.Now:HH:mm}";
 
             int successCount = 0;
+            var errors = new List<string>();
             foreach (var sub in subscriptions)
             {
                 var result = await _pushService.SendAsync(sub, title, body, "/kiosk");
 
-                var logEntry = new NotificationLog
-                {
-                    EmployeeId = emp.Id,
-                    Channel = "Push",
-                    TriggerType = "Test",
-                    Body = body,
-                    TriggerDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                    SentAt = DateTime.UtcNow,
-                    Status = result.Success ? "Sent" : "Failed",
-                    ErrorMessage = result.ErrorMessage
-                };
-                _db.NotificationLogs.Add(logEntry);
-
                 if (result.Success)
                     successCount++;
+                else if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                    errors.Add(result.ErrorMessage);
 
                 if (result.IsGoneStale)
                     _db.PushSubscriptions.Remove(sub);
             }
+
+            // Single audit row per logical send (Option A from the unique-index fix).
+            // The unique index (EmployeeId, Channel, TriggerType, TriggerDate) forbids
+            // more than one row per day per tuple, so we replace any prior row first —
+            // the Test button is meant to be pressable repeatedly during a day.
+            var triggerDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            var priorLogs = await _db.NotificationLogs
+                .Where(l => l.EmployeeId == emp.Id
+                         && l.Channel == "Push"
+                         && l.TriggerType == "Test"
+                         && l.TriggerDate == triggerDate)
+                .ToListAsync();
+            if (priorLogs.Count > 0)
+                _db.NotificationLogs.RemoveRange(priorLogs);
+
+            _db.NotificationLogs.Add(new NotificationLog
+            {
+                EmployeeId = emp.Id,
+                Channel = "Push",
+                TriggerType = "Test",
+                Body = body,
+                TriggerDate = triggerDate,
+                SentAt = DateTime.UtcNow,
+                Status = successCount > 0 ? "Sent" : "Failed",
+                ErrorMessage = errors.Count > 0 ? string.Join("; ", errors) : null
+            });
 
             await _db.SaveChangesAsync();
 
@@ -402,27 +418,38 @@ public class NotificationsController : ControllerBase
                     .Where(s => s.EmployeeId == candidate.Employee.Id)
                     .ToListAsync();
 
+                if (subscriptions.Count == 0)
+                    continue;
+
+                int successCount = 0;
+                var errors = new List<string>();
                 foreach (var sub in subscriptions)
                 {
                     var result = await _pushService.SendAsync(sub, candidate.PushTitle, candidate.PushBody, "/kiosk");
 
-                    var logEntry = new NotificationLog
-                    {
-                        EmployeeId = candidate.Employee.Id,
-                        Channel = "Push",
-                        TriggerType = "NoActivity48h",
-                        Body = candidate.PushBody,
-                        TriggerDate = todayBratislava,
-                        SentAt = DateTime.UtcNow,
-                        Status = result.Success ? "Sent" : "Failed",
-                        ErrorMessage = result.ErrorMessage
-                    };
-                    _db.NotificationLogs.Add(logEntry);
-                    totalSends++;
+                    if (result.Success)
+                        successCount++;
+                    else if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                        errors.Add(result.ErrorMessage);
 
                     if (result.IsGoneStale)
                         _db.PushSubscriptions.Remove(sub);
                 }
+
+                // Single audit row per (employee, channel, triggerType, day) — the unique index
+                // requires it. The early `alreadySent` check above guarantees we don't conflict.
+                _db.NotificationLogs.Add(new NotificationLog
+                {
+                    EmployeeId = candidate.Employee.Id,
+                    Channel = "Push",
+                    TriggerType = "NoActivity48h",
+                    Body = candidate.PushBody,
+                    TriggerDate = todayBratislava,
+                    SentAt = DateTime.UtcNow,
+                    Status = successCount > 0 ? "Sent" : "Failed",
+                    ErrorMessage = errors.Count > 0 ? string.Join("; ", errors) : null
+                });
+                totalSends += successCount;
             }
 
             await _db.SaveChangesAsync();
@@ -483,29 +510,48 @@ public class NotificationsController : ControllerBase
             return BadRequest("Žiadne push notifikácie zaregistrované");
 
         int successCount = 0;
+        var errors = new List<string>();
         foreach (var sub in subscriptions)
         {
             var result = await _pushService.SendAsync(sub, pushTitle, pushBody, "/kiosk");
 
-            var logEntry = new NotificationLog
-            {
-                EmployeeId = emp.Id,
-                Channel = "Push",
-                TriggerType = "NoActivity48h",
-                Body = pushBody,
-                TriggerDate = todayBratislava,
-                SentAt = DateTime.UtcNow,
-                Status = result.Success ? "Sent" : "Failed",
-                ErrorMessage = result.ErrorMessage
-            };
-            _db.NotificationLogs.Add(logEntry);
-
             if (result.Success)
                 successCount++;
+            else if (!string.IsNullOrWhiteSpace(result.ErrorMessage))
+                errors.Add(result.ErrorMessage);
 
             if (result.IsGoneStale)
                 _db.PushSubscriptions.Remove(sub);
         }
+
+        // Single audit row per logical send (Option A from the unique-index fix).
+        // When IgnoreIdempotency=true (demo button) we replace any prior row for the
+        // same (employee, channel, triggerType, day) tuple so the unique index does
+        // not reject the insert. When false, the early `alreadySent` check above has
+        // already returned BadRequest, so there is no conflicting row to delete.
+        if (dto.IgnoreIdempotency)
+        {
+            var priorLogs = await _db.NotificationLogs
+                .Where(l => l.EmployeeId == emp.Id
+                         && l.Channel == "Push"
+                         && l.TriggerType == "NoActivity48h"
+                         && l.TriggerDate == todayBratislava)
+                .ToListAsync();
+            if (priorLogs.Count > 0)
+                _db.NotificationLogs.RemoveRange(priorLogs);
+        }
+
+        _db.NotificationLogs.Add(new NotificationLog
+        {
+            EmployeeId = emp.Id,
+            Channel = "Push",
+            TriggerType = "NoActivity48h",
+            Body = pushBody,
+            TriggerDate = todayBratislava,
+            SentAt = DateTime.UtcNow,
+            Status = successCount > 0 ? "Sent" : "Failed",
+            ErrorMessage = errors.Count > 0 ? string.Join("; ", errors) : null
+        });
 
         await _db.SaveChangesAsync();
 

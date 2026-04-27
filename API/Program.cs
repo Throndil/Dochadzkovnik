@@ -170,6 +170,22 @@ using (var scope = app.Services.CreateScope())
                 }
             }
 
+            // AddEmployeeDeclineReason: Check if NotificationsDeclineReason already exists in Employees
+            // (added by self-heal in earlier deploys, before the migration file existed)
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsDeclineReason'";
+                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                if (count > 0)
+                {
+                    using var ins = conn.CreateCommand();
+                    ins.CommandText = @"
+                        INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                        VALUES ('20260427151230_AddEmployeeDeclineReason', '9.0.0')";
+                    await ins.ExecuteNonQueryAsync();
+                }
+            }
+
             // AddNotifications: Check if NotificationsEnabled column or NotificationConfigs table already exists
             using (var cmd = conn.CreateCommand())
             {
@@ -211,6 +227,34 @@ using (var scope = app.Services.CreateScope())
                        ) THEN
                         INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
                         VALUES ('20260426150946_AddNotifications', '9.0.0');
+                    END IF;
+                END $$;
+            ");
+        }
+        catch { /* best-effort — MigrateAsync will surface any real problems */ }
+    }
+
+    // PostgreSQL pre-migration: mark AddEmployeeDeclineReason as applied if the column was
+    // already added by the existing self-heal block (Employees.NotificationsDeclineReason).
+    // Prevents "column already exists" on MigrateAsync.
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '__EFMigrationsHistory')
+                       AND EXISTS (
+                           SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'Employees' AND column_name = 'NotificationsDeclineReason'
+                       )
+                       AND NOT EXISTS (
+                           SELECT 1 FROM ""__EFMigrationsHistory""
+                           WHERE ""MigrationId"" = '20260427151230_AddEmployeeDeclineReason'
+                       ) THEN
+                        INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                        VALUES ('20260427151230_AddEmployeeDeclineReason', '9.0.0');
                     END IF;
                 END $$;
             ");
@@ -776,6 +820,63 @@ using (var scope = app.Services.CreateScope())
                 ) THEN
                     ALTER TABLE ""NotificationConfigs""
                         ALTER COLUMN ""NoActivity48hTime"" TYPE TIME WITHOUT TIME ZONE USING (""NoActivity48hTime""::time);
+                END IF;
+
+                -- DateTime / DateOnly columns landed as `text` on PostgreSQL because the
+                -- AddNotifications migration was generated for SQLite (DateTime → TEXT).
+                -- Npgsql then refuses to read them: 'Reading as System.DateTime is not
+                -- supported for fields having DataTypeName text'. Cast each affected
+                -- column to its proper type. Guarded by data_type='text' so re-deploys
+                -- are no-ops once healed; safe (USING ::timestamp/::date) if the existing
+                -- text values are ISO-formatted (which EF wrote them as).
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'NotificationLogs'
+                      AND column_name = 'SentAt'
+                      AND data_type   = 'text'
+                ) THEN
+                    ALTER TABLE ""NotificationLogs""
+                        ALTER COLUMN ""SentAt"" TYPE TIMESTAMP WITHOUT TIME ZONE USING (""SentAt""::timestamp);
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'NotificationLogs'
+                      AND column_name = 'TriggerDate'
+                      AND data_type   = 'text'
+                ) THEN
+                    ALTER TABLE ""NotificationLogs""
+                        ALTER COLUMN ""TriggerDate"" TYPE DATE USING (""TriggerDate""::date);
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'PushSubscriptions'
+                      AND column_name = 'CreatedAt'
+                      AND data_type   = 'text'
+                ) THEN
+                    ALTER TABLE ""PushSubscriptions""
+                        ALTER COLUMN ""CreatedAt"" TYPE TIMESTAMP WITHOUT TIME ZONE USING (""CreatedAt""::timestamp);
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'PushSubscriptions'
+                      AND column_name = 'LastUsedAt'
+                      AND data_type   = 'text'
+                ) THEN
+                    ALTER TABLE ""PushSubscriptions""
+                        ALTER COLUMN ""LastUsedAt"" TYPE TIMESTAMP WITHOUT TIME ZONE USING (""LastUsedAt""::timestamp);
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'NotificationConfigs'
+                      AND column_name = 'LastTickAt'
+                      AND data_type   = 'text'
+                ) THEN
+                    ALTER TABLE ""NotificationConfigs""
+                        ALTER COLUMN ""LastTickAt"" TYPE TIMESTAMP WITHOUT TIME ZONE USING (""LastTickAt""::timestamp);
                 END IF;
 
                 IF EXISTS (
