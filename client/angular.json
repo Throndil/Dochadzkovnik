@@ -55,6 +55,18 @@
               "optimization": false,
               "extractLicenses": false,
               "sourceMap": true
+            },
+            "dev": {
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.dev.ts"
+                }
+              ],
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true,
+              "outputHashing": "all"
             }
           },
           "defaultConfiguration": "production"
@@ -68,6 +80,9 @@
             "development": {
               "buildTarget": "client:build:development",
               "proxyConfig": "proxy.conf.json"
+            },
+            "dev": {
+              "buildTarget": "client:build:dev"
             }
           },
           "defaultConfiguration": "development"

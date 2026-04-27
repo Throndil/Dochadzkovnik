@@ -1,3 +1,11 @@
+<!--
+Writing style: this file is read by AI assistants. Write plainly. No emojis,
+no "—" as rhetoric, no exclamation marks, no "super!" / "great!" / "perfect!" /
+"absolutely right!", no enthusiastic openings, no padding sentences. Bold sparingly.
+Slovak strings shown to workers must read like a normal person typed them,
+not marketing copy. When in doubt, write less.
+-->
+
 # Šichtovnica — Customer Call Backlog
 
 > Translated from SK call notes. Check off items as they are implemented.
@@ -113,6 +121,37 @@
 
 ---
 
+## 📦 Material tracking (April 26)
+
+- [x] **Per-location material consumption tracking with Excel export (V1)**
+  - New `Material` catalogue and `MaterialUsage` records, full backend CRUD and a two-sheet Excel export (Súhrn + Detailný záznam) generated on demand from the database
+  - "Spravovať" button on every Lokácia card opens a slide-over right-hand panel — backdrop / Esc / ✕ dismiss, mobile-friendly, body scroll locked while open
+  - Panel features: date-range filter (defaults to current month, "Tento mesiac" pill), summary table, add/edit/delete entries with quick-quantity chips, sticky footer with top-2 totals and green "Stiahnuť Excel" button
+  - New `/admin/materials` admin page for managing the catalogue (add / edit / toggle active / delete with soft-delete fallback when usage exists)
+  - New "Materiál" link in the navbar; first-run seed inserts 10 common Slovak items (Cement, Voda, Piesok, Štrk, Obklad, Dlažba, Omietka, Lepidlo, Sadrokartón, Skrutky)
+  - Approach: DB-as-truth + Excel as report format (chosen over two-way file sync — see `MATERIALS_PLAN.md` for rationale)
+  - **Required before first use:** `cd API && dotnet ef migrations add AddMaterialsAndUsage && dotnet run`
+
+- [x] **Per-unit cost / spend totals (V1.1, 2026-04-26)** — added `Material.PricePerUnit` (EUR) and `MaterialUsage.UnitPriceAtTime` (snapshot). Costs are inflation-protected: changing the price later does not affect existing records. Summary table, detail list, sticky-footer grand total, and the Excel export (both sheets) now show line costs and grand totals in `#,##0.00 €` format.
+- [x] **Inline "+ Nový materiál" in the location panel (V1.1, 2026-04-26)** — customer no longer has to leave the panel to add a missing catalogue item; a collapsible mini-form sits beside the material dropdown.
+- [x] **Smart default date when adding to a non-current month (V1.1, 2026-04-26)** — when the date filter is on a previous month, clicking + Pridať záznam defaults to the last day of that filter's range instead of today. Today is still used when it falls inside the filter.
+
+- [ ] **Kiosk material logging (V2)** — let workers log material usage from the tablet right after clocking out
+- [ ] **Excel import (V2)** — accept a customer-provided .xlsx and seed `MaterialUsages` from it (one-time migration of historical data)
+- [ ] **Stock / inventory mode (V2)** — current model is consumption only, not warehouse stock; confirm with customer before building
+- [ ] **Cross-location material dashboard (V2)** — "How much cement did all sites use in March?" report
+- [ ] **Photo retention policy for material delivery-slip photos (V2)** — same open question as work photos
+
+---
+
+## 💶 Financial management (parked — customer's "back pocket")
+
+- [ ] **Hourly wage per employee** — add `Employee.HourlyWage` (EUR/hr). Combined with TimeEntries, this enables full per-site financial management (labour cost + material cost = total spend per Lokácia). Customer asked to keep this in their back pocket on 2026-04-26 — flag/build only when they confirm.
+- [ ] **Per-location P&L view** — once both wages and material prices are in place, surface a single "Náklady na pracovisko" panel showing labour + material breakdown, optionally with a contract value field for margin tracking.
+- [ ] **Historical wage snapshotting** — same inflation-protection pattern used for `MaterialUsage.UnitPriceAtTime`: store the wage on each `TimeEntry` row at the moment it's logged, so retroactive raises don't rewrite payroll history.
+
+---
+
 ## 📅 Date / Time Rules
 
 - [x] **Maximum 2 days back for hour logging**
@@ -128,21 +167,46 @@
 
 ## 🔔 Notifications & Reminders
 
-- [ ] **48-hour reminder system**
-  - If an employee has not logged any hours in the last 48 hours, send a reminder
-  - Needs to be scheduled (cron-style background job or scheduled task)
+> **Direction (decided 2026-04-26):** V1 ships free channels only — **PWA push notifications** (primary) + **WhatsApp Business Cloud API** (secondary, opt-in per employee). One trigger only: worker has not clocked any hours in the past 2 days. SMS path deferred to V2 fallback.
+> Customer's workforce is older / non-tech-savvy — see `NOTIFICATIONS_PLAN.md` §10 for the UX rules.
 
-- [ ] **Internal SMS reminder tester**
-  - Add a dev/admin tool to manually trigger a test SMS reminder to a given number
-  - For verifying SMS delivery without waiting for the scheduled trigger
+- [x] **V1 — 48h-no-activity reminder via PWA push** (`NOTIFICATIONS_PLAN.md` M1) — *shipped 2026-04-26*
+  - Trigger: worker with no `TimeEntry` in the past 48h on a working day
+  - Channel: web push via `WebPush` NuGet, VAPID keypair in Railway env
+  - Subscription: kiosk-side "Povoliť upozornenia" tile (big, plain-Slovak, links to existing install-guide PDFs) — *kiosk tile pending (M2 frontend follow-up)*
+  - Persistence: `PushSubscription`, `NotificationLog`, `NotificationConfig` tables; new `Employee.NotificationsEnabled` column
 
-- [ ] **SMS reminders via universal address**
-  - Research and implement SMS delivery via a universal/gateway address (e.g. email-to-SMS, Twilio, or Slovak carrier gateway)
-  - Goal: send reminder SMS without a dedicated SMS provider if possible
+- [x] **V1 — Admin "Notifikácie" page** (`NOTIFICATIONS_PLAN.md` M2) — *shipped 2026-04-26*
+  - Toggle trigger on/off, set fire time, working-days flag
+  - Per-employee `NotificationsEnabled` / `WhatsAppEnabled` checkboxes + last-notified date
+  - 30-day send-history table
+  - "Test push" + "Test WhatsApp" buttons (replaces the old "Internal SMS reminder tester" backlog item)
+  - Demo controls: "Fire now", "Fire for employee" (with `ignoreIdempotency`), "Reset today" — for live customer demos
 
-- [ ] **General notifications research**
-  - Evaluate push notification options for the PWA (web push / service worker)
-  - Decide between push notifications vs SMS vs both
+- [~] **V1 — WhatsApp Business Cloud API channel** (`NOTIFICATIONS_PLAN.md` M3) — *stub shipped, awaiting Meta credentials*
+  - `IWhatsAppService` + `WhatsAppCloudApiService` interface and skeleton in place; real send blocked on customer setting up Meta Business account + approved template
+  - Approved Utility Template (Slovak copy in `NOTIFICATIONS_PLAN.md` §7) — *needs submission to Meta*
+  - Per-employee opt-in via `Employee.WhatsAppEnabled` toggle — *shipped*
+  - Uses `Employee.WhatsAppNumber` (or falls back to `Employee.PhoneNumber`) — *shipped, fallback works in admin UI*
+
+- [ ] **V1 polish — manager daily summary push** (`NOTIFICATIONS_PLAN.md` M4)
+  - Single push to the manager listing all workers who triggered today
+  - Click action opens admin "Záznamy dochádzky" filtered to today
+
+- [ ] **V1 polish — `NotificationLog` retention sweeper**
+  - Default 90 days; configurable in `appsettings`
+  - Background sweeper deletes older rows (GDPR considerations — phone numbers / names in audit log)
+
+- [ ] **V2 — SMS as fallback channel** (parked — see `SMS_PLAN.md`)
+  - Only revisited if push + WhatsApp coverage proves insufficient for some workers
+  - Provider candidates: Twilio (~€0.075/SMS to SK), SMSAPI.sk (~€0.03/SMS), smsmanager.cz (~€0.025/SMS), or self-hosted GSM gateway with an unlimited-SMS SIM (4ka / O2)
+
+- [ ] **V2 — Telegram / Viber bot channels** (parked)
+  - Both completely free, but require workers to start a chat with the bot to opt in
+  - Viber more common than Telegram in Slovakia
+
+- [ ] **V2 — Two-way replies** (parked)
+  - Worker replies "OK" → marks them as still active, suppresses tomorrow's reminder
 
 ---
 

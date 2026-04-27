@@ -1,0 +1,415 @@
+<app-navbar />
+
+<div class="min-h-screen bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <!-- Page Header -->
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Notifikácie</h1>
+      <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Správa pripomienok pre zamestnancov, ktorí si nezaznamenali odpracované hodiny.</p>
+    </div>
+
+    <!-- Bez záznamu hodín — plain list. Hidden when nobody is missing days. -->
+    @if (missingOverview() && missingOverview()!.employees.length > 0) {
+      <div class="bg-white dark:bg-slate-800 rounded-lg shadow border border-slate-200 dark:border-slate-700 p-4 md:p-5">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <h2 class="text-base font-semibold text-slate-900 dark:text-white">Bez záznamu hodín za posledný týždeň</h2>
+          <button (click)="loadMissingOverview()"
+                  [disabled]="missingOverviewLoading()"
+                  class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50">
+            {{ missingOverviewLoading() ? 'Načítavam…' : 'Obnoviť' }}
+          </button>
+        </div>
+        <ul class="text-sm text-slate-800 dark:text-slate-100 space-y-1">
+          @for (e of missingOverview()!.employees; track e.id) {
+            <li class="flex flex-wrap items-baseline gap-x-2">
+              <span class="font-medium">{{ e.fullName }}</span>
+              <span class="tabular-nums text-slate-700 dark:text-slate-300">
+                —
+                @for (d of e.missingDates; track d; let last = $last) {
+                  {{ formatMissingDateLong(d) }}{{ !last ? ', ' : '' }}
+                }
+              </span>
+              @if (e.phoneNumber) {
+                <a [href]="'tel:' + e.phoneNumber"
+                   class="text-blue-600 dark:text-blue-400 hover:underline tabular-nums">{{ e.phoneNumber }}</a>
+                <a [href]="'sms:' + e.phoneNumber"
+                   class="text-blue-600 dark:text-blue-400 hover:underline">SMS</a>
+              }
+            </li>
+          }
+        </ul>
+      </div>
+    }
+
+    <!-- Card 1: Config -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow border border-slate-200 dark:border-slate-700 p-4 md:p-6">
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Konfigurácia upozornení</h2>
+
+      @if (configLoading()) {
+        <p class="text-slate-500">Načítavam...</p>
+      } @else {
+        <div class="space-y-4">
+          <!-- Toggle: NoActivity48hEnabled -->
+          <div class="flex items-start gap-3">
+            <input type="checkbox"
+                   [checked]="config().noActivity48hEnabled"
+                   (change)="toggleConfigEnabled()"
+                   class="mt-1 rounded" />
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Pripomienka po 2 dňoch bez záznamu
+            </label>
+          </div>
+
+          <!-- Time picker -->
+          <div class="max-w-xs">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              Čas odoslania (HH:mm)
+            </label>
+            <input type="time"
+                   [value]="config().noActivity48hTime"
+                   (change)="onNoActivity48hTimeChange($any($event).target.value)"
+                   [disabled]="!config().noActivity48hEnabled"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg disabled:opacity-50" />
+          </div>
+
+          <!-- Toggle: WorkingDaysOnly -->
+          <div class="flex items-start gap-3">
+            <input type="checkbox"
+                   [checked]="config().workingDaysOnly"
+                   (change)="toggleWorkingDaysOnly()"
+                   class="mt-1 rounded" />
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Iba pracovné dni (Po–Pi)
+            </label>
+          </div>
+
+          <!-- Toggle: ManagerSummaryEnabled -->
+          <div class="flex items-start gap-3">
+            <input type="checkbox"
+                   [checked]="config().managerSummaryEnabled"
+                   (change)="toggleManagerSummaryEnabled()"
+                   class="mt-1 rounded" />
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Posielať manažérovi denný súhrn
+            </label>
+          </div>
+
+          <!-- Employee dropdown (visible only if managerSummaryEnabled) -->
+          @if (config().managerSummaryEnabled) {
+            <div class="max-w-xs">
+              <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Manažér (zamestnanec)
+              </label>
+              <select (change)="onManagerSummaryEmployeeChange($any($event).target.value)"
+                      [value]="config().managerSummaryEmployeeId || ''"
+                      class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+                <option value="">-- Vyberte --</option>
+                @for (emp of activeEmployees(); track emp.id) {
+                  <option [value]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
+                }
+              </select>
+            </div>
+          }
+
+          <!-- Save button -->
+          <div class="pt-2">
+            <button (click)="saveConfig()"
+                    [disabled]="configSaving()"
+                    class="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white px-6 py-2 rounded-lg transition-colors">
+              {{ configSaving() ? 'Ukladám...' : 'Uložiť' }}
+            </button>
+            @if (configSaveMessage()) {
+              <span class="ml-3 text-sm"
+                    [class.text-green-600]="configSaveSuccess()"
+                    [class.text-red-600]="!configSaveSuccess()">
+                {{ configSaveMessage() }}
+              </span>
+            }
+          </div>
+        </div>
+      }
+    </div>
+
+    <!-- Card 2: Employees -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow border border-slate-200 dark:border-slate-700 p-4 md:p-6">
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Zamestnanci</h2>
+
+      @if (employeesError()) {
+        <p class="text-red-600 dark:text-red-400 text-sm">{{ employeesError() }}</p>
+      } @else if (employeesLoading()) {
+        <p class="text-slate-500">Načítavam...</p>
+      } @else if (employees().length === 0) {
+        <p class="text-slate-500">Žiadni aktívni zamestnanci.</p>
+      } @else {
+        <!-- Desktop: wide table (md and up) -->
+        <div class="hidden md:block overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+              <tr>
+                <th class="text-left px-4 py-3 font-medium">Meno</th>
+                <th class="text-left px-4 py-3 font-medium">Telefón</th>
+                <th class="text-center px-4 py-3 font-medium">Push zariadenia</th>
+                <th class="text-center px-4 py-3 font-medium">Aktívne</th>
+                <th class="text-left px-4 py-3 font-medium">Posledné</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+              @for (emp of employees(); track emp.id) {
+                <tr class="text-slate-800 dark:text-slate-200">
+                  <td class="px-4 py-3 font-medium">{{ emp.firstName }} {{ emp.lastName }}</td>
+                  <td class="px-4 py-3">{{ emp.phoneNumber || '—' }}</td>
+                  <td class="px-4 py-3 text-center">
+                    <span class="inline-block px-2 py-1 rounded text-xs"
+                          [class.bg-green-100]="emp.pushSubscriptionCount > 0"
+                          [class.dark:bg-green-900]="emp.pushSubscriptionCount > 0"
+                          [class.text-green-700]="emp.pushSubscriptionCount > 0"
+                          [class.dark:text-green-200]="emp.pushSubscriptionCount > 0"
+                          [class.bg-slate-100]="emp.pushSubscriptionCount === 0"
+                          [class.dark:bg-slate-700]="emp.pushSubscriptionCount === 0">
+                      {{ emp.pushSubscriptionCount }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-center">
+                    <input type="checkbox"
+                           [checked]="emp.notificationsEnabled"
+                           [disabled]="employeeUpdatingIds().has(emp.id)"
+                           (change)="toggleEmployeeNotifications(emp)"
+                           class="disabled:opacity-50 rounded" />
+                  </td>
+                  <td class="px-4 py-3 text-sm">{{ formatLastNotified(emp.lastNotifiedAt) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Mobile: stacked cards (below md) -->
+        <div class="md:hidden space-y-3">
+          @for (emp of employees(); track emp.id) {
+            <div class="bg-slate-50 dark:bg-slate-700/50 p-3 rounded border border-slate-200 dark:border-slate-700">
+              <div class="font-medium text-slate-900 dark:text-white">{{ emp.firstName }} {{ emp.lastName }}</div>
+              <div class="grid grid-cols-2 gap-2 text-sm mt-2">
+                <div><span class="text-slate-600 dark:text-slate-400">Telefón:</span> {{ emp.phoneNumber || '—' }}</div>
+                <div><span class="text-slate-600 dark:text-slate-400">Push zariadenia:</span> {{ emp.pushSubscriptionCount }}</div>
+                <label class="flex items-center gap-2 col-span-2">
+                  <input type="checkbox" [checked]="emp.notificationsEnabled" (change)="toggleEmployeeNotifications(emp)" class="rounded" />
+                  <span class="text-slate-600 dark:text-slate-400">Aktívne</span>
+                </label>
+              </div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-2">Posledné: {{ formatLastNotified(emp.lastNotifiedAt) }}</div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+
+    <!-- Card 3: Test & Demo -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow border border-slate-200 dark:border-slate-700 p-4 md:p-6 space-y-6">
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Test a demo</h2>
+
+      <!-- Sub-section A: Test notifications -->
+      <div class="pb-6 border-b border-slate-200 dark:border-slate-700">
+        <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-3">Testovacie upozornenie</h3>
+        <div class="space-y-3">
+          <div class="max-w-xs">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              Vyberte zamestnanca
+            </label>
+            <select (change)="selectedEmployeeId.set($any($event).target.value ? +$any($event).target.value : null)"
+                    [value]="selectedEmployeeId() || ''"
+                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+              <option value="">-- Vyberte --</option>
+              @for (emp of employees(); track emp.id) {
+                <option [value]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
+              }
+            </select>
+          </div>
+
+          <div class="flex gap-2">
+            <button (click)="onTestPushClick()"
+                    [disabled]="testPushLoading() || !selectedEmployeeId()"
+                    class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors text-sm">
+              {{ testPushLoading() ? 'Posielam…' : 'Poslať testovaciu push' }}
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Funguje len ak má zamestnanec aspoň jedno zariadenie s aktivovanou push notifikáciou.
+          </p>
+
+          @if (testResult()) {
+            <p class="text-green-600 dark:text-green-400 text-sm">{{ testResult() }}</p>
+          }
+          @if (testError()) {
+            <p class="text-red-600 dark:text-red-400 text-sm">{{ testError() }}</p>
+          }
+        </div>
+      </div>
+
+      <!-- Sub-section B: Fire now -->
+      <div class="pb-6 border-b border-slate-200 dark:border-slate-700">
+        <h3 class="text-sm font-semibold text-slate-900 dark:text-white mb-3">Spustiť 48h kontrolu hneď</h3>
+        <div class="space-y-3">
+          <button (click)="onFireNowClick()"
+                  [disabled]="fireNowLoading()"
+                  class="bg-slate-700 hover:bg-slate-800 disabled:opacity-50 text-white px-4 py-2 rounded-lg transition-colors text-sm">
+            {{ fireNowLoading() ? 'Spúšťam...' : 'Spustiť kontrolu' }}
+          </button>
+          @if (fireNowResult()) {
+            <p class="text-green-600 dark:text-green-400 text-sm">{{ fireNowResult() }}</p>
+          }
+        </div>
+      </div>
+
+      <!-- Sub-section C: Demo (PROMINENT) -->
+      <div class="pb-6 border-b border-slate-200 dark:border-slate-700 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-4">
+        <h3 class="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-1">
+          Demo: poslať konkrétnemu zamestnancovi
+        </h3>
+        <p class="text-xs text-amber-800 dark:text-amber-200 mb-3">
+          Pošle 48-hodinovú pripomienku konkrétnemu zamestnancovi. Ideálne na ukážku zákazníkovi — ignoruje denný limit, dá sa použiť opakovane v ten istý deň.
+        </p>
+
+        <div class="space-y-3">
+          <div class="max-w-xs">
+            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              Vyberte zamestnanca
+            </label>
+            <select (change)="demoSelectedEmployeeId.set($any($event).target.value ? +$any($event).target.value : null)"
+                    [value]="demoSelectedEmployeeId() || ''"
+                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+              <option value="">-- Vyberte --</option>
+              @for (emp of employees(); track emp.id) {
+                <option [value]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
+              }
+            </select>
+          </div>
+
+          <button (click)="onDemoClick()"
+                  [disabled]="demoLoading() || !demoSelectedEmployeeId()"
+                  class="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-6 py-3 md:py-4 rounded-lg transition-colors font-medium h-12 md:h-14 text-base md:text-lg">
+            {{ demoLoading() ? 'Posielam...' : 'Odoslať pripomienku TERAZ' }}
+          </button>
+
+          @if (demoResult()) {
+            <p class="text-green-600 dark:text-green-400 text-sm font-medium">{{ demoResult() }}</p>
+          }
+          @if (demoError()) {
+            <p class="text-red-600 dark:text-red-400 text-sm">{{ demoError() }}</p>
+          }
+        </div>
+      </div>
+
+      <!-- Sub-section D: Reset today -->
+      <div>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mb-2">DEV / DEMO</p>
+        <button (click)="onResetTodayClick()"
+                [disabled]="resetTodayLoading()"
+                class="bg-slate-600 hover:bg-slate-700 disabled:opacity-50 text-white px-3 py-1 rounded text-sm transition-colors">
+          {{ resetTodayLoading() ? 'Mažem...' : 'Vymazať dnešné záznamy' }}
+        </button>
+        @if (resetTodayMessage()) {
+          <span class="ml-3 text-xs text-green-600 dark:text-green-400">{{ resetTodayMessage() }}</span>
+        }
+      </div>
+    </div>
+
+    <!-- Card 4: History -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow border border-slate-200 dark:border-slate-700 p-4 md:p-6">
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">História upozornení</h2>
+
+      <!-- Filters -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Od dátumu</label>
+          <input type="date"
+                 [value]="historyFrom()"
+                 (change)="historyFrom.set($any($event).target.value)"
+                 class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Do dátumu</label>
+          <input type="date"
+                 [value]="historyTo()"
+                 (change)="historyTo.set($any($event).target.value)"
+                 class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Zamestnanec</label>
+          <select (change)="historyEmployeeId.set($any($event).target.value ? +$any($event).target.value : null)"
+                  [value]="historyEmployeeId() || ''"
+                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+            <option value="">-- Všetci --</option>
+            @for (emp of employees(); track emp.id) {
+              <option [value]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
+            }
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Kanál</label>
+          <select (change)="historyChannel.set($any($event).target.value)"
+                  [value]="historyChannel()"
+                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+            <option value="">-- Všetky --</option>
+            <option value="Push">Push</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Status filter -->
+      <div class="mb-4 max-w-sm">
+        <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Stav</label>
+        <select (change)="historyStatus.set($any($event).target.value)"
+                [value]="historyStatus()"
+                class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+          <option value="">-- Všetky --</option>
+          <option value="Sent">Odoslané</option>
+          <option value="Failed">Chyba</option>
+          <option value="Skipped">Preskočené</option>
+          <option value="NoSubscription">Bez notifikácie</option>
+        </select>
+      </div>
+
+      <!-- History table -->
+      @if (historyError()) {
+        <p class="text-red-600 dark:text-red-400 text-sm">{{ historyError() }}</p>
+      } @else if (historyLoading()) {
+        <p class="text-slate-500 text-sm">Načítavam...</p>
+      } @else if (history().length === 0) {
+        <p class="text-slate-500 text-sm">Žiadne odoslania v zvolenom období.</p>
+      } @else {
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+              <tr>
+                <th class="text-left px-4 py-3 font-medium">Dátum a čas</th>
+                <th class="text-left px-4 py-3 font-medium">Zamestnanec</th>
+                <th class="text-left px-4 py-3 font-medium">Kanál</th>
+                <th class="text-left px-4 py-3 font-medium">Trigger</th>
+                <th class="text-left px-4 py-3 font-medium">Stav</th>
+                <th class="text-left px-4 py-3 font-medium">Chyba</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+              @for (log of history(); track log.id) {
+                <tr class="text-slate-800 dark:text-slate-200">
+                  <td class="px-4 py-3 text-xs">{{ formatHistoryDate(log.sentAt) }}</td>
+                  <td class="px-4 py-3 text-xs">{{ log.employeeName }}</td>
+                  <td class="px-4 py-3 text-xs">{{ log.channel }}</td>
+                  <td class="px-4 py-3 text-xs">{{ log.triggerType }}</td>
+                  <td class="px-4 py-3 text-xs">
+                    <span [class]="log.status === 'Sent' ? 'text-green-600 dark:text-green-400' : log.status === 'Failed' ? 'text-red-600 dark:text-red-400' : 'text-slate-500'">
+                      {{ log.status }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-xs text-red-600 dark:text-red-400" [title]="log.errorMessage">
+                    {{ truncateError(log.errorMessage) }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  </div>
+</div>

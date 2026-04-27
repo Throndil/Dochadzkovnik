@@ -12,6 +12,9 @@ public class Employee
     public string? City { get; set; }
     public string? PhotoUrl { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool NotificationsEnabled { get; set; } = true;
+    public bool WhatsAppEnabled { get; set; } = false;
+    public string? WhatsAppNumber { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

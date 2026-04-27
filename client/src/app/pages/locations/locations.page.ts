@@ -3,10 +3,11 @@ import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { LocationService, Location, CreateLocation } from '../../services/location.service';
+import { LocationManagePanelComponent } from '../../components/location-manage-panel/location-manage-panel.component';
 
 @Component({
   selector: 'app-locations',
-  imports: [NavbarComponent, RouterLink, FormsModule],
+  imports: [NavbarComponent, RouterLink, FormsModule, LocationManagePanelComponent],
   templateUrl: './locations.page.html'
 })
 export class LocationsPage implements OnInit {
@@ -17,7 +18,13 @@ export class LocationsPage implements OnInit {
   photoPreview = signal<string | null>(null);
   isDragOver = signal(false);
 
+  // The location currently shown in the manage slide-over panel (null = closed)
+  manageLocation = signal<Location | null>(null);
+
   constructor(private locationService: LocationService) {}
+
+  onManage(loc: Location) { this.manageLocation.set(loc); }
+  onPanelClose()           { this.manageLocation.set(null); }
 
   ngOnInit() {
     this.load();

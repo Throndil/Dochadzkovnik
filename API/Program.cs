@@ -1,4 +1,5 @@
 using System.Text;
+using API.BackgroundServices;
 using API.Data;
 using API.Models;
 using API.Services;
@@ -77,10 +78,18 @@ if (!string.IsNullOrEmpty(cloudName) && !string.IsNullOrEmpty(cloudApiKey) && !s
 // Image processing (normalise all uploads to PNG)
 builder.Services.AddScoped<IImageProcessingService, ImageProcessingService>();
 
+// Material consumption Excel export (ClosedXML)
+builder.Services.AddScoped<IMaterialExcelExportService, MaterialExcelExportService>();
+
 // App services
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPinHasher, PinHasher>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+
+// Notification services (push only)
+builder.Services.AddScoped<IPushNotificationService, WebPushService>();
+builder.Services.AddScoped<NoActivity48hEvaluator>();
+builder.Services.AddHostedService<NotificationBackgroundService>();
 
 // CORS
 builder.Services.AddCors(options =>
@@ -116,7 +125,8 @@ using (var scope = app.Services.CreateScope())
         {
             var conn = db.Database.GetDbConnection();
             await conn.OpenAsync();
-            // Check if PinPlain already exists in Employees
+
+            // AddEmployeePinPlain: Check if PinPlain already exists in Employees
             using (var cmd = conn.CreateCommand())
             {
                 cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'PinPlain'";
@@ -131,84 +141,55 @@ using (var scope = app.Services.CreateScope())
                 }
             }
 
+            // AddNotifications: Check if NotificationsEnabled column or NotificationConfigs table already exists
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT
+                        (SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsEnabled') +
+                        (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = 'NotificationConfigs')";
+                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+                if (count > 0)
+                {
+                    using var ins = conn.CreateCommand();
+                    ins.CommandText = @"
+                        INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                        VALUES ('20260426150946_AddNotifications', '9.0.0')";
+                    await ins.ExecuteNonQueryAsync();
+                }
+            }
+
             await conn.CloseAsync();
         }
         catch { /* best-effort — MigrateAsync will surface any real problems */ }
     }
 
-    await db.Database.MigrateAsync();
-
-    // Self-heal: add sequences/defaults to int PK columns that were created without them
-    if (!string.IsNullOrEmpty(databaseUrl))
+    // PostgreSQL pre-migration: mark AddNotifications as applied if its tables already exist
+    // (created by the post-migration self-heal block on a previous deployment, before the
+    // migration file was added to the project). Prevents "table already exists" on MigrateAsync.
+    if (!string.IsNullOrEmpty(databaseUrl)) // PostgreSQL only (DATABASE_URL set = prod)
     {
-        await db.Database.ExecuteSqlRawAsync(@"
-            DO $$
-            BEGIN
-                -- Employees
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'Employees' AND column_name = 'Id'
-                      AND (column_default IS NOT NULL OR is_identity = 'YES')
-                ) THEN
-                    CREATE SEQUENCE IF NOT EXISTS ""Employees_Id_seq"";
-                    ALTER TABLE ""Employees"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""Employees_Id_seq""');
-                    PERFORM setval('""Employees_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""Employees""), 0) + 1, false);
-                END IF;
-                -- Locations
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'Locations' AND column_name = 'Id'
-                      AND (column_default IS NOT NULL OR is_identity = 'YES')
-                ) THEN
-                    CREATE SEQUENCE IF NOT EXISTS ""Locations_Id_seq"";
-                    ALTER TABLE ""Locations"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""Locations_Id_seq""');
-                    PERFORM setval('""Locations_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""Locations""), 0) + 1, false);
-                END IF;
-                -- TimeEntries
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'TimeEntries' AND column_name = 'Id'
-                      AND (column_default IS NOT NULL OR is_identity = 'YES')
-                ) THEN
-                    CREATE SEQUENCE IF NOT EXISTS ""TimeEntries_Id_seq"";
-                    ALTER TABLE ""TimeEntries"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""TimeEntries_Id_seq""');
-                    PERFORM setval('""TimeEntries_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""TimeEntries""), 0) + 1, false);
-                END IF;
-                -- AspNetRoleClaims
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'AspNetRoleClaims' AND column_name = 'Id'
-                      AND (column_default IS NOT NULL OR is_identity = 'YES')
-                ) THEN
-                    CREATE SEQUENCE IF NOT EXISTS ""AspNetRoleClaims_Id_seq"";
-                    ALTER TABLE ""AspNetRoleClaims"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""AspNetRoleClaims_Id_seq""');
-                    PERFORM setval('""AspNetRoleClaims_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""AspNetRoleClaims""), 0) + 1, false);
-                END IF;
-                -- AspNetUserClaims
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'AspNetUserClaims' AND column_name = 'Id'
-                      AND (column_default IS NOT NULL OR is_identity = 'YES')
-                ) THEN
-                    CREATE SEQUENCE IF NOT EXISTS ""AspNetUserClaims_Id_seq"";
-                    ALTER TABLE ""AspNetUserClaims"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""AspNetUserClaims_Id_seq""');
-                    PERFORM setval('""AspNetUserClaims_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""AspNetUserClaims""), 0) + 1, false);
-                END IF;
-                -- WorkPhotos: AddWorkPhotos migration used SQLite-only Autoincrement annotation,
-                -- so no SERIAL/IDENTITY was created on PostgreSQL. Fix it here.
-                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'WorkPhotos')
-                   AND NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'WorkPhotos' AND column_name = 'Id'
-                      AND (column_default IS NOT NULL OR is_identity = 'YES')
-                ) THEN
-                    CREATE SEQUENCE IF NOT EXISTS ""WorkPhotos_Id_seq"";
-                    ALTER TABLE ""WorkPhotos"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""WorkPhotos_Id_seq""');
-                    PERFORM setval('""WorkPhotos_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""WorkPhotos""), 0) + 1, false);
-                END IF;
-            END $$;
-        ");
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = '__EFMigrationsHistory')
+                       AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'NotificationConfigs')
+                       AND NOT EXISTS (
+                           SELECT 1 FROM ""__EFMigrationsHistory""
+                           WHERE ""MigrationId"" = '20260426150946_AddNotifications'
+                       ) THEN
+                        INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                        VALUES ('20260426150946_AddNotifications', '9.0.0');
+                    END IF;
+                END $$;
+            ");
+        }
+        catch { /* best-effort — MigrateAsync will surface any real problems */ }
     }
+
+    await db.Database.MigrateAsync();
 
     // Fix DateTime columns created as TEXT by the old SQLite-specific type annotations
     if (!string.IsNullOrEmpty(databaseUrl))
@@ -405,6 +386,408 @@ using (var scope = app.Services.CreateScope())
                 END IF;
             END $$;
         ");
+    }
+
+    // Self-heal: ensure Cars + TimeEntries.{CarId,PhotoUrl} schema exists on SQLite (local dev).
+    // The hand-written AddCars / AddCarPhotoUrl / AddTimeEntryPhotoUrl migrations have no
+    // .Designer.cs companion, so EF's MigrateAsync silently skips them. A fresh local DB
+    // therefore has no Cars table and no CarId/PhotoUrl on TimeEntries.
+    // Mirrors the existing PostgreSQL self-heal block above; idempotent (IF NOT EXISTS /
+    // pragma_table_info). Wrapped in try/catch so any unexpected failure doesn't block startup.
+    if (string.IsNullOrEmpty(databaseUrl))
+    {
+        try
+        {
+            // Cars table — column set matches the model + AddCars/AddCarPhotoUrl migrations.
+            await db.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""Cars"" (
+                    ""Id""           INTEGER NOT NULL CONSTRAINT ""PK_Cars"" PRIMARY KEY AUTOINCREMENT,
+                    ""Name""         TEXT NOT NULL,
+                    ""LicensePlate"" TEXT NULL,
+                    ""PhotoUrl""     TEXT NULL,
+                    ""IsActive""     INTEGER NOT NULL DEFAULT 1,
+                    ""CreatedAt""    TEXT NOT NULL DEFAULT '',
+                    ""UpdatedAt""    TEXT NOT NULL DEFAULT ''
+                );
+            ");
+
+            var carsConn = db.Database.GetDbConnection();
+            var carsConnWasClosed = carsConn.State != System.Data.ConnectionState.Open;
+            if (carsConnWasClosed) await carsConn.OpenAsync();
+            try
+            {
+                async Task<bool> ColExists(string table, string column)
+                {
+                    using var cmd = carsConn.CreateCommand();
+                    cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
+                    return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+                }
+
+                // Cars.PhotoUrl (defensive — covered by the CREATE TABLE above on a fresh DB,
+                // but ensures the column exists on a DB that was created before AddCarPhotoUrl).
+                if (!await ColExists("Cars", "PhotoUrl"))
+                    await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Cars"" ADD COLUMN ""PhotoUrl"" TEXT NULL;");
+
+                // TimeEntries.CarId + index (was supposed to be added by AddCars).
+                if (!await ColExists("TimeEntries", "CarId"))
+                {
+                    await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""TimeEntries"" ADD COLUMN ""CarId"" INTEGER NULL;");
+                    await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_TimeEntries_CarId"" ON ""TimeEntries"" (""CarId"");");
+                }
+
+                // TimeEntries.PhotoUrl (was supposed to be added by AddTimeEntryPhotoUrl).
+                if (!await ColExists("TimeEntries", "PhotoUrl"))
+                    await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""TimeEntries"" ADD COLUMN ""PhotoUrl"" TEXT NULL;");
+            }
+            finally
+            {
+                if (carsConnWasClosed) await carsConn.CloseAsync();
+            }
+
+            // Mark the corresponding hand-written migrations as applied so EF doesn't ever
+            // try to re-run them if a .Designer.cs is generated later.
+            await db.Database.ExecuteSqlRawAsync(@"
+                INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"") VALUES
+                    ('20260328100000_AddCars', '9.0.0'),
+                    ('20260328120000_AddCarPhotoUrl', '9.0.0'),
+                    ('20260411000000_AddTimeEntryPhotoUrl', '9.0.0'),
+                    ('20260413000000_WorkPhotoNullableEmployee', '9.0.0');
+            ");
+        }
+        catch { /* best-effort SQLite self-heal */ }
+    }
+
+    // Self-heal: ensure Materials and MaterialUsages tables exist.
+    // SQLite path — local dev. The CREATE TABLE statements are idempotent (IF NOT EXISTS).
+    if (string.IsNullOrEmpty(databaseUrl))
+    {
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""Materials"" (
+                    ""Id""           INTEGER NOT NULL CONSTRAINT ""PK_Materials"" PRIMARY KEY AUTOINCREMENT,
+                    ""Name""         TEXT NOT NULL,
+                    ""Unit""         TEXT NOT NULL,
+                    ""PricePerUnit"" TEXT NOT NULL DEFAULT '0',
+                    ""IsActive""     INTEGER NOT NULL DEFAULT 1,
+                    ""CreatedAt""    TEXT NOT NULL,
+                    ""UpdatedAt""    TEXT NOT NULL
+                );
+            ");
+            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_Materials_Name"" ON ""Materials"" (""Name"");");
+
+            await db.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""MaterialUsages"" (
+                    ""Id""              INTEGER NOT NULL CONSTRAINT ""PK_MaterialUsages"" PRIMARY KEY AUTOINCREMENT,
+                    ""LocationId""      INTEGER NOT NULL,
+                    ""MaterialId""      INTEGER NOT NULL,
+                    ""EmployeeId""      INTEGER NULL,
+                    ""Quantity""        TEXT NOT NULL,
+                    ""UnitPriceAtTime"" TEXT NOT NULL DEFAULT '0',
+                    ""Date""            TEXT NOT NULL,
+                    ""Note""            TEXT NULL,
+                    ""PhotoUrl""        TEXT NULL,
+                    ""CreatedAt""       TEXT NOT NULL,
+                    ""UpdatedAt""       TEXT NOT NULL,
+                    CONSTRAINT ""FK_MaterialUsages_Locations_LocationId"" FOREIGN KEY (""LocationId"") REFERENCES ""Locations"" (""Id"") ON DELETE CASCADE,
+                    CONSTRAINT ""FK_MaterialUsages_Materials_MaterialId"" FOREIGN KEY (""MaterialId"") REFERENCES ""Materials"" (""Id"") ON DELETE RESTRICT,
+                    CONSTRAINT ""FK_MaterialUsages_Employees_EmployeeId"" FOREIGN KEY (""EmployeeId"") REFERENCES ""Employees"" (""Id"") ON DELETE SET NULL
+                );
+            ");
+            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_LocationId_Date"" ON ""MaterialUsages"" (""LocationId"", ""Date"");");
+            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_LocationId_MaterialId"" ON ""MaterialUsages"" (""LocationId"", ""MaterialId"");");
+            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_MaterialId"" ON ""MaterialUsages"" (""MaterialId"");");
+            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_EmployeeId"" ON ""MaterialUsages"" (""EmployeeId"");");
+
+            // V1.1 — add PricePerUnit / UnitPriceAtTime columns to existing rows on
+            // databases that already had the V1 schema. We check pragma_table_info
+            // first so EF's command logger doesn't print a noisy "fail:" line when
+            // the column was already added by the migration on this same startup.
+            {
+                var conn = db.Database.GetDbConnection();
+                var wasClosed = conn.State != System.Data.ConnectionState.Open;
+                if (wasClosed) await conn.OpenAsync();
+                try
+                {
+                    async Task<bool> ColumnExistsAsync(string table, string column)
+                    {
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
+                        return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
+                    }
+
+                    if (!await ColumnExistsAsync("Materials", "PricePerUnit"))
+                        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Materials"" ADD COLUMN ""PricePerUnit"" TEXT NOT NULL DEFAULT '0';");
+                    if (!await ColumnExistsAsync("MaterialUsages", "UnitPriceAtTime"))
+                        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""MaterialUsages"" ADD COLUMN ""UnitPriceAtTime"" TEXT NOT NULL DEFAULT '0';");
+                }
+                finally
+                {
+                    if (wasClosed) await conn.CloseAsync();
+                }
+            }
+        }
+        catch { /* best-effort SQLite self-heal */ }
+    }
+
+    // Self-heal: ensure Materials + MaterialUsages tables exist on PostgreSQL (production).
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'Materials') THEN
+                    CREATE TABLE ""Materials"" (
+                        ""Id""           SERIAL PRIMARY KEY,
+                        ""Name""         VARCHAR(200)  NOT NULL,
+                        ""Unit""         VARCHAR(50)   NOT NULL,
+                        ""PricePerUnit"" NUMERIC(12,4) NOT NULL DEFAULT 0,
+                        ""IsActive""     BOOLEAN       NOT NULL DEFAULT TRUE,
+                        ""CreatedAt""    TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""UpdatedAt""    TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_Materials_Name"" ON ""Materials"" (""Name"");
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'MaterialUsages') THEN
+                    CREATE TABLE ""MaterialUsages"" (
+                        ""Id""              SERIAL PRIMARY KEY,
+                        ""LocationId""      INTEGER NOT NULL REFERENCES ""Locations""(""Id"") ON DELETE CASCADE,
+                        ""MaterialId""      INTEGER NOT NULL REFERENCES ""Materials""(""Id"") ON DELETE RESTRICT,
+                        ""EmployeeId""      INTEGER NULL     REFERENCES ""Employees""(""Id"") ON DELETE SET NULL,
+                        ""Quantity""        NUMERIC(12,3) NOT NULL,
+                        ""UnitPriceAtTime"" NUMERIC(12,4) NOT NULL DEFAULT 0,
+                        ""Date""            TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                        ""Note""            VARCHAR(2000) NULL,
+                        ""PhotoUrl""        VARCHAR(1000) NULL,
+                        ""CreatedAt""       TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""UpdatedAt""       TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_LocationId_Date""       ON ""MaterialUsages"" (""LocationId"", ""Date"");
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_LocationId_MaterialId"" ON ""MaterialUsages"" (""LocationId"", ""MaterialId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_MaterialId""            ON ""MaterialUsages"" (""MaterialId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_EmployeeId""            ON ""MaterialUsages"" (""EmployeeId"");
+                END IF;
+
+                -- V1.1: add PricePerUnit / UnitPriceAtTime to existing tables.
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Materials' AND column_name = 'PricePerUnit') THEN
+                    ALTER TABLE ""Materials"" ADD COLUMN ""PricePerUnit"" NUMERIC(12,4) NOT NULL DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialUsages' AND column_name = 'UnitPriceAtTime') THEN
+                    ALTER TABLE ""MaterialUsages"" ADD COLUMN ""UnitPriceAtTime"" NUMERIC(12,4) NOT NULL DEFAULT 0;
+                END IF;
+            END $$;
+        ");
+    }
+
+    // Self-heal: add NotificationsEnabled, WhatsAppEnabled, WhatsAppNumber columns to Employees (SQLite)
+    if (string.IsNullOrEmpty(databaseUrl))
+    {
+        var conn = db.Database.GetDbConnection();
+        await conn.OpenAsync();
+
+        // Check for NotificationsEnabled
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsEnabled'";
+            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            if (count == 0)
+            {
+                using var addCmd = conn.CreateCommand();
+                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"NotificationsEnabled\" INTEGER NOT NULL DEFAULT 1";
+                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
+            }
+        }
+
+        // Check for WhatsAppEnabled
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'WhatsAppEnabled'";
+            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            if (count == 0)
+            {
+                using var addCmd = conn.CreateCommand();
+                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"WhatsAppEnabled\" INTEGER NOT NULL DEFAULT 0";
+                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
+            }
+        }
+
+        // Check for WhatsAppNumber
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'WhatsAppNumber'";
+            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            if (count == 0)
+            {
+                using var addCmd = conn.CreateCommand();
+                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"WhatsAppNumber\" TEXT";
+                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
+            }
+        }
+
+        await conn.CloseAsync();
+    }
+
+    // Self-heal: add notification columns to Employees (PostgreSQL)
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Employees' AND column_name = 'NotificationsEnabled') THEN
+                    ALTER TABLE ""Employees"" ADD COLUMN ""NotificationsEnabled"" BOOLEAN NOT NULL DEFAULT TRUE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Employees' AND column_name = 'WhatsAppEnabled') THEN
+                    ALTER TABLE ""Employees"" ADD COLUMN ""WhatsAppEnabled"" BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Employees' AND column_name = 'WhatsAppNumber') THEN
+                    ALTER TABLE ""Employees"" ADD COLUMN ""WhatsAppNumber"" VARCHAR(30);
+                END IF;
+            END $$;
+        ");
+    }
+
+    // Self-heal: ensure notification tables exist on PostgreSQL
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                -- Ensure PushSubscriptions table
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'PushSubscriptions') THEN
+                    CREATE TABLE ""PushSubscriptions"" (
+                        ""Id""          SERIAL PRIMARY KEY,
+                        ""EmployeeId""  INTEGER NULL REFERENCES ""Employees""(""Id""),
+                        ""Endpoint""    VARCHAR(2048) NOT NULL UNIQUE,
+                        ""P256dhKey""   VARCHAR(200) NOT NULL,
+                        ""AuthKey""     VARCHAR(200) NOT NULL,
+                        ""UserAgent""   VARCHAR(500),
+                        ""CreatedAt""   TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""LastUsedAt""  TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_PushSubscriptions_EmployeeId"" ON ""PushSubscriptions"" (""EmployeeId"");
+                    CREATE SEQUENCE IF NOT EXISTS ""PushSubscriptions_Id_seq"";
+                    ALTER TABLE ""PushSubscriptions"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""PushSubscriptions_Id_seq""');
+                END IF;
+
+                -- Ensure NotificationLogs table
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'NotificationLogs') THEN
+                    CREATE TABLE ""NotificationLogs"" (
+                        ""Id""                SERIAL PRIMARY KEY,
+                        ""EmployeeId""        INTEGER NULL REFERENCES ""Employees""(""Id""),
+                        ""Channel""           VARCHAR(50) NOT NULL,
+                        ""TriggerType""       VARCHAR(50) NOT NULL,
+                        ""Body""              VARCHAR(2000) NOT NULL,
+                        ""TriggerDate""       DATE NOT NULL,
+                        ""SentAt""            TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""Status""            VARCHAR(50) NOT NULL,
+                        ""ProviderMessageId"" VARCHAR(500),
+                        ""ErrorMessage""      VARCHAR(1000)
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS ""IX_NotificationLogs_EmployeeId_Channel_TriggerType_TriggerDate""
+                        ON ""NotificationLogs"" (""EmployeeId"", ""Channel"", ""TriggerType"", ""TriggerDate"");
+                    CREATE INDEX IF NOT EXISTS ""IX_NotificationLogs_EmployeeId_TriggerDate""
+                        ON ""NotificationLogs"" (""EmployeeId"", ""TriggerDate"");
+                    CREATE SEQUENCE IF NOT EXISTS ""NotificationLogs_Id_seq"";
+                    ALTER TABLE ""NotificationLogs"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""NotificationLogs_Id_seq""');
+                END IF;
+
+                -- Ensure NotificationConfigs table
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'NotificationConfigs') THEN
+                    CREATE TABLE ""NotificationConfigs"" (
+                        ""Id""                       INTEGER PRIMARY KEY,
+                        ""NoActivity48hEnabled""     BOOLEAN NOT NULL DEFAULT FALSE,
+                        ""NoActivity48hTime""        TIME WITHOUT TIME ZONE NOT NULL DEFAULT '18:00',
+                        ""WorkingDaysOnly""          BOOLEAN NOT NULL DEFAULT TRUE,
+                        ""ManagerSummaryEnabled""    BOOLEAN NOT NULL DEFAULT FALSE,
+                        ""ManagerSummaryEmployeeId"" INTEGER NULL REFERENCES ""Employees""(""Id""),
+                        ""LastTickAt""               TIMESTAMP WITHOUT TIME ZONE,
+                        ""VapidPublicKey""           VARCHAR(1000) NOT NULL DEFAULT '',
+                        ""VapidPrivateKey""          VARCHAR(1000) NOT NULL DEFAULT '',
+                        ""VapidSubject""             VARCHAR(200) NOT NULL DEFAULT ''
+                    );
+                END IF;
+            END $$;
+        ");
+    }
+
+    // Seed / heal NotificationConfig with defaults on first run.
+    // VAPID keys are auto-generated locally if env vars and DB are both empty so
+    // the developer doesn't have to install any tooling to test push.
+    {
+        var existing = await db.NotificationConfigs.FirstOrDefaultAsync(c => c.Id == 1);
+
+        var vapidPublic  = Environment.GetEnvironmentVariable("VAPID_PUBLIC_KEY")  ?? string.Empty;
+        var vapidPrivate = Environment.GetEnvironmentVariable("VAPID_PRIVATE_KEY") ?? string.Empty;
+        var vapidSubject = Environment.GetEnvironmentVariable("VAPID_SUBJECT")     ?? "mailto:support@example.com";
+
+        if (existing == null)
+        {
+            // Auto-generate if not provided via env. Local dev convenience.
+            if (string.IsNullOrEmpty(vapidPublic) || string.IsNullOrEmpty(vapidPrivate))
+            {
+                var generated = WebPush.VapidHelper.GenerateVapidKeys();
+                vapidPublic  = generated.PublicKey;
+                vapidPrivate = generated.PrivateKey;
+                System.Console.WriteLine("NotificationConfig: generated new VAPID keys for first run.");
+            }
+
+            db.NotificationConfigs.Add(new NotificationConfig
+            {
+                Id = 1,
+                NoActivity48hEnabled = false,
+                NoActivity48hTime = TimeSpan.FromHours(18),
+                WorkingDaysOnly = true,
+                ManagerSummaryEnabled = false,
+                ManagerSummaryEmployeeId = null,
+                LastTickAt = null,
+                VapidPublicKey = vapidPublic,
+                VapidPrivateKey = vapidPrivate,
+                VapidSubject = vapidSubject
+            });
+            await db.SaveChangesAsync();
+        }
+        else if (string.IsNullOrEmpty(existing.VapidPublicKey) || string.IsNullOrEmpty(existing.VapidPrivateKey))
+        {
+            // Existing row from a prior install with empty keys — heal it.
+            if (string.IsNullOrEmpty(vapidPublic) || string.IsNullOrEmpty(vapidPrivate))
+            {
+                var generated = WebPush.VapidHelper.GenerateVapidKeys();
+                vapidPublic  = generated.PublicKey;
+                vapidPrivate = generated.PrivateKey;
+                System.Console.WriteLine("NotificationConfig: filled in missing VAPID keys.");
+            }
+
+            existing.VapidPublicKey  = vapidPublic;
+            existing.VapidPrivateKey = vapidPrivate;
+            if (string.IsNullOrEmpty(existing.VapidSubject))
+                existing.VapidSubject = vapidSubject;
+            await db.SaveChangesAsync();
+        }
+    }
+
+    // Seed the materials catalogue with ~10 common Slovak construction items on first run only.
+    // Idempotent — only inserts items that don't already exist by name.
+    if (!await db.Materials.AnyAsync())
+    {
+        var seed = new[]
+        {
+            ("Cement",     "vrece"),
+            ("Voda",       "l"),
+            ("Piesok",     "kg"),
+            ("Štrk",       "kg"),
+            ("Obklad",     "m²"),
+            ("Dlažba",     "m²"),
+            ("Omietka",    "kg"),
+            ("Lepidlo",    "vrece"),
+            ("Sadrokartón","ks"),
+            ("Skrutky",    "ks"),
+        };
+        foreach (var (name, unit) in seed)
+        {
+            db.Materials.Add(new Material { Name = name, Unit = unit });
+        }
+        await db.SaveChangesAsync();
     }
 
     var userManager    = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();

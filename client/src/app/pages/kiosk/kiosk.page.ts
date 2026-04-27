@@ -1,13 +1,14 @@
-import { Component, signal, computed, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
+import { Component, signal, computed, OnInit, OnDestroy, ChangeDetectionStrategy, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow, WorkPhotoResult } from '../../services/kiosk.service';
+import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow, WorkPhotoResult, MissingHoursOverview } from '../../services/kiosk.service';
 import { TimeEntry } from '../../services/time-entry.service';
 import { Location } from '../../services/location.service';
 import { Car } from '../../services/car.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
+import { PushService } from '../../services/push.service';
 
 type View = 'main' | 'photo-upload' | 'my-hours';
 type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'photo-reason' | 'result';
@@ -130,15 +131,50 @@ export class KioskPage implements OnInit, OnDestroy {
 
   private clockTimeout?: ReturnType<typeof setTimeout>;
   private resetTimer?: ReturnType<typeof setTimeout>;
+  private pushService = inject(PushService);
+
+  // ─── "Treba pripomenúť" — missing-hours dashboard (Option A + D) ──
+  /** Public list of workers with no entry for past 2 days. Visible to everyone. */
+  missingOverview = signal<MissingHoursOverview | null>(null);
+  /** Personal missing days for the worker who just entered their PIN. */
+  myMissingDays = signal<string[]>([]);
+
+  // Push notification state
+  notificationSupported = signal(false);
+  pushPermission = signal<NotificationPermission>('default');
+  showNotificationPrompt = signal(false);
+  subscribingToPush = signal(false);
+  pushSubscribePin = '';
+  pushSubscribePinDisplay = signal<string[]>([]);
+  pushError = signal('');
+
+  // Inline push-subscribe (button on the location step inside the clock-in modal).
+  // Reuses the already-validated PIN — no second prompt.
+  inlinePushBusy = signal(false);
+  inlinePushDone = signal(false);
+  inlinePushError = signal('');
 
   constructor(private kioskService: KioskService) {}
 
   ngOnInit() {
     this.initDateDefaults();
     this.loadOverview();
+    this.loadMissingOverview();
     this.kioskService.getLocations().subscribe(locs => this.locations.set(locs));
     this.kioskService.getCars().subscribe(cars => this.cars.set(cars));
     this.scheduleTick();
+
+    // Initialize push notification support
+    this.notificationSupported.set(this.pushService.isSupported());
+    this.pushPermission.set(this.pushService.currentPermission());
+
+    // Show prompt if not yet granted and not denied
+    if (this.notificationSupported() && this.pushPermission() === 'default') {
+      this.showNotificationPrompt.set(true);
+    } else if (this.notificationSupported() && this.pushPermission() === 'granted') {
+      // Already subscribed, hide the prompt
+      this.showNotificationPrompt.set(false);
+    }
   }
 
   /** Self-correcting clock: schedules each tick at the real next-second boundary
@@ -261,6 +297,28 @@ export class KioskPage implements OnInit, OnDestroy {
     });
   }
 
+  /** Loads the public "Treba pripomenúť" list — pure read, safe to call anytime. */
+  loadMissingOverview() {
+    this.kioskService.getMissingHoursOverview().subscribe({
+      next: data => this.missingOverview.set(data),
+      error: () => this.missingOverview.set(null)
+    });
+  }
+
+  /** Format yyyy-MM-dd as Slovak short date "d. M.". */
+  formatMissingDate(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return `${d}. ${m}.`;
+  }
+
+  /** Format yyyy-MM-dd as Slovak short date with weekday: "Pi 24. 4.". */
+  formatMissingDateLong(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    const names = ['Ne', 'Po', 'Ut', 'St', 'Št', 'Pi', 'So'];
+    return `${names[date.getDay()]} ${d}. ${m}.`;
+  }
+
   prevWeek() {
     const d = new Date(this.weekStart());
     d.setDate(d.getDate() - 7);
@@ -292,6 +350,9 @@ export class KioskPage implements OnInit, OnDestroy {
     this.responseError.set(false);
     this.status.set(null);
     this.clockStep.set('pin');
+    this.inlinePushDone.set(false);
+    this.inlinePushError.set('');
+    this.inlinePushBusy.set(false);
     if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = undefined; }
   }
 
@@ -317,6 +378,9 @@ export class KioskPage implements OnInit, OnDestroy {
     this.photoPreviews.set([]);
     this.photoUploaded.set(false);
     this.noPhotoReason = '';
+    this.myMissingDays.set([]);
+    // Refresh the public Treba pripomenúť list — the worker may have just filled hours.
+    this.loadMissingOverview();
     if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = undefined; }
   }
 
@@ -387,6 +451,12 @@ export class KioskPage implements OnInit, OnDestroy {
         this.status.set(s);
         this.loading.set(false);
         this.clockStep.set('location');
+        // Fetch personal missing days for the red banner shown on the location step.
+        // Best-effort: if it fails we just don't show the banner.
+        this.kioskService.getMyMissingDays(this.pin).subscribe({
+          next: r => this.myMissingDays.set(r.missingDates ?? []),
+          error: () => this.myMissingDays.set([])
+        });
       },
       error: () => {
         this.pinError.set('Neplatný PIN');
@@ -492,6 +562,9 @@ export class KioskPage implements OnInit, OnDestroy {
         this.response.set(res);
         this.responseError.set(false);
         this.loadOverview();
+        // Worker just filled in hours — refresh the public Treba pripomenúť list
+        // so peers don't keep seeing them on the "needs reminding" card.
+        this.loadMissingOverview();
 
         if (photoFiles.length > 0 && res.timeEntryId) {
           // Upload all photos via the kiosk endpoint (no JWT needed — PIN already verified above)
@@ -697,5 +770,122 @@ export class KioskPage implements OnInit, OnDestroy {
         this.myHoursLoading.set(false);
       }
     });
+  }
+
+  // ─── Push Notifications (Povoliť upozornenia) ─────────────────────
+
+  async startNotificationSubscribe(employeeId: number) {
+    this.pushError.set('');
+    this.pushSubscribePin = '';
+    this.pushSubscribePinDisplay.set([]);
+  }
+
+  pushAddPinDigit(digit: string) {
+    if (this.pushSubscribePin.length >= 6) return;
+    this.pushSubscribePin += digit;
+    this.pushSubscribePinDisplay.update(arr => [...arr, '●']);
+  }
+
+  pushDeletePin() {
+    this.pushSubscribePin = this.pushSubscribePin.slice(0, -1);
+    this.pushSubscribePinDisplay.update(arr => arr.slice(0, -1));
+  }
+
+  async pushClearPin() {
+    this.pushSubscribePin = '';
+    this.pushSubscribePinDisplay.set([]);
+  }
+
+  async pushSubscribe() {
+    if (this.pushSubscribePin.length < 4) {
+      this.pushError.set('PIN musí mať aspoň 4 číslice.');
+      return;
+    }
+
+    // Find employee with this PIN by asking the backend (which will verify it)
+    this.subscribingToPush.set(true);
+    this.pushError.set('');
+
+    try {
+      // We need the employee ID — but we've already verified the PIN via the overview
+      // For now, we'll extract it from selectedEmployee (set when the worker taps "Povoliť upozornenia")
+      const emp = this.selectedEmployee();
+      if (!emp || !emp.employeeId) {
+        this.pushError.set('Neznámy zamestnanec. Skúste znova.');
+        this.subscribingToPush.set(false);
+        return;
+      }
+
+      const success = await this.pushService.requestPermissionAndSubscribe(emp.employeeId, this.pushSubscribePin);
+      if (success) {
+        // Hide the notification prompt after successful subscription
+        this.showNotificationPrompt.set(false);
+        this.pushPermission.set('granted');
+        // Auto-close after 2 seconds
+        setTimeout(() => {
+          this.selectedEmployee.set(null);
+          this.pushSubscribePin = '';
+          this.pushSubscribePinDisplay.set([]);
+        }, 2000);
+      } else {
+        this.pushError.set('Nepodarilo sa prihlásiť na upozornenia. Skúste znova.');
+      }
+    } catch (error) {
+      this.pushError.set('Chyba pri prihlášení. Skúste znova.');
+      console.error('Push subscribe error:', error);
+    } finally {
+      this.subscribingToPush.set(false);
+    }
+  }
+
+  closeNotificationPrompt() {
+    this.showNotificationPrompt.set(false);
+    this.selectedEmployee.set(null);
+    this.pushSubscribePin = '';
+    this.pushSubscribePinDisplay.set([]);
+    this.pushError.set('');
+  }
+
+  /** One-tap push subscribe used on the location step of the clock-in modal.
+   *  Reuses the PIN the worker just typed — no second PIN entry needed. */
+  async subscribeInline() {
+    const emp = this.selectedEmployee();
+    if (!emp?.employeeId || !this.pin) {
+      this.inlinePushError.set('Skúste znova zadať PIN.');
+      return;
+    }
+    if (!this.pushService.isSupported()) {
+      this.inlinePushError.set('Tento prehliadač upozornenia nepodporuje.');
+      return;
+    }
+    this.inlinePushBusy.set(true);
+    this.inlinePushError.set('');
+    try {
+      const ok = await this.pushService.requestPermissionAndSubscribe(emp.employeeId, this.pin);
+      if (ok) {
+        this.pushPermission.set('granted');
+        this.showNotificationPrompt.set(false);
+        this.inlinePushDone.set(true);
+      } else {
+        this.inlinePushError.set('Nepodarilo sa prihlásiť. Povoľte upozornenia v prehliadači a skúste znova.');
+      }
+    } catch (e) {
+      console.error('Inline push subscribe failed:', e);
+      this.inlinePushError.set('Chyba pri prihlášení.');
+    } finally {
+      this.inlinePushBusy.set(false);
+    }
+  }
+
+  openInstallGuide() {
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    const isAndroid = /Android/.test(navigator.userAgent);
+
+    let url = '/Sichtovnica_Android_Sprievodca.pdf';
+    if (isIOS) {
+      url = '/Sichtovnica_iOS_Sprievodca.pdf';
+    }
+
+    window.open(url, '_blank');
   }
 }

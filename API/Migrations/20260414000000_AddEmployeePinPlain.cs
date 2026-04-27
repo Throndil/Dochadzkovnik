@@ -18,13 +18,12 @@ namespace API.Migrations
                 return;
             }
 
-            // SQLite: Program.cs pre-migration self-heal already marks this migration as applied
-            // if PinPlain already exists, so we only reach here when the column is truly absent.
-            migrationBuilder.AddColumn<string>(
-                name: "PinPlain",
-                table: "Employees",
-                type: "text",
-                nullable: true);
+            // SQLite: ModalUpdate (20260412205651) always runs before this migration and adds
+            // PinPlain unconditionally, so this is a no-op on SQLite. SQLite doesn't support
+            // ALTER TABLE ADD COLUMN IF NOT EXISTS, hence the difference from the PG branch.
+            // (Program.cs also has a pre-migration self-heal that handles legacy DBs where
+            // PinPlain was added some other way.)
+            return;
         }
 
         /// <inheritdoc />
@@ -35,7 +34,8 @@ namespace API.Migrations
                 migrationBuilder.Sql(@"ALTER TABLE ""Employees"" DROP COLUMN IF EXISTS ""PinPlain"";");
                 return;
             }
-            migrationBuilder.DropColumn(name: "PinPlain", table: "Employees");
+            // SQLite: no-op; ModalUpdate.Down() will drop the column when rolling back further.
+            return;
         }
     }
 }

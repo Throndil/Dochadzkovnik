@@ -1,3 +1,11 @@
+<!--
+Writing style: this file is read by AI assistants. Write plainly. No emojis,
+no "—" as rhetoric, no exclamation marks, no "super!" / "great!" / "perfect!" /
+"absolutely right!", no enthusiastic openings, no padding sentences. Bold sparingly.
+Slovak strings shown to workers must read like a normal person typed them,
+not marketing copy. When in doubt, write less.
+-->
+
 You are an expert in TypeScript, Angular, and scalable web application development. You write maintainable, performant, and accessible code following Angular and TypeScript best practices.
 
 ## TypeScript Best Practices

@@ -19,13 +19,20 @@ public class LocationsController : ControllerBase
     private readonly IBlobStorageService? _blobStorage;
     private readonly IConfiguration _config;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IMaterialExcelExportService _excelExport;
 
-    public LocationsController(AppDbContext db, IConfiguration config, IHttpClientFactory httpClientFactory, IBlobStorageService? blobStorage = null)
+    public LocationsController(
+        AppDbContext db,
+        IConfiguration config,
+        IHttpClientFactory httpClientFactory,
+        IMaterialExcelExportService excelExport,
+        IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _blobStorage = blobStorage;
         _config = config;
         _httpClientFactory = httpClientFactory;
+        _excelExport = excelExport;
     }
 
     [HttpGet]
@@ -435,5 +442,299 @@ public class LocationsController : ControllerBase
         await _db.SaveChangesAsync();
 
         return Ok(photoUrl);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Materials (consumption per location)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private (DateTime? from, DateTime? toExclusive) ParseDateRange(string? from, string? to)
+    {
+        DateTime? f = null, t = null;
+        if (!string.IsNullOrEmpty(from) && DateTime.TryParse(from, out var fd)) f = fd.Date;
+        if (!string.IsNullOrEmpty(to)   && DateTime.TryParse(to,   out var td)) t = td.Date.AddDays(1); // inclusive on the "to" end
+        return (f, t);
+    }
+
+    // GET /api/locations/{id}/materials?from=YYYY-MM-DD&to=YYYY-MM-DD
+    [HttpGet("{id}/materials")]
+    public async Task<ActionResult<List<MaterialUsageDto>>> GetMaterialUsages(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        var (f, t) = ParseDateRange(from, to);
+
+        var q = _db.MaterialUsages
+            .Include(u => u.Material)
+            .Include(u => u.Employee)
+            .Where(u => u.LocationId == id);
+        if (f.HasValue) q = q.Where(u => u.Date >= f.Value);
+        if (t.HasValue) q = q.Where(u => u.Date <  t.Value);
+
+        return await q
+            .OrderByDescending(u => u.Date)
+            .ThenByDescending(u => u.Id)
+            .Select(u => new MaterialUsageDto
+            {
+                Id              = u.Id,
+                LocationId      = u.LocationId,
+                MaterialId      = u.MaterialId,
+                MaterialName    = u.Material.Name,
+                Unit            = u.Material.Unit,
+                Quantity        = u.Quantity,
+                UnitPriceAtTime = u.UnitPriceAtTime,
+                LineCost        = u.Quantity * u.UnitPriceAtTime,
+                Date            = u.Date,
+                EmployeeId      = u.EmployeeId,
+                EmployeeName    = u.Employee != null ? (u.Employee.FirstName + " " + u.Employee.LastName) : null,
+                Note            = u.Note,
+                PhotoUrl        = u.PhotoUrl
+            })
+            .ToListAsync();
+    }
+
+    // GET /api/locations/{id}/materials/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
+    [HttpGet("{id}/materials/summary")]
+    public async Task<ActionResult<List<MaterialSummaryRowDto>>> GetMaterialSummary(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        var (f, t) = ParseDateRange(from, to);
+
+        var q = _db.MaterialUsages
+            .Include(u => u.Material)
+            .Where(u => u.LocationId == id);
+        if (f.HasValue) q = q.Where(u => u.Date >= f.Value);
+        if (t.HasValue) q = q.Where(u => u.Date <  t.Value);
+
+        return await q
+            .GroupBy(u => new { u.MaterialId, u.Material.Name, u.Material.Unit })
+            .Select(g => new MaterialSummaryRowDto
+            {
+                MaterialId    = g.Key.MaterialId,
+                MaterialName  = g.Key.Name,
+                Unit          = g.Key.Unit,
+                TotalQuantity = g.Sum(x => x.Quantity),
+                // Use snapshot price (UnitPriceAtTime) — inflation-protected
+                TotalCost     = g.Sum(x => x.Quantity * x.UnitPriceAtTime),
+                EntryCount    = g.Count(),
+                LastEntryDate = g.Max(x => (DateTime?)x.Date)
+            })
+            .OrderBy(r => r.MaterialName)
+            .ToListAsync();
+    }
+
+    // POST /api/locations/{id}/materials
+    [HttpPost("{id}/materials")]
+    public async Task<ActionResult<MaterialUsageDto>> CreateMaterialUsage(int id, CreateMaterialUsageDto dto)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound("Pracovisko nebolo nájdené.");
+
+        var material = await _db.Materials.FindAsync(dto.MaterialId);
+        if (material == null) return BadRequest("Vybraný materiál neexistuje.");
+        if (!material.IsActive) return BadRequest("Vybraný materiál je neaktívny.");
+
+        if (dto.EmployeeId.HasValue)
+        {
+            var empExists = await _db.Employees.AnyAsync(e => e.Id == dto.EmployeeId.Value);
+            if (!empExists) return BadRequest("Zamestnanec neexistuje.");
+        }
+
+        var usage = new MaterialUsage
+        {
+            LocationId      = id,
+            MaterialId      = dto.MaterialId,
+            EmployeeId      = dto.EmployeeId,
+            Quantity        = dto.Quantity,
+            // Snapshot the catalogue price NOW so future inflation/price changes don't
+            // rewrite history. Caller may override if they're recording a backdated entry
+            // and know the historical price.
+            UnitPriceAtTime = dto.UnitPriceAtTime ?? material.PricePerUnit,
+            Date            = dto.Date.Date, // strip time-of-day; we treat material entries as date-only
+            Note            = dto.Note
+        };
+
+        _db.MaterialUsages.Add(usage);
+        await _db.SaveChangesAsync();
+
+        // Reload with includes for the response
+        var saved = await _db.MaterialUsages
+            .Include(u => u.Material)
+            .Include(u => u.Employee)
+            .FirstAsync(u => u.Id == usage.Id);
+
+        return Ok(new MaterialUsageDto
+        {
+            Id              = saved.Id,
+            LocationId      = saved.LocationId,
+            MaterialId      = saved.MaterialId,
+            MaterialName    = saved.Material.Name,
+            Unit            = saved.Material.Unit,
+            Quantity        = saved.Quantity,
+            UnitPriceAtTime = saved.UnitPriceAtTime,
+            LineCost        = saved.Quantity * saved.UnitPriceAtTime,
+            Date            = saved.Date,
+            EmployeeId      = saved.EmployeeId,
+            EmployeeName    = saved.Employee != null ? (saved.Employee.FirstName + " " + saved.Employee.LastName) : null,
+            Note            = saved.Note,
+            PhotoUrl        = saved.PhotoUrl
+        });
+    }
+
+    // PUT /api/locations/{id}/materials/{usageId}
+    [HttpPut("{id}/materials/{usageId}")]
+    public async Task<ActionResult> UpdateMaterialUsage(int id, int usageId, UpdateMaterialUsageDto dto)
+    {
+        var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
+        if (usage == null) return NotFound();
+
+        var material = await _db.Materials.FindAsync(dto.MaterialId);
+        if (material == null) return BadRequest("Vybraný materiál neexistuje.");
+
+        // If the caller switched the entry to a DIFFERENT material, take a fresh snapshot
+        // from the new material's current price (since the previous snapshot was for a
+        // different commodity). Otherwise keep the original snapshot — that's the whole
+        // point of inflation protection. An explicit dto.UnitPriceAtTime always wins.
+        var materialChanged = usage.MaterialId != dto.MaterialId;
+        usage.MaterialId = dto.MaterialId;
+        usage.Quantity   = dto.Quantity;
+        usage.Date       = dto.Date.Date;
+        usage.EmployeeId = dto.EmployeeId;
+        usage.Note       = dto.Note;
+        if (dto.UnitPriceAtTime.HasValue)
+            usage.UnitPriceAtTime = dto.UnitPriceAtTime.Value;
+        else if (materialChanged)
+            usage.UnitPriceAtTime = material.PricePerUnit;
+        // else: leave the snapshot alone — this is the inflation-protection path
+
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE /api/locations/{id}/materials/{usageId}
+    [HttpDelete("{id}/materials/{usageId}")]
+    public async Task<ActionResult> DeleteMaterialUsage(int id, int usageId)
+    {
+        var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
+        if (usage == null) return NotFound();
+
+        if (!string.IsNullOrEmpty(usage.PhotoUrl) && _blobStorage != null)
+        {
+            try { await _blobStorage.DeleteAsync(usage.PhotoUrl, "material-photos"); } catch { /* best-effort */ }
+        }
+
+        _db.MaterialUsages.Remove(usage);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // POST /api/locations/{id}/materials/{usageId}/photo  (multipart)
+    [HttpPost("{id}/materials/{usageId}/photo")]
+    public async Task<ActionResult<string>> UploadMaterialPhoto(int id, int usageId, IFormFile file)
+    {
+        var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
+        if (usage == null) return NotFound();
+
+        if (file == null || file.Length == 0 || file.Length > 10 * 1024 * 1024)
+            return BadRequest("Súbor musí byť medzi 1 B a 10 MB.");
+        if (_blobStorage == null)
+            return StatusCode(503, "Úložisko fotografií nie je nakonfigurované.");
+
+        if (!string.IsNullOrEmpty(usage.PhotoUrl))
+            try { await _blobStorage.DeleteAsync(usage.PhotoUrl, "material-photos"); } catch { }
+
+        using var stream = file.OpenReadStream();
+        var folder = $"material-photos/{id}/{usage.Date:yyyy-MM}";
+        usage.PhotoUrl = await _blobStorage.UploadAsync(stream, file.FileName, folder);
+        await _db.SaveChangesAsync();
+
+        return Ok(usage.PhotoUrl);
+    }
+
+    // DELETE /api/locations/{id}/materials/{usageId}/photo
+    [HttpDelete("{id}/materials/{usageId}/photo")]
+    public async Task<ActionResult> DeleteMaterialPhoto(int id, int usageId)
+    {
+        var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
+        if (usage == null) return NotFound();
+        if (string.IsNullOrEmpty(usage.PhotoUrl)) return NoContent();
+
+        if (_blobStorage != null)
+            try { await _blobStorage.DeleteAsync(usage.PhotoUrl, "material-photos"); } catch { }
+        usage.PhotoUrl = null;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // GET /api/locations/{id}/materials/export?from=YYYY-MM-DD&to=YYYY-MM-DD
+    [HttpGet("{id}/materials/export")]
+    public async Task<ActionResult> ExportMaterialsExcel(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        var (f, t) = ParseDateRange(from, to);
+
+        var entriesQuery = _db.MaterialUsages
+            .Include(u => u.Material)
+            .Include(u => u.Employee)
+            .Where(u => u.LocationId == id);
+        if (f.HasValue) entriesQuery = entriesQuery.Where(u => u.Date >= f.Value);
+        if (t.HasValue) entriesQuery = entriesQuery.Where(u => u.Date <  t.Value);
+
+        var entries = await entriesQuery
+            .OrderByDescending(u => u.Date)
+            .Select(u => new MaterialUsageDto
+            {
+                Id              = u.Id,
+                LocationId      = u.LocationId,
+                MaterialId      = u.MaterialId,
+                MaterialName    = u.Material.Name,
+                Unit            = u.Material.Unit,
+                Quantity        = u.Quantity,
+                UnitPriceAtTime = u.UnitPriceAtTime,
+                LineCost        = u.Quantity * u.UnitPriceAtTime,
+                Date            = u.Date,
+                EmployeeId      = u.EmployeeId,
+                EmployeeName    = u.Employee != null ? (u.Employee.FirstName + " " + u.Employee.LastName) : null,
+                Note            = u.Note,
+                PhotoUrl         = u.PhotoUrl
+            })
+            .ToListAsync();
+
+        var summary = entries
+            .GroupBy(e => new { e.MaterialId, e.MaterialName, e.Unit })
+            .Select(g => new MaterialSummaryRowDto
+            {
+                MaterialId    = g.Key.MaterialId,
+                MaterialName  = g.Key.MaterialName,
+                Unit          = g.Key.Unit,
+                TotalQuantity = g.Sum(x => x.Quantity),
+                TotalCost     = g.Sum(x => x.LineCost),
+                EntryCount    = g.Count(),
+                LastEntryDate = g.Max(x => (DateTime?)x.Date)
+            })
+            .OrderBy(r => r.MaterialName)
+            .ToList();
+
+        var bytes = _excelExport.BuildLocationMaterialReport(loc.Name, f, t.HasValue ? t.Value.AddDays(-1) : (DateTime?)null, summary, entries);
+
+        // Sanitise filename — strip diacritics and spaces
+        var safeName = string.Concat(
+            loc.Name
+                .Normalize(System.Text.NormalizationForm.FormD)
+                .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c)
+                            != System.Globalization.UnicodeCategory.NonSpacingMark)
+        ).Replace(' ', '_');
+
+        var rangeTag = f.HasValue && t.HasValue
+            ? $"{f.Value:yyyy-MM-dd}_{t.Value.AddDays(-1):yyyy-MM-dd}"
+            : DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var fileName = $"Spotreba_{safeName}_{rangeTag}.xlsx";
+
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 }

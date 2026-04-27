@@ -36,13 +36,22 @@ export interface WeeklyRow {
   employeeName: string;
   photoUrl?: string;
   days: WeeklyDayData[];
+  /** Full-month total for the first (or only) calendar month of the viewed week. */
   totalHours: number;
+  /** Full-month total for the second calendar month when the week spans a boundary; 0 otherwise. */
+  totalHoursMonth2: number;
 }
 
 export interface WeeklyOverview {
   weekStart: string;
   days: string[];
   rows: WeeklyRow[];
+  /** True when the 7-day window crosses a month boundary (e.g. week of 27 Apr – 3 May). */
+  spansTwoMonths: boolean;
+  /** Slovak abbreviated name of the first month (e.g. "apr"). Always present. */
+  month1Label?: string;
+  /** Slovak abbreviated name of the second month (e.g. "máj"). Present only when spansTwoMonths is true. */
+  month2Label?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -106,6 +115,36 @@ export class KioskService {
     form.append('photo', file, file.name);
     return this.http.post<WorkPhotoResult>(`${this.url}/work-photo`, form);
   }
+
+  /** Public endpoint — list of workers with no time entry for last 2 days. */
+  getMissingHoursOverview() {
+    return this.http.get<MissingHoursOverview>(`${this.url}/missing-hours-overview`);
+  }
+
+  /** PIN-authenticated — the missing days for the worker that owns the PIN. */
+  getMyMissingDays(pin: string) {
+    return this.http.post<MyMissingDays>(`${this.url}/my-missing-days`, { pin });
+  }
+}
+
+export interface EmployeeMissingDays {
+  id: number;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  photoUrl?: string;
+  phoneNumber?: string;
+  missingDates: string[]; // yyyy-MM-dd
+}
+
+export interface MissingHoursOverview {
+  checkedDates: string[];
+  employees: EmployeeMissingDays[];
+}
+
+export interface MyMissingDays {
+  employeeName: string;
+  missingDates: string[];
 }
 
 export interface WorkPhotoResult {
