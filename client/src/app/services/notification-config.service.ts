@@ -1,5 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environments/environment';
 
 export interface NotificationConfig {
   noActivity48hEnabled: boolean;
@@ -38,17 +39,18 @@ export interface NotificationLogEntry {
 })
 export class NotificationConfigService {
   private http = inject(HttpClient);
+  private readonly baseUrl = `${environment.apiUrl}/notifications`;
 
   getConfig() {
-    return this.http.get<NotificationConfig>('/api/notifications/config');
+    return this.http.get<NotificationConfig>(`${this.baseUrl}/config`);
   }
 
   updateConfig(config: Partial<NotificationConfig>) {
-    return this.http.put<NotificationConfig>('/api/notifications/config', config);
+    return this.http.put<NotificationConfig>(`${this.baseUrl}/config`, config);
   }
 
   getHistory(from?: string, to?: string, employeeId?: number, page = 1, pageSize = 50) {
-    return this.http.get<NotificationLogEntry[]>('/api/notifications/history', {
+    return this.http.get<NotificationLogEntry[]>(`${this.baseUrl}/history`, {
       params: {
         ...(from && { from }),
         ...(to && { to }),
@@ -60,18 +62,18 @@ export class NotificationConfigService {
   }
 
   getEmployeeStatuses() {
-    return this.http.get<NotificationEmployeeStatus[]>('/api/notifications/employees');
+    return this.http.get<NotificationEmployeeStatus[]>(`${this.baseUrl}/employees`);
   }
 
   updateEmployeeNotifications(employeeId: number, settings: Partial<NotificationEmployeeStatus>) {
     return this.http.put<NotificationEmployeeStatus>(
-      `/api/notifications/employees/${employeeId}`,
+      `${this.baseUrl}/employees/${employeeId}`,
       settings
     );
   }
 
   testPush(employeeId: number, title?: string, body?: string) {
-    return this.http.post('/api/notifications/test/push', {
+    return this.http.post(`${this.baseUrl}/test/push`, {
       employeeId,
       title,
       body,
@@ -79,17 +81,17 @@ export class NotificationConfigService {
   }
 
   fireNow() {
-    return this.http.post('/api/notifications/fire-now', {});
+    return this.http.post(`${this.baseUrl}/fire-now`, {});
   }
 
   fireForEmployee(employeeId: number, ignoreIdempotency = true) {
-    return this.http.post('/api/notifications/fire-for-employee', {
+    return this.http.post(`${this.baseUrl}/fire-for-employee`, {
       employeeId,
       ignoreIdempotency,
     });
   }
 
   resetToday() {
-    return this.http.post('/api/notifications/reset-today', {});
+    return this.http.post(`${this.baseUrl}/reset-today`, {});
   }
 }

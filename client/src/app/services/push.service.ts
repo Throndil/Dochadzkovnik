@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 @Injectable({
   providedIn: 'root'
@@ -8,6 +9,7 @@ import { firstValueFrom } from 'rxjs';
 export class PushService {
   private http = inject(HttpClient);
   private swRegistration: ServiceWorkerRegistration | null = null;
+  private readonly baseUrl = `${environment.apiUrl}/notifications`;
 
   async registerServiceWorker() {
     if (!('serviceWorker' in navigator)) {
@@ -74,7 +76,7 @@ export class PushService {
     let vapidKey: string;
     try {
       const response = await firstValueFrom(
-        this.http.get<{ publicKey: string }>('/api/notifications/vapid-public-key')
+        this.http.get<{ publicKey: string }>(`${this.baseUrl}/vapid-public-key`)
       );
       vapidKey = response.publicKey;
     } catch (error) {
@@ -103,7 +105,7 @@ export class PushService {
     try {
       const subJson = subscription.toJSON();
       await firstValueFrom(
-        this.http.post('/api/notifications/subscribe', {
+        this.http.post(`${this.baseUrl}/subscribe`, {
           employeeId,
           pin,
           subscription: {
@@ -127,7 +129,7 @@ export class PushService {
   async unsubscribe(endpoint: string): Promise<boolean> {
     try {
       await firstValueFrom(
-        this.http.delete('/api/notifications/subscribe', {
+        this.http.delete(`${this.baseUrl}/subscribe`, {
           body: { endpoint },
         })
       );
