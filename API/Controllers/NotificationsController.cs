@@ -309,57 +309,65 @@ public class NotificationsController : ControllerBase
     [HttpPost("test/push")]
     public async Task<ActionResult<NotificationTestResultDto>> TestPush([FromBody] TestPushRequestDto dto)
     {
-        var emp = await _db.Employees.FindAsync(dto.EmployeeId);
-        if (emp == null)
-            return NotFound("Zamestnanec nenájdený");
+        try
+        {
+            var emp = await _db.Employees.FindAsync(dto.EmployeeId);
+            if (emp == null)
+                return NotFound("Zamestnanec nenájdený");
 
-        var subscriptions = await _db.PushSubscriptions
-            .Where(s => s.EmployeeId == emp.Id)
-            .ToListAsync();
+            var subscriptions = await _db.PushSubscriptions
+                .Where(s => s.EmployeeId == emp.Id)
+                .ToListAsync();
 
-        if (subscriptions.Count == 0)
+            if (subscriptions.Count == 0)
+                return Ok(new NotificationTestResultDto
+                {
+                    Success = false,
+                    ErrorMessage = "Žiadne push notifikácie zaregistrované pre tohto zamestnanca"
+                });
+
+            var title = dto.Title ?? "Šichtovnica TEST";
+            var body = dto.Body ?? $"Toto je testovacie upozornenie. Ak ho vidíš, push funguje. {DateTime.Now:HH:mm}";
+
+            int successCount = 0;
+            foreach (var sub in subscriptions)
+            {
+                var result = await _pushService.SendAsync(sub, title, body, "/kiosk");
+
+                var logEntry = new NotificationLog
+                {
+                    EmployeeId = emp.Id,
+                    Channel = "Push",
+                    TriggerType = "Test",
+                    Body = body,
+                    TriggerDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                    SentAt = DateTime.UtcNow,
+                    Status = result.Success ? "Sent" : "Failed",
+                    ErrorMessage = result.ErrorMessage
+                };
+                _db.NotificationLogs.Add(logEntry);
+
+                if (result.Success)
+                    successCount++;
+
+                if (result.IsGoneStale)
+                    _db.PushSubscriptions.Remove(sub);
+            }
+
+            await _db.SaveChangesAsync();
+
             return Ok(new NotificationTestResultDto
             {
-                Success = false,
-                ErrorMessage = "Žiadne push notifikácie zaregistrované pre tohto zamestnanca"
+                Success = successCount > 0,
+                Message = $"Odoslané {successCount} z {subscriptions.Count} push upozornení",
+                SendCount = successCount
             });
-
-        var title = dto.Title ?? "Šichtovnica TEST";
-        var body = dto.Body ?? $"Toto je testovacie upozornenie. Ak ho vidíš, push funguje. {DateTime.Now:HH:mm}";
-
-        int successCount = 0;
-        foreach (var sub in subscriptions)
-        {
-            var result = await _pushService.SendAsync(sub, title, body, "/kiosk");
-
-            var logEntry = new NotificationLog
-            {
-                EmployeeId = emp.Id,
-                Channel = "Push",
-                TriggerType = "Test",
-                Body = body,
-                TriggerDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                SentAt = DateTime.UtcNow,
-                Status = result.Success ? "Sent" : "Failed",
-                ErrorMessage = result.ErrorMessage
-            };
-            _db.NotificationLogs.Add(logEntry);
-
-            if (result.Success)
-                successCount++;
-
-            if (result.IsGoneStale)
-                _db.PushSubscriptions.Remove(sub);
         }
-
-        await _db.SaveChangesAsync();
-
-        return Ok(new NotificationTestResultDto
+        catch (Exception ex)
         {
-            Success = successCount > 0,
-            Message = $"Odoslané {successCount} z {subscriptions.Count} push upozornení",
-            SendCount = successCount
-        });
+            _logger.LogError(ex, "TestPush error for employeeId {EmployeeId}", dto.EmployeeId);
+            return StatusCode(500, new { error = "Interná chyba servera.", detail = ex.Message });
+        }
     }
 
     // Admin: fire NoActivity48h check right now
@@ -367,62 +375,70 @@ public class NotificationsController : ControllerBase
     [HttpPost("fire-now")]
     public async Task<ActionResult<NotificationTestResultDto>> FireNow()
     {
-        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
-        var nowBratislava = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-        var todayBratislava = DateOnly.FromDateTime(nowBratislava);
-
-        var evaluator = new NoActivity48hEvaluator(_db);
-        var candidates = await evaluator.EvaluateAsync(todayBratislava, CancellationToken.None);
-
-        int totalSends = 0;
-
-        foreach (var candidate in candidates)
+        try
         {
-            var alreadySent = await _db.NotificationLogs
-                .AnyAsync(l =>
-                    l.EmployeeId == candidate.Employee.Id &&
-                    l.Channel == "Push" &&
-                    l.TriggerType == "NoActivity48h" &&
-                    l.TriggerDate == todayBratislava);
+            var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
+            var nowBratislava = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            var todayBratislava = DateOnly.FromDateTime(nowBratislava);
 
-            if (alreadySent)
-                continue;
+            var evaluator = new NoActivity48hEvaluator(_db);
+            var candidates = await evaluator.EvaluateAsync(todayBratislava, CancellationToken.None);
 
-            var subscriptions = await _db.PushSubscriptions
-                .Where(s => s.EmployeeId == candidate.Employee.Id)
-                .ToListAsync();
+            int totalSends = 0;
 
-            foreach (var sub in subscriptions)
+            foreach (var candidate in candidates)
             {
-                var result = await _pushService.SendAsync(sub, candidate.PushTitle, candidate.PushBody, "/kiosk");
+                var alreadySent = await _db.NotificationLogs
+                    .AnyAsync(l =>
+                        l.EmployeeId == candidate.Employee.Id &&
+                        l.Channel == "Push" &&
+                        l.TriggerType == "NoActivity48h" &&
+                        l.TriggerDate == todayBratislava);
 
-                var logEntry = new NotificationLog
+                if (alreadySent)
+                    continue;
+
+                var subscriptions = await _db.PushSubscriptions
+                    .Where(s => s.EmployeeId == candidate.Employee.Id)
+                    .ToListAsync();
+
+                foreach (var sub in subscriptions)
                 {
-                    EmployeeId = candidate.Employee.Id,
-                    Channel = "Push",
-                    TriggerType = "NoActivity48h",
-                    Body = candidate.PushBody,
-                    TriggerDate = todayBratislava,
-                    SentAt = DateTime.UtcNow,
-                    Status = result.Success ? "Sent" : "Failed",
-                    ErrorMessage = result.ErrorMessage
-                };
-                _db.NotificationLogs.Add(logEntry);
-                totalSends++;
+                    var result = await _pushService.SendAsync(sub, candidate.PushTitle, candidate.PushBody, "/kiosk");
 
-                if (result.IsGoneStale)
-                    _db.PushSubscriptions.Remove(sub);
+                    var logEntry = new NotificationLog
+                    {
+                        EmployeeId = candidate.Employee.Id,
+                        Channel = "Push",
+                        TriggerType = "NoActivity48h",
+                        Body = candidate.PushBody,
+                        TriggerDate = todayBratislava,
+                        SentAt = DateTime.UtcNow,
+                        Status = result.Success ? "Sent" : "Failed",
+                        ErrorMessage = result.ErrorMessage
+                    };
+                    _db.NotificationLogs.Add(logEntry);
+                    totalSends++;
+
+                    if (result.IsGoneStale)
+                        _db.PushSubscriptions.Remove(sub);
+                }
             }
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new NotificationTestResultDto
+            {
+                Success = true,
+                Message = $"Odoslané {totalSends} push upozornení",
+                SendCount = totalSends
+            });
         }
-
-        await _db.SaveChangesAsync();
-
-        return Ok(new NotificationTestResultDto
+        catch (Exception ex)
         {
-            Success = true,
-            Message = $"Odoslané {totalSends} push upozornení",
-            SendCount = totalSends
-        });
+            _logger.LogError(ex, "FireNow error");
+            return StatusCode(500, new { error = "Interná chyba servera.", detail = ex.Message });
+        }
     }
 
     // Admin: send reminder to specific employee (for demo)
@@ -430,6 +446,8 @@ public class NotificationsController : ControllerBase
     [HttpPost("fire-for-employee")]
     public async Task<ActionResult<NotificationTestResultDto>> FireForEmployee([FromBody] FireForEmployeeDto dto)
     {
+        try
+        {
         var emp = await _db.Employees.FindAsync(dto.EmployeeId);
         if (emp == null)
             return NotFound("Zamestnanec nenájdený");
@@ -497,6 +515,12 @@ public class NotificationsController : ControllerBase
             Message = $"Odoslané {successCount} z {subscriptions.Count} upozornení",
             SendCount = successCount
         });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FireForEmployee error for employeeId {EmployeeId}", dto.EmployeeId);
+            return StatusCode(500, new { error = "Interná chyba servera.", detail = ex.Message });
+        }
     }
 
     // Admin: reset today's notifications (dev/demo only)
@@ -504,18 +528,26 @@ public class NotificationsController : ControllerBase
     [HttpPost("reset-today")]
     public async Task<ActionResult<dynamic>> ResetToday()
     {
-        var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
-        var nowBratislava = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-        var todayBratislava = DateOnly.FromDateTime(nowBratislava);
+        try
+        {
+            var tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
+            var nowBratislava = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+            var todayBratislava = DateOnly.FromDateTime(nowBratislava);
 
-        var logsToDelete = await _db.NotificationLogs
-            .Where(l => l.TriggerDate == todayBratislava)
-            .ToListAsync();
+            var logsToDelete = await _db.NotificationLogs
+                .Where(l => l.TriggerDate == todayBratislava)
+                .ToListAsync();
 
-        _db.NotificationLogs.RemoveRange(logsToDelete);
-        await _db.SaveChangesAsync();
+            _db.NotificationLogs.RemoveRange(logsToDelete);
+            await _db.SaveChangesAsync();
 
-        return Ok(new { deletedCount = logsToDelete.Count });
+            return Ok(new { deletedCount = logsToDelete.Count });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "ResetToday error");
+            return StatusCode(500, new { error = "Interná chyba servera.", detail = ex.Message });
+        }
     }
 
     private async Task<Employee?> FindEmployeeByPin(string pin)
