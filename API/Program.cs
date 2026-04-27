@@ -824,6 +824,39 @@ using (var scope = app.Services.CreateScope())
                         ALTER COLUMN ""IsActive"" TYPE BOOLEAN USING (""IsActive""::int::boolean),
                         ALTER COLUMN ""IsActive"" SET DEFAULT TRUE;
                 END IF;
+
+                -- The AddNotifications migration was generated for SQLite: it uses Sqlite:Autoincrement
+                -- which EF's PostgreSQL provider ignores. The Id columns on PushSubscriptions and
+                -- NotificationLogs land as INTEGER NOT NULL with no sequence, so every INSERT fails
+                -- with "null value in column Id violates not-null constraint".
+                -- Fix: create the sequence and attach it if the column has no default yet.
+                -- This runs unconditionally (not inside the IF NOT EXISTS table block) so it also
+                -- covers the case where EF's MigrateAsync created the table before we could.
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'PushSubscriptions') THEN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'PushSubscriptions'
+                          AND column_name = 'Id'
+                          AND column_default IS NOT NULL
+                    ) THEN
+                        CREATE SEQUENCE IF NOT EXISTS ""PushSubscriptions_Id_seq"";
+                        ALTER TABLE ""PushSubscriptions""
+                            ALTER COLUMN ""Id"" SET DEFAULT nextval('""PushSubscriptions_Id_seq""');
+                    END IF;
+                END IF;
+
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'NotificationLogs') THEN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'NotificationLogs'
+                          AND column_name = 'Id'
+                          AND column_default IS NOT NULL
+                    ) THEN
+                        CREATE SEQUENCE IF NOT EXISTS ""NotificationLogs_Id_seq"";
+                        ALTER TABLE ""NotificationLogs""
+                            ALTER COLUMN ""Id"" SET DEFAULT nextval('""NotificationLogs_Id_seq""');
+                    END IF;
+                END IF;
             END $$;
         ");
     }
