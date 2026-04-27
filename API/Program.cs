@@ -93,8 +93,10 @@ builder.Services.AddHostedService<NotificationBackgroundService>();
 
 // CORS
 // Base origins come from appsettings / Railway config section.
-// ALLOWED_ORIGINS env var can add extra comma-separated origins at runtime
-// (e.g. set it in the Railway dev environment to the Vercel preview URL).
+// ALLOWED_ORIGINS env var adds extra comma-separated origins at runtime.
+// Entries prefixed with "*" are treated as suffix wildcards:
+//   e.g. "*throndils-projects.vercel.app" matches every Vercel preview URL for this project.
+// Set in Railway dev env: ALLOWED_ORIGINS=*throndils-projects.vercel.app
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("CorsPolicy", policy =>
@@ -104,11 +106,30 @@ builder.Services.AddCors(options =>
 
         var extraRaw = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS") ?? string.Empty;
         var extra = extraRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        origins = origins.Concat(extra).Distinct().ToArray();
+        var allOrigins = origins.Concat(extra).Distinct().ToArray();
 
-        policy.WithOrigins(origins)
-            .AllowAnyMethod()
-            .AllowAnyHeader();
+        // Split into exact origins and wildcard-suffix origins (those starting with "*").
+        var exactOrigins   = allOrigins.Where(o => !o.StartsWith('*')).ToArray();
+        var wildcardSuffixes = allOrigins
+            .Where(o => o.StartsWith('*'))
+            .Select(o => o[1..]) // strip leading "*"
+            .ToArray();
+
+        if (wildcardSuffixes.Length > 0)
+        {
+            // Use a predicate so we can mix exact and suffix-wildcard matching.
+            policy.SetIsOriginAllowed(origin =>
+                    exactOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase) ||
+                    wildcardSuffixes.Any(suffix => origin.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)))
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
+        else
+        {
+            policy.WithOrigins(exactOrigins)
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        }
     });
 });
 

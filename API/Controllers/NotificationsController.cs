@@ -51,40 +51,48 @@ public class NotificationsController : ControllerBase
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
-        var employee = await FindEmployeeByPin(dto.Pin);
-        if (employee == null)
-            return Unauthorized("Neplatný PIN");
-
-        // Upsert by Endpoint: if endpoint exists, update it; otherwise create it
-        var existing = await _db.PushSubscriptions
-            .FirstOrDefaultAsync(s => s.Endpoint == dto.Subscription.Endpoint);
-
-        if (existing != null)
+        try
         {
-            existing.EmployeeId = employee.Id;
-            existing.P256dhKey = dto.Subscription.Keys.P256dh;
-            existing.AuthKey = dto.Subscription.Keys.Auth;
-            existing.UserAgent = dto.Subscription.UserAgent;
-            existing.LastUsedAt = DateTime.UtcNow;
-            _db.PushSubscriptions.Update(existing);
-        }
-        else
-        {
-            var subscription = new PushSubscription
+            var employee = await FindEmployeeByPin(dto.Pin);
+            if (employee == null)
+                return Unauthorized("Neplatný PIN");
+
+            // Upsert by Endpoint: if endpoint exists, update it; otherwise create it
+            var existing = await _db.PushSubscriptions
+                .FirstOrDefaultAsync(s => s.Endpoint == dto.Subscription.Endpoint);
+
+            if (existing != null)
             {
-                EmployeeId = employee.Id,
-                Endpoint = dto.Subscription.Endpoint,
-                P256dhKey = dto.Subscription.Keys.P256dh,
-                AuthKey = dto.Subscription.Keys.Auth,
-                UserAgent = dto.Subscription.UserAgent,
-                CreatedAt = DateTime.UtcNow,
-                LastUsedAt = DateTime.UtcNow
-            };
-            _db.PushSubscriptions.Add(subscription);
-        }
+                existing.EmployeeId = employee.Id;
+                existing.P256dhKey = dto.Subscription.Keys.P256dh;
+                existing.AuthKey = dto.Subscription.Keys.Auth;
+                existing.UserAgent = dto.Subscription.UserAgent;
+                existing.LastUsedAt = DateTime.UtcNow;
+                _db.PushSubscriptions.Update(existing);
+            }
+            else
+            {
+                var subscription = new PushSubscription
+                {
+                    EmployeeId = employee.Id,
+                    Endpoint = dto.Subscription.Endpoint,
+                    P256dhKey = dto.Subscription.Keys.P256dh,
+                    AuthKey = dto.Subscription.Keys.Auth,
+                    UserAgent = dto.Subscription.UserAgent,
+                    CreatedAt = DateTime.UtcNow,
+                    LastUsedAt = DateTime.UtcNow
+                };
+                _db.PushSubscriptions.Add(subscription);
+            }
 
-        await _db.SaveChangesAsync();
-        return Ok(new { ok = true });
+            await _db.SaveChangesAsync();
+            return Ok(new { ok = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Subscribe endpoint error for employeeId hint {EmployeeId}", dto.EmployeeId);
+            return StatusCode(500, new { error = "Interná chyba servera. Skúste znova neskôr.", detail = ex.Message });
+        }
     }
 
     // Kiosk: unsubscribe from push notifications
