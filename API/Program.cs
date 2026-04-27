@@ -92,12 +92,20 @@ builder.Services.AddScoped<NoActivity48hEvaluator>();
 builder.Services.AddHostedService<NotificationBackgroundService>();
 
 // CORS
+// Base origins come from appsettings / Railway config section.
+// ALLOWED_ORIGINS env var can add extra comma-separated origins at runtime
+// (e.g. set it in the Railway dev environment to the Vercel preview URL).
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("CorsPolicy", policy =>
     {
         var origins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>()
             ?? new[] { "http://localhost:4200" };
+
+        var extraRaw = Environment.GetEnvironmentVariable("ALLOWED_ORIGINS") ?? string.Empty;
+        var extra = extraRaw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        origins = origins.Concat(extra).Distinct().ToArray();
+
         policy.WithOrigins(origins)
             .AllowAnyMethod()
             .AllowAnyHeader();
