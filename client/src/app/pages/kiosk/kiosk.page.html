@@ -68,33 +68,55 @@
       }
 
       <!-- Notification prompt (big "Povoliť upozornenia" tile) -->
-      @if (showNotificationPrompt() && notificationSupported()) {
+      <!-- Always shown until dismissed or subscribed. When push isn't supported yet
+           (e.g. iOS Safari without PWA installed) we show the install-guide path instead. -->
+      @if (showNotificationPrompt()) {
         <div class="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 border-2 border-green-300 dark:border-green-700 rounded-2xl p-6 mb-6 shadow-md">
           <div class="text-center">
             <h2 class="text-2xl font-bold text-green-900 dark:text-green-100 mb-2">Povoliť upozornenia</h2>
             <p class="text-green-800 dark:text-green-200 mb-4 text-base">
               Dostaňte upozornenia, keď ste bez záznamu dlhšie ako 2 dni.
             </p>
-            <div class="flex flex-col gap-3 mb-4">
-              <button
-                (click)="startNotificationSubscribe(1); selectedEmployee.set({employeeId: 1, employeeName: '', photoUrl: '', days: [], totalHours: 0, totalHoursMonth2: 0})"
-                [disabled]="subscribingToPush()"
-                class="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-bold text-lg transition-colors">
-                {{ subscribingToPush() ? 'Spúšťam...' : 'Zapnúť' }}
-              </button>
-              <button
-                (click)="openInstallGuide()"
-                class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors">
-                Ako to nainštalovať?
-              </button>
-            </div>
-            <p class="text-xs text-green-700 dark:text-green-300">
-              Budete musieť zadať svoj PIN a potvrdiť povolenie.
-            </p>
+            @if (notificationSupported()) {
+              <!-- Push supported: show subscribe flow -->
+              <div class="flex flex-col gap-3 mb-4">
+                <button
+                  (click)="startNotificationSubscribe(1); selectedEmployee.set({employeeId: 1, employeeName: '', photoUrl: '', days: [], totalHours: 0, totalHoursMonth2: 0})"
+                  [disabled]="subscribingToPush()"
+                  class="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-bold text-lg transition-colors">
+                  {{ subscribingToPush() ? 'Spúšťam...' : 'Zapnúť' }}
+                </button>
+                <button
+                  (click)="openInstallGuide()"
+                  class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors">
+                  Ako to nainštalovať?
+                </button>
+              </div>
+              <p class="text-xs text-green-700 dark:text-green-300">
+                Budete musieť zadať svoj PIN a potvrdiť povolenie.
+              </p>
+            } @else {
+              <!-- Push not supported yet — user needs to install the PWA first -->
+              <div class="flex flex-col gap-3 mb-4">
+                <p class="text-green-800 dark:text-green-200 text-sm">
+                  Váš prehliadač ešte nepodporuje upozornenia. Nainštalujte si aplikáciu na domovskú obrazovku a potom sa vráťte sem.
+                </p>
+                <button
+                  (click)="openInstallGuide()"
+                  class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-lg transition-colors">
+                  Ako nainštalovať aplikáciu?
+                </button>
+                <button
+                  (click)="closeNotificationPrompt()"
+                  class="px-6 py-2 text-green-700 dark:text-green-300 text-sm underline">
+                  Zavrieť
+                </button>
+              </div>
+            }
           </div>
 
-          <!-- PIN entry for subscription -->
-          @if (selectedEmployee() && !subscribingToPush() && showNotificationPrompt()) {
+          <!-- PIN entry for subscription (only relevant when push is supported) -->
+          @if (notificationSupported() && selectedEmployee() && !subscribingToPush() && showNotificationPrompt()) {
             <div class="mt-6 bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
               <h3 class="text-center font-medium text-slate-900 dark:text-white mb-3">Zadajte váš PIN</h3>
 
