@@ -25,7 +25,14 @@ public class NoActivity48hEvaluator
     /// Pure logic: evaluates which employees have no activity in the past 48 hours (on working days).
     /// Does NOT check idempotency (NotificationLog history) — that's the caller's responsibility.
     /// </summary>
-    public async Task<List<NoActivity48hCandidate>> EvaluateAsync(DateOnly localDate, CancellationToken ct)
+    /// <param name="localDate">Today's date in Bratislava local time.</param>
+    /// <param name="ignoreGracePeriod">When true, skip the &lt;3-days-since-CreatedAt onboarding
+    /// guard. The production cron leaves this false (don't bug newly-onboarded workers); the
+    /// admin's manual "Spustiť kontrolu" button passes true so demo/test accounts qualify.</param>
+    public async Task<List<NoActivity48hCandidate>> EvaluateAsync(
+        DateOnly localDate,
+        CancellationToken ct,
+        bool ignoreGracePeriod = false)
     {
         var candidates = new List<NoActivity48hCandidate>();
 
@@ -39,8 +46,9 @@ public class NoActivity48hEvaluator
 
         foreach (var emp in employees)
         {
-            // Skip if employee created less than 3 days ago
-            if (DateTime.UtcNow.Subtract(emp.CreatedAt).TotalDays < 3)
+            // Skip if employee created less than 3 days ago (onboarding grace period).
+            // Bypassed by the manual admin button so demo/test accounts qualify.
+            if (!ignoreGracePeriod && DateTime.UtcNow.Subtract(emp.CreatedAt).TotalDays < 3)
                 continue;
 
             // Check if any TimeEntry with ClockIn >= twoDaysAgo

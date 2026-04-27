@@ -328,12 +328,15 @@ public class NotificationsController : ControllerBase
 
             var title = dto.Title ?? "Šichtovnica TEST";
             var body = dto.Body ?? $"Toto je testovacie upozornenie. Ak ho vidíš, push funguje. {DateTime.Now:HH:mm}";
+            // Unique per press so the SW doesn't collapse this with any prior notification still
+            // in the system tray (W3C tag semantics replace silently when tags match).
+            var pushTag = $"sichtovnica-test-{emp.Id}-{DateTime.UtcNow.Ticks}";
 
             int successCount = 0;
             var errors = new List<string>();
             foreach (var sub in subscriptions)
             {
-                var result = await _pushService.SendAsync(sub, title, body, "/kiosk");
+                var result = await _pushService.SendAsync(sub, title, body, "/kiosk", pushTag);
 
                 if (result.Success)
                     successCount++;
@@ -387,9 +390,18 @@ public class NotificationsController : ControllerBase
     }
 
     // Admin: fire NoActivity48h check right now
+    // Query params (both default true so the manual admin button is re-pressable for live demos):
+    //   ignoreIdempotency: when true, replace prior log rows instead of skipping employees
+    //                      who were already sent a notification today.
+    //   ignoreGracePeriod: when true, skip the <3-days-since-CreatedAt onboarding guard so
+    //                      newly-created dev/test employees qualify as candidates.
+    // The production cron uses NotificationBackgroundService which calls the evaluator with
+    // both defaults (false, false), so this query-param relaxation is admin-only.
     [Authorize]
     [HttpPost("fire-now")]
-    public async Task<ActionResult<NotificationTestResultDto>> FireNow()
+    public async Task<ActionResult<NotificationTestResultDto>> FireNow(
+        [FromQuery] bool ignoreIdempotency = true,
+        [FromQuery] bool ignoreGracePeriod = true)
     {
         try
         {
@@ -398,21 +410,27 @@ public class NotificationsController : ControllerBase
             var todayBratislava = DateOnly.FromDateTime(nowBratislava);
 
             var evaluator = new NoActivity48hEvaluator(_db);
-            var candidates = await evaluator.EvaluateAsync(todayBratislava, CancellationToken.None);
+            var candidates = await evaluator.EvaluateAsync(
+                todayBratislava,
+                CancellationToken.None,
+                ignoreGracePeriod: ignoreGracePeriod);
 
             int totalSends = 0;
 
             foreach (var candidate in candidates)
             {
-                var alreadySent = await _db.NotificationLogs
-                    .AnyAsync(l =>
-                        l.EmployeeId == candidate.Employee.Id &&
-                        l.Channel == "Push" &&
-                        l.TriggerType == "NoActivity48h" &&
-                        l.TriggerDate == todayBratislava);
+                if (!ignoreIdempotency)
+                {
+                    var alreadySent = await _db.NotificationLogs
+                        .AnyAsync(l =>
+                            l.EmployeeId == candidate.Employee.Id &&
+                            l.Channel == "Push" &&
+                            l.TriggerType == "NoActivity48h" &&
+                            l.TriggerDate == todayBratislava);
 
-                if (alreadySent)
-                    continue;
+                    if (alreadySent)
+                        continue;
+                }
 
                 var subscriptions = await _db.PushSubscriptions
                     .Where(s => s.EmployeeId == candidate.Employee.Id)
@@ -421,11 +439,14 @@ public class NotificationsController : ControllerBase
                 if (subscriptions.Count == 0)
                     continue;
 
+                // Unique per press so successive admin invocations show as distinct toasts.
+                var pushTag = $"sichtovnica-noactivity-{candidate.Employee.Id}-{DateTime.UtcNow.Ticks}";
+
                 int successCount = 0;
                 var errors = new List<string>();
                 foreach (var sub in subscriptions)
                 {
-                    var result = await _pushService.SendAsync(sub, candidate.PushTitle, candidate.PushBody, "/kiosk");
+                    var result = await _pushService.SendAsync(sub, candidate.PushTitle, candidate.PushBody, "/kiosk", pushTag);
 
                     if (result.Success)
                         successCount++;
@@ -437,7 +458,21 @@ public class NotificationsController : ControllerBase
                 }
 
                 // Single audit row per (employee, channel, triggerType, day) — the unique index
-                // requires it. The early `alreadySent` check above guarantees we don't conflict.
+                // requires it. When ignoreIdempotency=true (manual admin re-press) we replace any
+                // prior row for this tuple; when false (cron-style), the early `alreadySent` check
+                // above already returned `continue` so there is no conflicting row to delete.
+                if (ignoreIdempotency)
+                {
+                    var priorLogs = await _db.NotificationLogs
+                        .Where(l => l.EmployeeId == candidate.Employee.Id
+                                 && l.Channel == "Push"
+                                 && l.TriggerType == "NoActivity48h"
+                                 && l.TriggerDate == todayBratislava)
+                        .ToListAsync();
+                    if (priorLogs.Count > 0)
+                        _db.NotificationLogs.RemoveRange(priorLogs);
+                }
+
                 _db.NotificationLogs.Add(new NotificationLog
                 {
                     EmployeeId = candidate.Employee.Id,
@@ -509,11 +544,14 @@ public class NotificationsController : ControllerBase
         if (subscriptions.Count == 0)
             return BadRequest("Žiadne push notifikácie zaregistrované");
 
+        // Unique per press so successive demo invocations show as distinct toasts.
+        var pushTag = $"sichtovnica-demo-{emp.Id}-{DateTime.UtcNow.Ticks}";
+
         int successCount = 0;
         var errors = new List<string>();
         foreach (var sub in subscriptions)
         {
-            var result = await _pushService.SendAsync(sub, pushTitle, pushBody, "/kiosk");
+            var result = await _pushService.SendAsync(sub, pushTitle, pushBody, "/kiosk", pushTag);
 
             if (result.Success)
                 successCount++;

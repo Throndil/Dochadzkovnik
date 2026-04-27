@@ -17,6 +17,7 @@ self.addEventListener('push', (event) => {
   let title = 'Šichtovnica';
   let body = 'Nové upozornenie';
   let clickUrl = '/kiosk';
+  let tag = null;
 
   if (event.data) {
     try {
@@ -24,6 +25,7 @@ self.addEventListener('push', (event) => {
       title = payload.title || title;
       body = payload.body || body;
       clickUrl = payload.clickUrl || clickUrl;
+      if (typeof payload.tag === 'string' && payload.tag.length > 0) tag = payload.tag;
     } catch (e) {
       // Invalid JSON, fall back to default notification
       console.warn('Failed to parse push payload:', e);
@@ -31,12 +33,16 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  // Per W3C Notification spec, two notifications with the same `tag` collapse silently
+  // (the new one replaces the old without re-alerting). To make every push visible to
+  // the user we either honour a server-supplied tag (e.g. one per trigger type) or fall
+  // back to a unique-per-event tag so successive notifications don't merge.
   const options = {
     body: body,
     icon: '/profistav_logo_192.png',
     badge: '/profistav_logo_192.png',
     requireInteraction: false,
-    tag: 'sichtovnica-noactivity',
+    tag: tag || ('sichtovnica-' + Date.now()),
     data: {
       clickUrl: clickUrl
     }

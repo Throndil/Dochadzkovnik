@@ -126,6 +126,9 @@ public class NotificationBackgroundService : BackgroundService
                 .Where(s => s.EmployeeId == candidate.Employee.Id)
                 .ToListAsync(ct);
 
+            // Unique tag per candidate so each cron-fired notification displays distinctly.
+            var pushTag = $"sichtovnica-noactivity-{candidate.Employee.Id}-{DateTime.UtcNow.Ticks}";
+
             foreach (var sub in subscriptions)
             {
                 var result = await pushService.SendAsync(
@@ -133,7 +136,8 @@ public class NotificationBackgroundService : BackgroundService
                     candidate.PushTitle,
                     candidate.PushBody,
                     "/kiosk",
-                    ct);
+                    pushTag,
+                    ct: ct);
 
                 var logEntry = new NotificationLog
                 {

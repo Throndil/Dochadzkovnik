@@ -39,6 +39,7 @@ public class WebPushService : IPushNotificationService
         string title,
         string body,
         string? clickUrl,
+        string? tag = null,
         CancellationToken ct = default)
     {
         var config = await GetConfigAsync(ct);
@@ -50,11 +51,14 @@ public class WebPushService : IPushNotificationService
 
         try
         {
+            // Service worker reads `tag` from this payload. If null/missing, the SW falls
+            // back to a unique-per-event tag so successive pushes don't silently merge.
             var payload = new
             {
                 title,
                 body,
-                clickUrl
+                clickUrl,
+                tag
             };
 
             var webPushClient = new WebPushClient();
