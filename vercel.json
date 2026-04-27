@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd client && npm ci && npm run build:${BUILD_ENV:-prod}",
+  "buildCommand": "cd client && npm ci && if [ \"$VERCEL_GIT_COMMIT_REF\" = \"dev\" ]; then npm run build:dev; else npm run build:prod; fi",
   "outputDirectory": "client/dist/browser",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
