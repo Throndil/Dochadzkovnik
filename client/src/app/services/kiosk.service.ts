@@ -116,6 +116,11 @@ export class KioskService {
     return this.http.post<WorkPhotoResult>(`${this.url}/work-photo`, form);
   }
 
+  /** PIN-authenticated — worker declines push notifications and gives a reason. */
+  declineNotifications(pin: string, reason: string) {
+    return this.http.post(`${this.url}/decline-notifications`, { pin, reason });
+  }
+
   /** Public endpoint — list of workers with no time entry for last 2 days. */
   getMissingHoursOverview() {
     return this.http.get<MissingHoursOverview>(`${this.url}/missing-hours-overview`);

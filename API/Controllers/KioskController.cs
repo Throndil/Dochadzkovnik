@@ -576,6 +576,23 @@ public class KioskController : ControllerBase
         return (startUtc, endUtc);
     }
 
+    // POST /api/kiosk/decline-notifications
+    // PIN-authenticated. Records the reason a worker gave for declining push notifications.
+    // Sets NotificationsEnabled = false so the background service stops reminding them.
+    [HttpPost("decline-notifications")]
+    public async Task<ActionResult> DeclineNotifications([FromBody] DeclineNotificationsDto dto)
+    {
+        var employee = await FindEmployeeByPin(dto.Pin);
+        if (employee == null) return Unauthorized("Neplatný PIN");
+
+        employee.NotificationsEnabled = false;
+        employee.NotificationsDeclineReason = dto.Reason?.Trim() ?? string.Empty;
+        employee.UpdatedAt = Now;
+        await _db.SaveChangesAsync();
+
+        return Ok();
+    }
+
     private async Task<Models.Employee?> FindEmployeeByPin(string pin)
     {
         var employees = await _db.Employees

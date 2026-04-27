@@ -43,7 +43,8 @@ public class EmployeesController : ControllerBase
                 City = e.City,
                 PhotoUrl = e.PhotoUrl,
                 IsActive = e.IsActive,
-                CreatedAt = e.CreatedAt
+                CreatedAt = e.CreatedAt,
+                NotificationsDeclineReason = e.NotificationsDeclineReason
             })
             .ToListAsync();
     }
@@ -65,7 +66,8 @@ public class EmployeesController : ControllerBase
             PhotoUrl = emp.PhotoUrl,
             IsActive = emp.IsActive,
             CreatedAt = emp.CreatedAt,
-            PinPlain = emp.PinPlain
+            PinPlain = emp.PinPlain,
+            NotificationsDeclineReason = emp.NotificationsDeclineReason
         };
     }
 

@@ -635,6 +635,19 @@ using (var scope = app.Services.CreateScope())
             }
         }
 
+        // Check for NotificationsDeclineReason
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsDeclineReason'";
+            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
+            if (count == 0)
+            {
+                using var addCmd = conn.CreateCommand();
+                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"NotificationsDeclineReason\" TEXT";
+                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
+            }
+        }
+
         await conn.CloseAsync();
     }
 
@@ -652,6 +665,9 @@ using (var scope = app.Services.CreateScope())
                 END IF;
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Employees' AND column_name = 'WhatsAppNumber') THEN
                     ALTER TABLE ""Employees"" ADD COLUMN ""WhatsAppNumber"" VARCHAR(30);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Employees' AND column_name = 'NotificationsDeclineReason') THEN
+                    ALTER TABLE ""Employees"" ADD COLUMN ""NotificationsDeclineReason"" VARCHAR(500);
                 END IF;
             END $$;
         ");

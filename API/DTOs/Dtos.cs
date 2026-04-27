@@ -77,6 +77,8 @@ public class EmployeeDto
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public string? PinPlain { get; set; }
+    /// <summary>Reason given when the worker declined push notifications from the kiosk banner. Null if never declined.</summary>
+    public string? NotificationsDeclineReason { get; set; }
 }
 
 // Location
@@ -149,6 +151,12 @@ public class ClockOutDto
 {
     [Required] public string Pin { get; set; } = string.Empty;
     public string? Note { get; set; }
+}
+
+public class DeclineNotificationsDto
+{
+    [Required] public string Pin { get; set; } = string.Empty;
+    [Required, StringLength(500)] public string Reason { get; set; } = string.Empty;
 }
 
 public class ManualEntryDto

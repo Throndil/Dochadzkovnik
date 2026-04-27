@@ -13,6 +13,8 @@ export interface Employee {
   isActive: boolean;
   createdAt: string;
   pinPlain?: string;  // visible to manager on edit page
+  /** Reason given when the worker declined push notifications from the kiosk. Null if never declined. */
+  notificationsDeclineReason?: string;
 }
 
 export interface CreateEmployee {

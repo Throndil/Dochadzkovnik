@@ -148,6 +148,15 @@ export class KioskPage implements OnInit, OnDestroy {
   pushSubscribePinDisplay = signal<string[]>([]);
   pushError = signal('');
 
+  // Decline-notifications flow
+  showDeclineForm = signal(false);
+  declineReason = '';
+  declinePin = '';
+  declinePinDisplay = signal<string[]>([]);
+  decliningNotifications = signal(false);
+  declineError = signal('');
+  declineStep = signal<'reason' | 'pin'>('reason');
+
   // Inline push-subscribe (button on the location step inside the clock-in modal).
   // Reuses the already-validated PIN — no second prompt.
   inlinePushBusy = signal(false);
@@ -879,7 +888,6 @@ export class KioskPage implements OnInit, OnDestroy {
 
   openInstallGuide() {
     const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-    const isAndroid = /Android/.test(navigator.userAgent);
 
     let url = '/Sichtovnica_Android_Sprievodca.pdf';
     if (isIOS) {
@@ -887,5 +895,66 @@ export class KioskPage implements OnInit, OnDestroy {
     }
 
     window.open(url, '_blank');
+  }
+
+  // ─── Decline notifications flow ──────────────────────────────────
+
+  openDeclineForm() {
+    this.declineReason = '';
+    this.declinePin = '';
+    this.declinePinDisplay.set([]);
+    this.declineError.set('');
+    this.declineStep.set('reason');
+    this.showDeclineForm.set(true);
+  }
+
+  closeDeclineForm() {
+    this.showDeclineForm.set(false);
+    this.declineReason = '';
+    this.declinePin = '';
+    this.declinePinDisplay.set([]);
+    this.declineError.set('');
+  }
+
+  declinePinPress(digit: string) {
+    if (this.declinePin.length >= 6) return;
+    this.declinePin += digit;
+    this.declinePinDisplay.set(Array(this.declinePin.length).fill('●'));
+    this.declineError.set('');
+  }
+
+  declinePinDelete() {
+    if (!this.declinePin.length) return;
+    this.declinePin = this.declinePin.slice(0, -1);
+    this.declinePinDisplay.set(Array(this.declinePin.length).fill('●'));
+  }
+
+  proceedToDeclinePin() {
+    if (!this.declineReason.trim()) {
+      this.declineError.set('Prosím, zadajte dôvod.');
+      return;
+    }
+    this.declineError.set('');
+    this.declineStep.set('pin');
+  }
+
+  submitDecline() {
+    if (this.declinePin.length < 4) {
+      this.declineError.set('Zadajte aspoň 4-miestny PIN');
+      return;
+    }
+    this.decliningNotifications.set(true);
+    this.declineError.set('');
+    this.kioskService.declineNotifications(this.declinePin, this.declineReason.trim()).subscribe({
+      next: () => {
+        this.decliningNotifications.set(false);
+        this.showDeclineForm.set(false);
+        this.showNotificationPrompt.set(false);
+      },
+      error: () => {
+        this.decliningNotifications.set(false);
+        this.declineError.set('Neplatný PIN alebo chyba. Skúste znova.');
+      }
+    });
   }
 }
