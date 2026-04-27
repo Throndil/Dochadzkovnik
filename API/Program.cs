@@ -576,6 +576,16 @@ using (var scope = app.Services.CreateScope())
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialUsages' AND column_name = 'UnitPriceAtTime') THEN
                     ALTER TABLE ""MaterialUsages"" ADD COLUMN ""UnitPriceAtTime"" NUMERIC(12,4) NOT NULL DEFAULT 0;
                 END IF;
+
+                -- The AddMaterialsAndUsage migration used Sqlite:Autoincrement which PostgreSQL ignores,
+                -- leaving Id with no sequence. Ensure sequences exist and are wired as the column default.
+                CREATE SEQUENCE IF NOT EXISTS ""Materials_Id_seq"";
+                ALTER TABLE ""Materials"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""Materials_Id_seq""');
+                PERFORM setval('""Materials_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""Materials""), 0) + 1, false);
+
+                CREATE SEQUENCE IF NOT EXISTS ""MaterialUsages_Id_seq"";
+                ALTER TABLE ""MaterialUsages"" ALTER COLUMN ""Id"" SET DEFAULT nextval('""MaterialUsages_Id_seq""');
+                PERFORM setval('""MaterialUsages_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""MaterialUsages""), 0) + 1, false);
             END $$;
         ");
     }
@@ -706,6 +716,68 @@ using (var scope = app.Services.CreateScope())
                         ""VapidPrivateKey""          VARCHAR(1000) NOT NULL DEFAULT '',
                         ""VapidSubject""             VARCHAR(200) NOT NULL DEFAULT ''
                     );
+                END IF;
+
+                -- The AddNotifications migration was generated targeting SQLite which maps bool to INTEGER.
+                -- When that migration runs against PostgreSQL the columns land as integer type, not boolean,
+                -- causing a type-mismatch error on INSERT/UPDATE.
+                -- Heal: cast every affected bool column to BOOLEAN if it is still stored as integer.
+                -- NoActivity48hTime was stored as TEXT by the SQLite migration; cast to TIME.
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'NotificationConfigs'
+                      AND column_name = 'NoActivity48hTime'
+                      AND data_type   = 'text'
+                ) THEN
+                    ALTER TABLE ""NotificationConfigs""
+                        ALTER COLUMN ""NoActivity48hTime"" TYPE TIME WITHOUT TIME ZONE USING (""NoActivity48hTime""::time);
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'NotificationConfigs'
+                      AND column_name = 'ManagerSummaryEnabled'
+                      AND data_type   = 'integer'
+                ) THEN
+                    ALTER TABLE ""NotificationConfigs""
+                        ALTER COLUMN ""NoActivity48hEnabled""  DROP DEFAULT,
+                        ALTER COLUMN ""NoActivity48hEnabled""  TYPE BOOLEAN USING (""NoActivity48hEnabled""::int::boolean),
+                        ALTER COLUMN ""NoActivity48hEnabled""  SET DEFAULT FALSE,
+                        ALTER COLUMN ""WorkingDaysOnly""       DROP DEFAULT,
+                        ALTER COLUMN ""WorkingDaysOnly""       TYPE BOOLEAN USING (""WorkingDaysOnly""::int::boolean),
+                        ALTER COLUMN ""WorkingDaysOnly""       SET DEFAULT TRUE,
+                        ALTER COLUMN ""ManagerSummaryEnabled"" DROP DEFAULT,
+                        ALTER COLUMN ""ManagerSummaryEnabled"" TYPE BOOLEAN USING (""ManagerSummaryEnabled""::int::boolean),
+                        ALTER COLUMN ""ManagerSummaryEnabled"" SET DEFAULT FALSE;
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'Employees'
+                      AND column_name = 'NotificationsEnabled'
+                      AND data_type   = 'integer'
+                ) THEN
+                    -- Must drop the integer DEFAULT before changing type; PostgreSQL cannot cast it automatically.
+                    ALTER TABLE ""Employees""
+                        ALTER COLUMN ""NotificationsEnabled"" DROP DEFAULT,
+                        ALTER COLUMN ""NotificationsEnabled"" TYPE BOOLEAN USING (""NotificationsEnabled""::int::boolean),
+                        ALTER COLUMN ""NotificationsEnabled"" SET DEFAULT FALSE,
+                        ALTER COLUMN ""WhatsAppEnabled"" DROP DEFAULT,
+                        ALTER COLUMN ""WhatsAppEnabled""      TYPE BOOLEAN USING (""WhatsAppEnabled""::int::boolean),
+                        ALTER COLUMN ""WhatsAppEnabled"" SET DEFAULT FALSE;
+                END IF;
+
+                -- Materials.IsActive was also bool→INTEGER in the AddMaterialsAndUsage migration.
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'Materials'
+                      AND column_name = 'IsActive'
+                      AND data_type   = 'integer'
+                ) THEN
+                    ALTER TABLE ""Materials""
+                        ALTER COLUMN ""IsActive"" DROP DEFAULT,
+                        ALTER COLUMN ""IsActive"" TYPE BOOLEAN USING (""IsActive""::int::boolean),
+                        ALTER COLUMN ""IsActive"" SET DEFAULT TRUE;
                 END IF;
             END $$;
         ");
