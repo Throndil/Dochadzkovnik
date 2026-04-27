@@ -516,6 +516,6 @@ public class NotificationsController : ControllerBase
             .Where(e => e.IsActive)
             .ToListAsync();
 
-        return employees.FirstOrDefault(e => _pinHasher.Verify(pin, e.Pin));
+        return employees.FirstOrDefault(e => _pinHasher.Verify(e.Pin, pin));
     }
 }

@@ -162,6 +162,8 @@ export class KioskPage implements OnInit, OnDestroy {
   inlinePushBusy = signal(false);
   inlinePushDone = signal(false);
   inlinePushError = signal('');
+  /** True when this browser has an active push subscription registered with the backend. */
+  deviceSubscribed = signal(false);
 
   constructor(private kioskService: KioskService) {}
 
@@ -183,6 +185,11 @@ export class KioskPage implements OnInit, OnDestroy {
     } else if (this.notificationSupported() && this.pushPermission() === 'granted') {
       // Already subscribed, hide the prompt
       this.showNotificationPrompt.set(false);
+      // Check if an active push subscription exists for this device
+      navigator.serviceWorker.ready
+        .then(reg => reg.pushManager.getSubscription())
+        .then(sub => this.deviceSubscribed.set(!!sub))
+        .catch(() => { /* ignore — deviceSubscribed stays false */ });
     }
   }
 
@@ -874,6 +881,7 @@ export class KioskPage implements OnInit, OnDestroy {
       if (ok) {
         this.pushPermission.set('granted');
         this.showNotificationPrompt.set(false);
+        this.deviceSubscribed.set(true);
         this.inlinePushDone.set(true);
       } else {
         this.inlinePushError.set('Nepodarilo sa prihlásiť. Povoľte upozornenia v prehliadači a skúste znova.');
@@ -881,6 +889,26 @@ export class KioskPage implements OnInit, OnDestroy {
     } catch (e) {
       console.error('Inline push subscribe failed:', e);
       this.inlinePushError.set('Chyba pri prihlášení.');
+    } finally {
+      this.inlinePushBusy.set(false);
+    }
+  }
+
+  /** Unsubscribe this device from push notifications. */
+  async unsubscribeInline() {
+    this.inlinePushBusy.set(true);
+    this.inlinePushError.set('');
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await this.pushService.unsubscribe(sub.endpoint);
+        await sub.unsubscribe();
+      }
+      this.deviceSubscribed.set(false);
+    } catch (e) {
+      console.error('Inline push unsubscribe failed:', e);
+      this.inlinePushError.set('Chyba pri deaktivácii. Skúste znova.');
     } finally {
       this.inlinePushBusy.set(false);
     }
