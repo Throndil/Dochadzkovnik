@@ -5,7 +5,6 @@ import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow, Wo
 import { TimeEntry } from '../../services/time-entry.service';
 import { Location } from '../../services/location.service';
 import { Car } from '../../services/car.service';
-import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 import { PushService } from '../../services/push.service';
@@ -17,7 +16,7 @@ type WuStep = 'pin' | 'location' | 'photo' | 'result';
 
 @Component({
   selector: 'app-kiosk',
-  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe, DatepickerDirective],
+  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe],
   templateUrl: './kiosk.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush
 })

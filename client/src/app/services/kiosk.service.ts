@@ -138,7 +138,9 @@ export interface EmployeeMissingDays {
   lastName: string;
   fullName: string;
   photoUrl?: string;
-  phoneNumber?: string;
+  // phoneNumber intentionally NOT exposed — the kiosk endpoint is anonymous and
+  // anything on this interface ends up on a publicly-visible tablet. Managers
+  // look phone numbers up via the JWT-protected admin Employees page instead.
   missingDates: string[]; // yyyy-MM-dd
 }
 

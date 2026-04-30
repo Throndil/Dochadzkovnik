@@ -509,7 +509,10 @@ public class EmployeeMissingDaysDto
     public string LastName { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string? PhotoUrl { get; set; }
-    public string? PhoneNumber { get; set; }
+    // PhoneNumber is intentionally NOT exposed here. This DTO is returned by the
+    // anonymous kiosk endpoint /api/kiosk/missing-hours-overview, so anything on it
+    // is publicly scrapeable. Phone numbers stay server-side; if a manager needs
+    // them they look the worker up via the JWT-protected /api/employees admin API.
     /// <summary>Dates the worker has no time entry for (yyyy-MM-dd, local Bratislava).</summary>
     public List<string> MissingDates { get; set; } = new();
 }
@@ -517,6 +520,34 @@ public class EmployeeMissingDaysDto
 public class MyMissingDaysDto
 {
     public string EmployeeName { get; set; } = string.Empty;
+    public List<string> MissingDates { get; set; } = new();
+}
+
+// =================================================================
+//  Admin variant of "Treba pripomenúť" — JWT-protected, includes
+//  PhoneNumber so the manager can call/SMS workers from the
+//  Notifikácie page. NEVER serve this from an anonymous endpoint.
+// =================================================================
+public class MissingHoursOverviewAdminDto
+{
+    public List<string> CheckedDates { get; set; } = new();
+    public List<EmployeeMissingDaysAdminDto> Employees { get; set; } = new();
+}
+
+public class EmployeeMissingDaysAdminDto
+{
+    public int Id { get; set; }
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
+    /// <summary>
+    /// Phone number is included here because this DTO is only ever returned
+    /// by JWT-protected admin endpoints. If you find yourself adding it to
+    /// an anonymous response you have made a mistake — use
+    /// EmployeeMissingDaysDto (no phone) for the kiosk path instead.
+    /// </summary>
+    public string? PhoneNumber { get; set; }
     public List<string> MissingDates { get; set; } = new();
 }
 
