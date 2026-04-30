@@ -4,13 +4,18 @@
   <meta charset="utf-8">
   <title>Sichtovnica</title>
   <base href="/">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <!-- viewport-fit=cover lets us read env(safe-area-inset-*) on notched / dynamic-island iPhones -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <link rel="icon" type="image/png" href="profistav_logo_192.png">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
   <meta name="apple-mobile-web-app-title" content="Sichtovnica">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#f59e0b">
+  <!-- iOS standalone (added-to-home-screen) status bar: default = system style with content under it. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <!-- Theme colour matches navbar (light) / slate (dark) — iOS Safari and Android Chrome both honour this. -->
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1e293b" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body>

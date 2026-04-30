@@ -1,0 +1,331 @@
+@if (isOpen()) {
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-black/50 z-40 transition-opacity"
+       (click)="requestClose()"
+       aria-hidden="true"></div>
+
+  <!-- Slide-over panel -->
+  <aside role="dialog" aria-modal="true"
+         class="fixed top-0 right-0 h-full w-full sm:w-[480px] z-50
+                bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-700
+                shadow-2xl flex flex-col
+                transform transition-transform duration-300 ease-out translate-x-0">
+
+    <!-- Header -->
+    <header class="flex items-start justify-between gap-3 p-4 border-b border-slate-200 dark:border-slate-700">
+      <div class="min-w-0">
+        <p class="text-xs uppercase tracking-wide text-amber-500 font-semibold">Spotreba materiálu</p>
+        <h2 class="text-lg font-bold text-slate-900 dark:text-white truncate">{{ location?.name }}</h2>
+        @if (location?.address) {
+          <p class="text-xs text-slate-500 dark:text-slate-400 truncate">{{ location?.address }}</p>
+        }
+      </div>
+      <button (click)="requestClose()" aria-label="Zavrieť panel"
+              class="shrink-0 p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </header>
+
+    <!-- Body (scrollable) -->
+    <div class="flex-1 overflow-y-auto p-4 space-y-5">
+      <!-- Date range -->
+      <section>
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">Obdobie</label>
+          <button (click)="snapToCurrentMonth()"
+                  class="text-xs px-2 py-1 rounded-md font-medium"
+                  [class.bg-amber-500]="rangeMode() === 'month'"
+                  [class.text-white]="rangeMode() === 'month'"
+                  [class.bg-slate-100]="rangeMode() !== 'month'"
+                  [class.dark:bg-slate-800]="rangeMode() !== 'month'"
+                  [class.text-slate-600]="rangeMode() !== 'month'"
+                  [class.dark:text-slate-300]="rangeMode() !== 'month'">
+            Tento mesiac
+          </button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <input type="date" [ngModel]="from()" (ngModelChange)="from.set($event); onDateInputChange()"
+                 class="px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+          <input type="date" [ngModel]="to()"   (ngModelChange)="to.set($event); onDateInputChange()"
+                 class="px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+        </div>
+      </section>
+
+      @if (errorMsg()) {
+        <div class="rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+          {{ errorMsg() }}
+        </div>
+      }
+
+      <!-- Súhrn -->
+      <section>
+        <h3 class="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mb-2">Súhrn</h3>
+        @if (summary().length === 0) {
+          <p class="text-sm text-slate-500 dark:text-slate-400 italic">Žiadna spotreba v tomto období.</p>
+        } @else {
+          <div class="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                <tr>
+                  <th class="text-left  px-3 py-2 font-medium">Materiál</th>
+                  <th class="text-right px-3 py-2 font-medium">Spolu</th>
+                  <th class="text-right px-3 py-2 font-medium">Náklady</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                @for (r of summary(); track r.materialId) {
+                  <tr class="text-slate-800 dark:text-slate-200">
+                    <td class="px-3 py-2">
+                      {{ r.materialName }}
+                      <span class="block text-xs text-slate-500 dark:text-slate-400">
+                        {{ r.lastEntryDate ? 'posledný ' + formatDate(r.lastEntryDate) : '—' }}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2 text-right font-medium tabular-nums">
+                      {{ formatQty(r.totalQuantity) }} <span class="text-slate-500 dark:text-slate-400 text-xs">{{ r.unit }}</span>
+                    </td>
+                    <td class="px-3 py-2 text-right tabular-nums font-medium">
+                      {{ formatEur(r.totalCost) }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+              <tfoot class="bg-slate-50 dark:bg-slate-800/60">
+                <tr class="text-slate-700 dark:text-slate-200">
+                  <td class="px-3 py-2 font-semibold">Spolu</td>
+                  <td class="px-3 py-2 text-right text-xs text-slate-500 dark:text-slate-400">{{ totalEntries() }} záznamov</td>
+                  <td class="px-3 py-2 text-right tabular-nums font-bold text-emerald-600 dark:text-emerald-400">
+                    {{ formatEur(grandTotal()) }}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        }
+      </section>
+
+      <!-- Add new entry -->
+      <section>
+        <button (click)="toggleAdd()"
+                class="w-full flex items-center justify-between px-3 py-2 rounded-lg
+                       bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors">
+          <span>{{ showAddForm() ? 'Skryť formulár' : '+ Pridať záznam' }}</span>
+          <svg class="w-4 h-4 transition-transform" [class.rotate-180]="showAddForm()"
+               fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        @if (showAddForm()) {
+          <div class="mt-3 p-3 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/10 space-y-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block text-xs font-medium text-slate-600 dark:text-slate-300">Materiál</label>
+                <button type="button" (click)="toggleAddMaterial()"
+                        class="text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline">
+                  {{ showAddMaterial() ? 'Zrušiť nový' : '+ Nový materiál' }}
+                </button>
+              </div>
+              <select [(ngModel)]="newEntry.materialId"
+                      class="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg">
+                @for (m of catalogue(); track m.id) {
+                  <option [ngValue]="m.id">{{ m.name }} ({{ m.unit }}) — {{ formatEur(m.pricePerUnit) }}</option>
+                }
+              </select>
+
+              @if (showAddMaterial()) {
+                <div class="mt-2 p-3 rounded-lg border border-dashed border-amber-300 dark:border-amber-800 bg-white/60 dark:bg-slate-900/40 space-y-2">
+                  <div class="grid grid-cols-2 gap-2">
+                    <input type="text" [(ngModel)]="newMaterial.name" maxlength="200" placeholder="Názov (napr. Fasáda)"
+                           class="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded text-sm" />
+                    <input type="text" [(ngModel)]="newMaterial.unit" maxlength="50" placeholder="Jednotka"
+                           class="px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded text-sm" />
+                  </div>
+                  <div class="flex flex-wrap gap-1">
+                    @for (u of unitPresets; track u) {
+                      <button type="button" (click)="pickUnitForNew(u)"
+                              class="px-2 py-1 text-xs rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-amber-200 dark:hover:bg-amber-700 text-slate-700 dark:text-slate-200">
+                        {{ u }}
+                      </button>
+                    }
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Cena/jednotka (€)</label>
+                    <input type="number" min="0" step="0.01" [(ngModel)]="newMaterial.pricePerUnit"
+                           class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white rounded text-sm" />
+                  </div>
+                  <button type="button" (click)="onSaveNewMaterial()"
+                          class="w-full px-3 py-1.5 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold">
+                    Vytvoriť materiál
+                  </button>
+                </div>
+              }
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Množstvo ({{ unitFor(newEntry.materialId) }})</label>
+              <div class="flex items-center gap-2">
+                <button type="button" (click)="adjustNewQty(-1)"
+                        class="w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold">−</button>
+                <input type="number" min="0.001" step="0.5" [(ngModel)]="newEntry.quantity"
+                       class="flex-1 text-center px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg font-semibold" />
+                <button type="button" (click)="adjustNewQty(1)"
+                        class="w-10 h-10 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold">+</button>
+              </div>
+              <div class="mt-2 flex flex-wrap gap-1">
+                @for (q of quickQuantities; track q) {
+                  <button type="button" (click)="setNewQty(q)"
+                          class="px-2 py-1 text-xs rounded-md bg-slate-100 dark:bg-slate-800 hover:bg-amber-200 dark:hover:bg-amber-700 text-slate-700 dark:text-slate-200">
+                    {{ q }}
+                  </button>
+                }
+              </div>
+
+              @if (selectedMaterialPrice() > 0) {
+                <p class="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                  Náklad:
+                  <span class="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {{ formatEur(selectedMaterialPrice() * (newEntry.quantity || 0)) }}
+                  </span>
+                  <span class="text-slate-400">({{ formatEur(selectedMaterialPrice()) }} / {{ unitFor(newEntry.materialId) }})</span>
+                </p>
+              } @else {
+                <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  Cena nie je nastavená — pre výpočet nákladov upravte materiál v katalógu.
+                </p>
+              }
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Dátum</label>
+              <input type="date" [(ngModel)]="newEntry.date"
+                     class="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg [color-scheme:dark]" />
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Poznámka</label>
+              <input type="text" [(ngModel)]="newEntry.note" maxlength="2000" placeholder="Voliteľná poznámka"
+                     class="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg" />
+            </div>
+
+            <button (click)="onSaveNew()"
+                    class="w-full px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors">
+              Uložiť záznam
+            </button>
+          </div>
+        }
+      </section>
+
+      <!-- Detailný záznam -->
+      <section>
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">Detailný záznam</h3>
+          <span class="text-xs text-slate-500 dark:text-slate-400">{{ totalEntries() }} záznamov</span>
+        </div>
+
+        @if (loading()) {
+          <p class="text-sm text-slate-500 dark:text-slate-400 italic">Načítavam…</p>
+        } @else if (entries().length === 0) {
+          <p class="text-sm text-slate-500 dark:text-slate-400 italic">Zatiaľ žiadne záznamy.</p>
+        } @else {
+          <ul class="space-y-2">
+            @for (u of entries(); track u.id) {
+              <li class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
+                @if (editingId() === u.id) {
+                  <!-- Edit mode -->
+                  <div class="space-y-2">
+                    <select [(ngModel)]="editForm.materialId"
+                            class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded">
+                      @for (m of catalogue(); track m.id) {
+                        <option [ngValue]="m.id">{{ m.name }} ({{ m.unit }})</option>
+                      }
+                    </select>
+                    <div class="grid grid-cols-2 gap-2">
+                      <input type="number" min="0.001" step="0.5" [(ngModel)]="editForm.quantity"
+                             class="px-2 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded" />
+                      <input type="date" [(ngModel)]="editForm.date"
+                             class="px-2 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded [color-scheme:dark]" />
+                    </div>
+                    <input type="text" [(ngModel)]="editForm.note" placeholder="Poznámka"
+                           class="w-full px-2 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded" />
+                    <div class="flex justify-end gap-2">
+                      <button (click)="cancelEdit()" class="px-3 py-1.5 text-sm rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">Zrušiť</button>
+                      <button (click)="saveEdit()"  class="px-3 py-1.5 text-sm rounded-md bg-green-600 hover:bg-green-700 text-white font-medium">Uložiť</button>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <p class="font-medium text-slate-900 dark:text-white">
+                        {{ u.materialName }}
+                        <span class="text-amber-600 dark:text-amber-400">{{ formatQty(u.quantity) }} {{ u.unit }}</span>
+                      </p>
+                      <p class="text-xs text-slate-500 dark:text-slate-400">
+                        {{ formatDate(u.date) }}
+                        @if (u.employeeName) { · {{ u.employeeName }} }
+                        @if (u.lineCost > 0) {
+                          · <span class="text-emerald-600 dark:text-emerald-400 font-medium">{{ formatEur(u.lineCost) }}</span>
+                        }
+                      </p>
+                      @if (u.note) {
+                        <p class="text-xs text-slate-600 dark:text-slate-300 mt-1 italic truncate">{{ u.note }}</p>
+                      }
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1">
+                      <button (click)="startEdit(u)" aria-label="Upraviť"
+                              class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button (click)="onDelete(u)" aria-label="Odstrániť"
+                              class="p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                }
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    </div>
+
+    <!-- Sticky footer with grand total + Excel download. safe-bottom lifts content above the
+         iPhone home indicator when running as an installed PWA. -->
+    <footer class="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 backdrop-blur p-3 space-y-2 safe-bottom">
+      @if (summary().length > 0) {
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 font-semibold">
+            Spolu náklady
+          </span>
+          <span class="text-lg font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+            {{ formatEur(grandTotal()) }}
+          </span>
+        </div>
+        @if (headline().length > 0) {
+          <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+            @for (h of headline(); track h.materialId) {
+              <span><span class="font-semibold">{{ h.materialName }}:</span> {{ formatQty(h.totalQuantity) }} {{ h.unit }}</span>
+            }
+          </div>
+        }
+      }
+      <button (click)="onDownloadExcel()"
+              class="w-full px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors flex items-center justify-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+        </svg>
+        Stiahnuť Excel
+      </button>
+    </footer>
+  </aside>
+}

@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { authGuard } from './guards/auth.guard';
+import { notificationsFeatureGuard } from './guards/notifications-feature.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'kiosk', pathMatch: 'full' },
@@ -47,6 +48,15 @@ export const routes: Routes = [
       {
         path: 'cars',
         loadComponent: () => import('./pages/cars/cars.page').then(m => m.CarsPage)
+      },
+      {
+        path: 'materials',
+        loadComponent: () => import('./pages/materials/materials.page').then(m => m.MaterialsPage)
+      },
+      {
+        path: 'notifikacie',
+        canActivate: [notificationsFeatureGuard],
+        loadComponent: () => import('./pages/notifications/notifications.page').then(m => m.NotificationsPage)
       },
       {
         path: 'cars/:id',

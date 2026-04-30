@@ -1,7 +1,8 @@
-import { Component, signal, OnInit } from '@angular/core';
+import { Component, signal, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { AuthService } from '../../services/auth.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
 
 @Component({
   selector: 'app-account',
@@ -24,11 +25,33 @@ export class AccountPage implements OnInit {
   pwdSaved = signal(false);
   pwdError = signal('');
 
+  // Funkcie (superadmin only) — toggles for hidden features
+  flags = inject(FeatureFlagService);
+  flagSaving = signal(false);
+  flagError = signal('');
+
   get pwdValid() {
     return this.currentPassword && this.newPassword.length >= 6 && this.newPassword === this.confirmPassword;
   }
 
-  constructor(private auth: AuthService) {}
+  constructor(public auth: AuthService) {}
+
+  /**
+   * Toggle a flag and surface any error in the card. Re-fetched after the PUT
+   * succeeds so the local signal stays in sync with the server's authoritative
+   * state.
+   */
+  async onToggleFlag(key: string, enabled: boolean) {
+    this.flagError.set('');
+    this.flagSaving.set(true);
+    try {
+      await this.flags.setEnabled(key, enabled);
+    } catch {
+      this.flagError.set('Zmenu sa nepodarilo uložiť. Skús znovu.');
+    } finally {
+      this.flagSaving.set(false);
+    }
+  }
 
   ngOnInit() {
     this.auth.getMe().subscribe({ next: (me) => {

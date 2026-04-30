@@ -165,17 +165,17 @@ public class TimeEntriesController : ControllerBase
         if (photo.Length > 20 * 1024 * 1024)
             return BadRequest("File too large (max 20 MB)");
 
-        // Delete old photo if replacing
-        if (!string.IsNullOrEmpty(entry.PhotoUrl))
-            await _blob.DeleteAsync(entry.PhotoUrl, "work-photos");
-
         var month = entry.ClockIn.ToString("yyyy-MM");
         var folder = $"work-photos/{entry.LocationId}/{month}";
 
         await using var stream = photo.OpenReadStream();
         var url = await _blob.UploadAsync(stream, photo.FileName, folder);
 
-        entry.PhotoUrl = url;
+        // Append to the comma-separated PhotoUrl list. To remove a specific photo,
+        // use DELETE /api/time-entries/{id}/photo?url=...
+        entry.PhotoUrl = string.IsNullOrEmpty(entry.PhotoUrl)
+            ? url
+            : entry.PhotoUrl + "," + url;
         entry.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 

@@ -1,0 +1,124 @@
+<app-navbar />
+<div class="min-h-screen bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-5xl mx-auto px-4 py-4 sm:p-6">
+    <div class="flex justify-between items-center mb-4 sm:mb-6">
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Katalóg materiálu</h1>
+      <button (click)="toggleForm()"
+              class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
+        {{ showForm() ? 'Zrušiť' : '+ Pridať materiál' }}
+      </button>
+    </div>
+
+    @if (errorMsg()) {
+      <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+        {{ errorMsg() }}
+      </div>
+    }
+
+    @if (showForm()) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6">
+        <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-4">Nový materiál</h2>
+        <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Názov</label>
+            <input type="text" [(ngModel)]="newMaterial.name" name="name" required maxlength="200"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Jednotka</label>
+            <input type="text" [(ngModel)]="newMaterial.unit" name="unit" required maxlength="50"
+                   placeholder="napr. vrece, kg, m²"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <div class="mt-2 flex flex-wrap gap-1">
+              @for (u of unitPresets; track u) {
+                <button type="button" (click)="pickUnit(u)"
+                        class="px-2 py-1 text-xs rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-amber-200 dark:hover:bg-amber-700 text-slate-700 dark:text-slate-200">
+                  {{ u }}
+                </button>
+              }
+            </div>
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Cena za jednotku (€)</label>
+            <input type="number" min="0" step="0.01" [(ngModel)]="newMaterial.pricePerUnit" name="pricePerUnit"
+                   class="w-full md:w-60 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Cenu môžete kedykoľvek zmeniť. Existujúce záznamy si zachovajú pôvodnú cenu (ochrana pred infláciou).
+            </p>
+          </div>
+          <div class="md:col-span-2">
+            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors">
+              Vytvoriť
+            </button>
+          </div>
+        </form>
+      </div>
+    }
+
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+          <tr>
+            <th class="text-left px-4 py-3 font-medium">Názov</th>
+            <th class="text-left px-4 py-3 font-medium">Jednotka</th>
+            <th class="text-right px-4 py-3 font-medium">Cena/jednotka</th>
+            <th class="text-left px-4 py-3 font-medium">Stav</th>
+            <th class="text-right px-4 py-3 font-medium">Akcie</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+          @for (m of materials(); track m.id) {
+            <tr class="text-slate-800 dark:text-slate-200">
+              @if (editingId() === m.id) {
+                <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.name" class="w-full px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
+                <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.unit" class="w-32 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
+                <td class="px-4 py-2 text-right">
+                  <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
+                         class="w-28 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-right" />
+                </td>
+                <td class="px-4 py-2">
+                  <label class="inline-flex items-center gap-2">
+                    <input type="checkbox" [(ngModel)]="editForm.isActive" class="rounded" />
+                    <span class="text-xs">Aktívny</span>
+                  </label>
+                </td>
+                <td class="px-4 py-2 text-right">
+                  <button (click)="saveEdit()"   class="text-green-600 hover:text-green-700 text-sm font-semibold mr-3">Uložiť</button>
+                  <button (click)="cancelEdit()" class="text-slate-500 hover:text-slate-700 text-sm">Zrušiť</button>
+                </td>
+              } @else {
+                <td class="px-4 py-3 font-medium">{{ m.name }}</td>
+                <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ m.unit }}</td>
+                <td class="px-4 py-3 text-right tabular-nums"
+                    [class.text-amber-600]="!m.pricePerUnit"
+                    [class.dark:text-amber-400]="!m.pricePerUnit"
+                    [title]="m.pricePerUnit ? '' : 'Cena nie je nastavená — náklady budú 0 €'">
+                  {{ formatEur(m.pricePerUnit) }}
+                </td>
+                <td class="px-4 py-3">
+                  <span [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
+                        class="px-2 py-1 rounded-full text-xs font-medium">
+                    {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                  <button (click)="startEdit(m)"
+                          class="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white text-sm font-medium mr-3">Upraviť</button>
+                  <button (click)="onToggleActive(m)"
+                          class="text-sm font-medium mr-3"
+                          [class]="m.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
+                    {{ m.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+                  </button>
+                  <button (click)="onDelete(m)"
+                          class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
+                </td>
+              }
+            </tr>
+          } @empty {
+            <tr><td colspan="5" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400 italic">Žiadny materiál v katalógu.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

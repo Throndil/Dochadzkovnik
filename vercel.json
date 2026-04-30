@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd client && npm ci && npm run build",
+  "buildCommand": "cd client && npm ci && npm run build:${BUILD_ENV:-prod}",
   "outputDirectory": "client/dist/browser",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

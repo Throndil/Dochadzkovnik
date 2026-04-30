@@ -6,6 +6,55 @@ html {
   touch-action: manipulation;
 }
 
+/* ── PWA / mobile niceties ────────────────────────────────────── */
+html, body {
+  /* No rubber-band white flash when scrolling past the top/bottom in iOS standalone mode. */
+  overscroll-behavior-y: contain;
+  /* Smooth font rendering on iOS / macOS Safari. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* No grey/blue tap highlight on iOS Safari when buttons or links are tapped — we use our own
+   :hover/:active styles. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS Safari zooms into any <input> whose computed font-size is < 16px when it gets focus.
+   Force every text-like input to render at 16px on small touch screens; on tablets/desktop
+   we keep the design's 14px (0.875rem) for density. */
+@media (max-width: 1024px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="search"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="password"],
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"],
+  input[type="url"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Reusable safe-area helpers — apply to sticky footers / floating action bars.
+   They expand on notched / home-indicator devices and are 0px on regular screens. */
+.safe-top    { padding-top:    env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-left   { padding-left:   env(safe-area-inset-left); }
+.safe-right  { padding-right:  env(safe-area-inset-right); }
+
+/* Use the *dynamic* viewport unit where possible — this collapses to the actual visible
+   viewport on iOS Safari (URL bar shown / hidden), preventing the "tiny scroll appears"
+   layout we used to have. Tailwind's `min-h-screen` still resolves to 100vh; this class is
+   the dvh equivalent for layouts that want exact-fit. */
+.min-h-dvh { min-height: 100dvh; }
+.h-dvh     { height:     100dvh; }
+
 /* ── Dark mode via .dark class on <html> ───────────────────────── */
 @custom-variant dark (&:where(.dark, .dark *));
 

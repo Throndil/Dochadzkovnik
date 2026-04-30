@@ -1,3 +1,11 @@
+<!--
+Writing style: this file is read by AI assistants. Write plainly. No emojis,
+no "—" as rhetoric, no exclamation marks, no "super!" / "great!" / "perfect!" /
+"absolutely right!", no enthusiastic openings, no padding sentences. Bold sparingly.
+Slovak strings shown to workers must read like a normal person typed them,
+not marketing copy. When in doubt, write less.
+-->
+
 # Photo Upload — Implementation Plan
 
 > Based on customer call notes. Covers: work photo capture, location galleries,

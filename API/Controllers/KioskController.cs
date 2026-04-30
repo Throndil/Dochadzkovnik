@@ -267,13 +267,20 @@ public class KioskController : ControllerBase
         var start = weekStart?.Date ?? monday;
         var end = start.AddDays(7);
 
-        // Spolu column must total the full calendar month that contains the week being viewed.
-        // We fetch entries for max(month, week) so the daily grid still works and the
-        // per-employee TotalHours can sum the whole month.
-        var monthStart = new DateTime(start.Year, start.Month, 1);
-        var monthEnd = monthStart.AddMonths(1);
-        var fetchStart = start < monthStart ? start : monthStart;
-        var fetchEnd = end > monthEnd ? end : monthEnd;
+        // Spolu column shows full-month totals. When the 7-day window crosses a month
+        // boundary (e.g. week of 27 Apr – 3 May) we return BOTH months' totals separately
+        // so the manager can see the April figure and the May figure in one view.
+        var month1Start = new DateTime(start.Year, start.Month, 1);
+        var month1End   = month1Start.AddMonths(1);   // exclusive upper bound for month 1
+
+        var spansTwoMonths = end > month1End;
+
+        DateTime month2Start = month1End;                       // = first day of month 2
+        DateTime month2End   = month1End.AddMonths(1);          // = first day of month 3
+
+        // Fetch range covers full month 1 + (if needed) full month 2 so both totals are correct.
+        var fetchStart = month1Start;
+        var fetchEnd   = spansTwoMonths ? month2End : month1End;
 
         var employees = await _db.Employees
             .Where(e => e.IsActive)
@@ -311,14 +318,32 @@ public class KioskController : ControllerBase
                         }).ToList();
                     return new WeeklyDayDto { Date = day, Entries = dayEntries };
                 }).ToList(),
-                // Sum the whole calendar month rather than just the currently viewed week
+                // Full-month total for month 1 (April when viewing the Apr–May boundary week)
                 TotalHours = empEntries
-                    .Where(t => t.ClockOut.HasValue && t.ClockIn >= monthStart && t.ClockIn < monthEnd)
-                    .Sum(t => (t.ClockOut!.Value - t.ClockIn).TotalHours)
+                    .Where(t => t.ClockOut.HasValue && t.ClockIn >= month1Start && t.ClockIn < month1End)
+                    .Sum(t => (t.ClockOut!.Value - t.ClockIn).TotalHours),
+                // Full-month total for month 2 (May); zero when the week is entirely within one month
+                TotalHoursMonth2 = spansTwoMonths
+                    ? empEntries
+                        .Where(t => t.ClockOut.HasValue && t.ClockIn >= month2Start && t.ClockIn < month2End)
+                        .Sum(t => (t.ClockOut!.Value - t.ClockIn).TotalHours)
+                    : 0
             };
         }).ToList();
 
-        return Ok(new WeeklyOverviewDto { WeekStart = start, Days = days, Rows = rows });
+        // Slovak full month names, capitalised — shown in the kiosk Spolu header
+        // and per-month sub-totals when the viewed week straddles a month boundary.
+        string[] slovakMonths = ["Január", "Február", "Marec", "Apríl", "Máj", "Jún", "Júl", "August", "September", "Október", "November", "December"];
+
+        return Ok(new WeeklyOverviewDto
+        {
+            WeekStart      = start,
+            Days           = days,
+            Rows           = rows,
+            SpansTwoMonths = spansTwoMonths,
+            Month1Label    = slovakMonths[month1Start.Month - 1],
+            Month2Label    = spansTwoMonths ? slovakMonths[month2Start.Month - 1] : null
+        });
     }
 
     // POST /api/kiosk/photo/{timeEntryId}
@@ -420,6 +445,153 @@ public class KioskController : ControllerBase
             CreatedAt      = workPhoto.CreatedAt,
             RemainingToday = 5 - (todayCount + 1)   // todayCount was before this upload
         });
+    }
+
+    // =================================================================
+    //  "Treba pripomenúť" (Option A + D)
+    //  Public, no-auth endpoints used by:
+    //    • the kiosk public banner (everyone can see who is missing days)
+    //    • the personal red banner shown after PIN entry
+    //    • the admin Notifikácie page
+    //  Designed to be cheap (one read of Employees + one ranged read of TimeEntries).
+    // =================================================================
+
+    /// <summary>
+    /// Returns the list of active employees who have no TimeEntry for one or more of the
+    /// past 2 calendar days (excluding today). If WorkingDaysOnly is enabled in
+    /// NotificationConfig, weekend dates are skipped.
+    /// </summary>
+    [HttpGet("missing-hours-overview")]
+    public async Task<ActionResult<MissingHoursOverviewDto>> GetMissingHoursOverview()
+    {
+        var datesToCheck = await ComputeDatesToCheck();
+        var result = new MissingHoursOverviewDto
+        {
+            CheckedDates = datesToCheck.Select(d => d.ToString("yyyy-MM-dd")).ToList(),
+            Employees = new List<EmployeeMissingDaysDto>()
+        };
+
+        if (datesToCheck.Count == 0) return Ok(result);
+
+        var (rangeStartUtc, rangeEndUtc) = ToUtcRange(datesToCheck);
+
+        var employees = await _db.Employees
+            .Where(e => e.IsActive)
+            .OrderBy(e => e.FirstName).ThenBy(e => e.LastName)
+            .ToListAsync();
+
+        var entries = await _db.TimeEntries
+            .Where(t => t.ClockIn >= rangeStartUtc && t.ClockIn < rangeEndUtc)
+            .Select(t => new { t.EmployeeId, t.ClockIn })
+            .ToListAsync();
+
+        // employee → set of local dates with at least one entry
+        var activityByEmp = entries
+            .GroupBy(e => e.EmployeeId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(x.ClockIn, _tz))).ToHashSet());
+
+        foreach (var emp in employees)
+        {
+            var activity = activityByEmp.GetValueOrDefault(emp.Id, new HashSet<DateOnly>());
+            var missing = datesToCheck.Where(d => !activity.Contains(d)).ToList();
+            if (missing.Count == 0) continue;
+
+            result.Employees.Add(new EmployeeMissingDaysDto
+            {
+                Id           = emp.Id,
+                FirstName    = emp.FirstName,
+                LastName     = emp.LastName,
+                FullName     = $"{emp.FirstName} {emp.LastName}",
+                PhotoUrl     = emp.PhotoUrl,
+                PhoneNumber  = emp.PhoneNumber,
+                MissingDates = missing.Select(d => d.ToString("yyyy-MM-dd")).ToList()
+            });
+        }
+
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Returns the missing-day list for the worker who owns the supplied PIN.
+    /// Used by the kiosk to render the personal red banner after PIN entry.
+    /// </summary>
+    [HttpPost("my-missing-days")]
+    public async Task<ActionResult<MyMissingDaysDto>> GetMyMissingDays([FromBody] ClockOutDto dto)
+    {
+        var employee = await FindEmployeeByPin(dto.Pin);
+        if (employee == null) return Unauthorized("Neplatný PIN");
+
+        var datesToCheck = await ComputeDatesToCheck();
+        var resp = new MyMissingDaysDto
+        {
+            EmployeeName = $"{employee.FirstName} {employee.LastName}",
+            MissingDates = new List<string>()
+        };
+        if (datesToCheck.Count == 0) return Ok(resp);
+
+        var (rangeStartUtc, rangeEndUtc) = ToUtcRange(datesToCheck);
+        var entries = await _db.TimeEntries
+            .Where(t => t.EmployeeId == employee.Id && t.ClockIn >= rangeStartUtc && t.ClockIn < rangeEndUtc)
+            .Select(t => t.ClockIn)
+            .ToListAsync();
+
+        var activeDates = entries
+            .Select(c => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(c, _tz)))
+            .ToHashSet();
+
+        resp.MissingDates = datesToCheck
+            .Where(d => !activeDates.Contains(d))
+            .Select(d => d.ToString("yyyy-MM-dd"))
+            .ToList();
+
+        return Ok(resp);
+    }
+
+    private async Task<List<DateOnly>> ComputeDatesToCheck()
+    {
+        var today = DateOnly.FromDateTime(Now);
+        var config = await _db.NotificationConfigs.FirstOrDefaultAsync(c => c.Id == 1);
+        var workingDaysOnly = config?.WorkingDaysOnly ?? true;
+
+        var dates = new List<DateOnly>();
+        for (int i = 1; i <= 7; i++)
+        {
+            var d = today.AddDays(-i);
+            if (workingDaysOnly && (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday))
+                continue;
+            dates.Add(d);
+        }
+        // Oldest first for nicer rendering.
+        dates.Reverse();
+        return dates;
+    }
+
+    private (DateTime startUtc, DateTime endUtc) ToUtcRange(List<DateOnly> dates)
+    {
+        var earliest = dates.Min();
+        var latestPlusOne = dates.Max().AddDays(1);
+        var startUtc = TimeZoneInfo.ConvertTimeToUtc(earliest.ToDateTime(TimeOnly.MinValue), _tz);
+        var endUtc   = TimeZoneInfo.ConvertTimeToUtc(latestPlusOne.ToDateTime(TimeOnly.MinValue), _tz);
+        return (startUtc, endUtc);
+    }
+
+    // POST /api/kiosk/decline-notifications
+    // PIN-authenticated. Records the reason a worker gave for declining push notifications.
+    // Sets NotificationsEnabled = false so the background service stops reminding them.
+    [HttpPost("decline-notifications")]
+    public async Task<ActionResult> DeclineNotifications([FromBody] DeclineNotificationsDto dto)
+    {
+        var employee = await FindEmployeeByPin(dto.Pin);
+        if (employee == null) return Unauthorized("Neplatný PIN");
+
+        employee.NotificationsEnabled = false;
+        employee.NotificationsDeclineReason = dto.Reason?.Trim() ?? string.Empty;
+        employee.UpdatedAt = Now;
+        await _db.SaveChangesAsync();
+
+        return Ok();
     }
 
     private async Task<Models.Employee?> FindEmployeeByPin(string pin)

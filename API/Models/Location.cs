@@ -11,4 +11,5 @@ public class Location
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<TimeEntry> TimeEntries { get; set; } = [];
+    public ICollection<MaterialUsage> MaterialUsages { get; set; } = [];
 }

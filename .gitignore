@@ -6,6 +6,12 @@
 # dotenv files
 .env
 
+# Local-only ASP.NET Core config — devs put their local secrets here.
+# Loaded automatically by appsettings.Local.json convention if you wire it
+# up in Program.cs (we do via AddJsonFile("appsettings.Local.json", optional: true)).
+appsettings.Local.json
+**/appsettings.Local.json
+
 # User-specific files
 *.rsuser
 *.suo

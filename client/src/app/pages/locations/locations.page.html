@@ -64,6 +64,9 @@
       </div>
     }
 
+    <!-- Slide-over panel for material management on the selected Lokácia -->
+    <app-location-manage-panel [location]="manageLocation()" (close)="onPanelClose()" />
+
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       @for (loc of locations(); track loc.id) {
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -92,6 +95,8 @@
               <div class="flex flex-wrap gap-2">
                 <a [routerLink]="['/admin/time-entries']" [queryParams]="{locationId: loc.id}"
                    class="text-slate-400 hover:text-slate-200 text-sm font-medium">Záznamy</a>
+                <button (click)="onManage(loc)"
+                        class="text-amber-500 hover:text-amber-400 text-sm font-semibold">Spravovať</button>
                 <button (click)="onToggleActive(loc)"
                         class="text-sm font-medium"
                         [class]="loc.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">

@@ -1,7 +1,10 @@
 <div class="min-h-screen bg-slate-50 dark:bg-slate-900 flex flex-col">
 
   <!-- ══ Header bar ══════════════════════════════════════════════ -->
-  <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between shrink-0">
+  <!-- Inline safe-area padding so the header stays clear of the iPhone dynamic island /
+       landscape notch when the kiosk is launched as a standalone PWA on a wall-mounted tablet. -->
+  <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between shrink-0"
+          style="padding-top: max(0.75rem, env(safe-area-inset-top)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));">
     <h1 class="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-white tracking-wide">
       <img src="/profistav_logo.png" alt="Profistav logo" class="h-10 w-auto object-contain" />
       Šichtovnica
@@ -38,6 +41,218 @@
 
     <!-- ── Main view: weekly table + employee tiles ────────────── -->
     @if (view() === 'main') {
+
+      <!-- Bez záznamu hodín — small inline note, only shown when someone is missing days -->
+      @if (missingOverview() && missingOverview()!.employees.length > 0) {
+        <div class="border border-red-300 dark:border-red-700 rounded-md p-3 mb-4 text-sm">
+          <div class="text-slate-700 dark:text-slate-200 mb-1">Bez záznamu hodín za posledný týždeň:</div>
+          <ul class="text-slate-800 dark:text-slate-100 space-y-0.5">
+            @for (e of missingOverview()!.employees; track e.id) {
+              <li>
+                <span class="font-medium">{{ e.fullName }}</span>
+                <span class="tabular-nums">
+                  —
+                  @for (d of e.missingDates; track d; let last = $last) {
+                    {{ formatMissingDateLong(d) }}{{ !last ? ', ' : '' }}
+                  }
+                </span>
+                @if (e.phoneNumber) {
+                  <a [href]="'tel:' + e.phoneNumber"
+                     class="ml-2 text-blue-600 dark:text-blue-400 hover:underline tabular-nums whitespace-nowrap"
+                     (click)="$event.stopPropagation()">{{ e.phoneNumber }}</a>
+                }
+              </li>
+            }
+          </ul>
+        </div>
+      }
+
+      <!-- Notification prompt (big "Povoliť upozornenia" tile) -->
+      <!-- Always shown until dismissed or subscribed. When push isn't supported yet
+           (e.g. iOS Safari without PWA installed) we show the install-guide path instead. -->
+      @if (showNotificationPrompt()) {
+        <div class="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 border-2 border-green-300 dark:border-green-700 rounded-2xl p-6 mb-6 shadow-md">
+          <div class="text-center">
+            <h2 class="text-2xl font-bold text-green-900 dark:text-green-100 mb-2">Povoliť upozornenia</h2>
+            <p class="text-green-800 dark:text-green-200 mb-4 text-base">
+              Dostaňte upozornenia, keď ste bez záznamu dlhšie ako 2 dni.
+            </p>
+            @if (notificationSupported()) {
+              <!-- Push supported: show subscribe flow -->
+              <div class="flex flex-col gap-3 mb-4">
+                <button
+                  (click)="startNotificationSubscribe(1); selectedEmployee.set({employeeId: 1, employeeName: '', photoUrl: '', days: [], totalHours: 0, totalHoursMonth2: 0})"
+                  [disabled]="subscribingToPush()"
+                  class="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg font-bold text-lg transition-colors">
+                  {{ subscribingToPush() ? 'Spúšťam...' : 'Zapnúť' }}
+                </button>
+                <button
+                  (click)="openInstallGuide()"
+                  class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors">
+                  Ako to nainštalovať?
+                </button>
+                <button
+                  (click)="openDeclineForm()"
+                  class="px-6 py-2 text-slate-500 dark:text-slate-400 text-sm underline">
+                  Nechcem upozornenia
+                </button>
+              </div>
+              <p class="text-xs text-green-700 dark:text-green-300">
+                Budete musieť zadať svoj PIN a potvrdiť povolenie.
+              </p>
+            } @else {
+              <!-- Push not supported yet — user needs to install the PWA first -->
+              <div class="flex flex-col gap-3 mb-4">
+                <p class="text-green-800 dark:text-green-200 text-sm">
+                  Váš prehliadač ešte nepodporuje upozornenia. Nainštalujte si aplikáciu na domovskú obrazovku a potom sa vráťte sem.
+                </p>
+                <button
+                  (click)="openInstallGuide()"
+                  class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-lg transition-colors">
+                  Ako nainštalovať aplikáciu?
+                </button>
+                <button
+                  (click)="openDeclineForm()"
+                  class="px-6 py-2 text-slate-500 dark:text-slate-400 text-sm underline">
+                  Nechcem upozornenia
+                </button>
+              </div>
+            }
+
+            <!-- Decline form overlay -->
+            @if (showDeclineForm()) {
+              <div class="mt-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-300 dark:border-slate-600 p-5">
+                @if (declineStep() === 'reason') {
+                  <h3 class="font-semibold text-slate-900 dark:text-white mb-2 text-center">Prečo nechcete upozornenia?</h3>
+                  <p class="text-xs text-slate-500 dark:text-slate-400 mb-3 text-center">Dôvod uvidí váš nadriadený na vašom profile.</p>
+                  <textarea
+                    [(ngModel)]="declineReason"
+                    name="declineReason"
+                    rows="3"
+                    maxlength="500"
+                    placeholder="Napíšte dôvod..."
+                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none">
+                  </textarea>
+                  @if (declineError()) {
+                    <p class="text-red-500 text-xs mt-1">{{ declineError() }}</p>
+                  }
+                  <div class="flex gap-2 mt-3">
+                    <button (click)="proceedToDeclinePin()"
+                            class="flex-1 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors">
+                      Ďalej
+                    </button>
+                    <button (click)="closeDeclineForm()"
+                            class="flex-1 py-2 border border-slate-400 text-slate-600 dark:text-slate-300 rounded-lg text-sm transition-colors">
+                      Späť
+                    </button>
+                  </div>
+                } @else {
+                  <h3 class="font-semibold text-slate-900 dark:text-white mb-3 text-center">Potvrďte svojím PINom</h3>
+                  <!-- PIN dots -->
+                  <div class="flex justify-center gap-2 mb-4">
+                    @for (slot of pinSlots; track slot) {
+                      <div class="w-10 h-10 border-2 border-slate-300 dark:border-slate-600 rounded-lg flex items-center justify-center text-lg font-bold text-slate-900 dark:text-white"
+                           [class]="slot < declinePinDisplay().length ? 'bg-amber-100 dark:bg-amber-900 border-amber-400' : 'bg-slate-100 dark:bg-slate-700'">
+                        @if (slot < declinePinDisplay().length) { ● }
+                      </div>
+                    }
+                  </div>
+                  <!-- Numpad -->
+                  <div class="grid grid-cols-3 gap-2 mb-3">
+                    @for (digit of numpadDigits; track digit) {
+                      <button (click)="declinePinPress(digit)"
+                              class="h-12 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-lg font-semibold text-slate-900 dark:text-white transition-colors">
+                        {{ digit }}
+                      </button>
+                    }
+                    <button (click)="declinePinDelete()"
+                            class="h-12 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-sm text-slate-600 dark:text-slate-300 transition-colors">
+                      ⌫
+                    </button>
+                    <button (click)="declinePinPress('0')"
+                            class="h-12 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-lg font-semibold text-slate-900 dark:text-white transition-colors">
+                      0
+                    </button>
+                    <button (click)="submitDecline()" [disabled]="decliningNotifications()"
+                            class="h-12 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-500 text-white rounded-lg text-sm font-medium transition-colors">
+                      {{ decliningNotifications() ? '...' : 'OK' }}
+                    </button>
+                  </div>
+                  @if (declineError()) {
+                    <p class="text-red-500 text-xs text-center">{{ declineError() }}</p>
+                  }
+                  <button (click)="declineStep.set('reason')"
+                          class="w-full text-slate-500 dark:text-slate-400 text-xs underline mt-1">
+                    Späť
+                  </button>
+                }
+              </div>
+            }
+          </div>
+
+          <!-- PIN entry for subscription (only relevant when push is supported) -->
+          @if (notificationSupported() && selectedEmployee() && !subscribingToPush() && showNotificationPrompt()) {
+            <div class="mt-6 bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+              <h3 class="text-center font-medium text-slate-900 dark:text-white mb-3">Zadajte váš PIN</h3>
+
+              <!-- PIN display -->
+              <div class="flex justify-center gap-2 mb-4">
+                @for (slot of pinSlots; track slot) {
+                  <div class="w-12 h-12 border-2 border-slate-300 dark:border-slate-600 rounded-lg flex items-center justify-center text-xl font-bold text-slate-900 dark:text-white"
+                       [class]="slot < pushSubscribePinDisplay().length ? 'bg-amber-100 dark:bg-amber-900 border-amber-400 dark:border-amber-600' : 'bg-slate-100 dark:bg-slate-700'">
+                    @if (slot < pushSubscribePinDisplay().length) {
+                      {{ pushSubscribePinDisplay()[slot] }}
+                    }
+                  </div>
+                }
+              </div>
+
+              <!-- Error message -->
+              @if (pushError()) {
+                <div class="text-center text-red-600 dark:text-red-400 text-sm font-medium mb-3">
+                  {{ pushError() }}
+                </div>
+              }
+
+              <!-- Numpad -->
+              <div class="grid grid-cols-3 gap-2 mb-4">
+                @for (digit of numpadDigits; track digit) {
+                  <button
+                    type="button"
+                    (click)="pushAddPinDigit(digit)"
+                    [disabled]="pushSubscribePinDisplay().length >= 6"
+                    class="py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:bg-slate-100 dark:disabled:bg-slate-800 rounded-lg font-bold text-lg text-slate-900 dark:text-white transition-colors">
+                    {{ digit }}
+                  </button>
+                }
+                <button
+                  type="button"
+                  (click)="pushDeletePin()"
+                  class="py-3 bg-red-200 dark:bg-red-900 hover:bg-red-300 dark:hover:bg-red-800 rounded-lg font-bold text-lg text-red-700 dark:text-red-200 transition-colors">
+                  ← Zmazať
+                </button>
+              </div>
+
+              <!-- Action buttons -->
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  (click)="pushSubscribe()"
+                  [disabled]="pushSubscribePinDisplay().length < 4 || subscribingToPush()"
+                  class="flex-1 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 text-white rounded-lg font-bold transition-colors">
+                  ✓ Povol iť
+                </button>
+                <button
+                  type="button"
+                  (click)="closeNotificationPrompt()"
+                  class="flex-1 py-2 bg-slate-400 hover:bg-slate-500 text-white rounded-lg font-bold transition-colors">
+                  Zrušiť
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+      }
 
       <!-- Weekly table -->
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 mb-5 overflow-hidden">
@@ -92,7 +307,16 @@
                       </div>
                     </th>
                   }
-                  <th class="px-3 py-2 text-center text-slate-500 dark:text-slate-400 font-medium">Spolu</th>
+                  <th class="px-3 py-2 text-center text-slate-500 dark:text-slate-400 font-medium">
+                    @if (overview()!.spansTwoMonths) {
+                      <div class="leading-tight">
+                        <div>{{ overview()!.month1Label }}</div>
+                        <div>{{ overview()!.month2Label }}</div>
+                      </div>
+                    } @else {
+                      Spolu
+                    }
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -134,12 +358,28 @@
                       </td>
                     }
 
-                    <!-- Total -->
+                    <!-- Total — split by month when the week crosses a month boundary so the
+                         customer can see what the worker did in each calendar month separately. -->
                     <td class="px-3 py-3 text-center">
-                      @if (row.totalHours > 0) {
-                        <span class="text-amber-400 font-bold">{{ row.totalHours | hm }}</span>
+                      @if (overview()!.spansTwoMonths) {
+                        <div class="flex flex-col gap-0.5 leading-tight">
+                          @if (row.totalHours > 0) {
+                            <span class="text-amber-400 font-bold text-xs whitespace-nowrap">{{ overview()!.month1Label }}: {{ row.totalHours | hm }}</span>
+                          } @else {
+                            <span class="text-slate-600 text-xs whitespace-nowrap">{{ overview()!.month1Label }}: —</span>
+                          }
+                          @if (row.totalHoursMonth2 > 0) {
+                            <span class="text-amber-400 font-bold text-xs whitespace-nowrap">{{ overview()!.month2Label }}: {{ row.totalHoursMonth2 | hm }}</span>
+                          } @else {
+                            <span class="text-slate-600 text-xs whitespace-nowrap">{{ overview()!.month2Label }}: —</span>
+                          }
+                        </div>
                       } @else {
-                        <span class="text-slate-600">—</span>
+                        @if (row.totalHours > 0) {
+                          <span class="text-amber-400 font-bold">{{ row.totalHours | hm }}</span>
+                        } @else {
+                          <span class="text-slate-600">—</span>
+                        }
                       }
                     </td>
                   </tr>
@@ -682,6 +922,18 @@
       <!-- ── Step: Select location ──────────────────────────── -->
       @if (clockStep() === 'location') {
         <div class="p-6">
+          <!-- Personal note: worker's own missing days. Plain, terse. -->
+          @if (myMissingDays().length > 0) {
+            <div class="border border-red-300 dark:border-red-700 rounded-md p-3 mb-4 text-sm text-slate-700 dark:text-slate-200">
+              Bez záznamu hodín:
+              <span class="tabular-nums text-slate-900 dark:text-white">
+                @for (d of myMissingDays(); track d; let last = $last) {
+                  {{ formatMissingDateLong(d) }}{{ !last ? ', ' : '' }}
+                }
+              </span>
+            </div>
+          }
+
           <p class="text-slate-500 dark:text-slate-400 text-sm mb-4 text-center">Kde ste dnes pracovali?</p>
           <div class="grid grid-cols-2 gap-3">
             @for (loc of locations(); track loc.id) {
@@ -694,6 +946,55 @@
               </button>
             }
           </div>
+
+          <!-- Inline push subscribe — reuses the PIN already typed above. -->
+          @if (notificationSupported() && pushPermission() !== 'denied') {
+            <div class="mt-5 pt-4 border-t border-slate-200 dark:border-slate-700">
+              @if (deviceSubscribed()) {
+                <!-- Already subscribed: show deactivate option -->
+                <button (click)="unsubscribeInline()"
+                        [disabled]="inlinePushBusy()"
+                        class="w-full bg-slate-200 dark:bg-slate-600 hover:bg-red-100 dark:hover:bg-red-900/40 hover:border-red-400 border border-slate-300 dark:border-slate-500 text-slate-700 dark:text-slate-200 font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+                  @if (inlinePushBusy()) {
+                    <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    <span>Deaktivácia…</span>
+                  } @else {
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                    </svg>
+                    <span>Upozornenia aktívne — kliknite pre deaktiváciu</span>
+                  }
+                </button>
+              } @else {
+                <!-- Not subscribed: show activate option -->
+                <button (click)="subscribeInline()"
+                        [disabled]="inlinePushBusy()"
+                        class="w-full bg-amber-500 hover:bg-amber-600 active:bg-amber-700 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-colors flex items-center justify-center gap-2">
+                  @if (inlinePushBusy()) {
+                    <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    <span>Aktivujem…</span>
+                  } @else {
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                    </svg>
+                    <span>Aktivovať upozornenia na tomto zariadení</span>
+                  }
+                </button>
+                <p class="text-xs text-slate-500 dark:text-slate-400 text-center mt-2">
+                  Dostanete pripomenutie, keď zabudnete zapísať hodiny.
+                </p>
+              }
+              @if (inlinePushError()) {
+                <p class="text-xs text-red-500 dark:text-red-400 text-center mt-2">{{ inlinePushError() }}</p>
+              }
+            </div>
+          }
         </div>
       }
 

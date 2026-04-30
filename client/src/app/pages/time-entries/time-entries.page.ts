@@ -2,6 +2,7 @@ import { Component, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
 import { ReportService } from '../../services/report.service';
@@ -38,11 +39,14 @@ export class TimeEntriesPage implements OnInit {
   /** Quick-pick hours presets shown as chips under the +/- control. */
   readonly hoursPresets = [0.5, 1, 2, 4, 5, 5.5, 6, 7, 7.5, 8, 9, 10];
 
-  // Photo state
-  newPhotoFile = signal<File | null>(null);
-  newPhotoPreview = signal<string | null>(null);
-  editPhotoFile = signal<File | null>(null);
-  editPhotoPreview = signal<string | null>(null);
+  // Photo state — both forms support multiple photos.
+  // For the edit form: existing saved photos live on `editingEntry().photoUrl` (comma-separated)
+  // and are removed via DELETE /photo?url=...; staged-but-not-yet-uploaded photos live in
+  // editPhotoFiles/Previews and are uploaded after the entry update succeeds.
+  newPhotoFiles    = signal<File[]>([]);
+  newPhotoPreviews = signal<string[]>([]);
+  editPhotoFiles    = signal<File[]>([]);
+  editPhotoPreviews = signal<string[]>([]);
 
   // Lightbox — supports prev/next across all photos of an entry
   lightboxPhotos = signal<string[]>([]);
@@ -202,40 +206,57 @@ export class TimeEntriesPage implements OnInit {
     this.lightboxIdx.set((this.lightboxIdx() - 1 + len) % len);
   }
 
-  async onNewPhotoSelected(event: Event) {
+  /** Multi-file picker handler for the add form. Each file is normalised + compressed
+   *  in turn and appended to the staged previews. The same input can be used multiple
+   *  times — value is reset each time so the same file can be re-selected if needed. */
+  async onNewPhotosSelected(event: Event) {
     const input = event.target as HTMLInputElement;
-    const raw = input.files?.[0];
-    if (!raw) return;
+    const raws = Array.from(input.files ?? []);
     input.value = '';
-    const normalised = await normaliseFile(raw);
-    const file = await compressImage(normalised);
-    this.newPhotoFile.set(file);
-    this.newPhotoPreview.set(await fileToDataUrl(file));
+    if (!raws.length) return;
+    for (const raw of raws) {
+      const normalised = await normaliseFile(raw);
+      const file = await compressImage(normalised);
+      const preview = await fileToDataUrl(file);
+      this.newPhotoFiles.update(arr => [...arr, file]);
+      this.newPhotoPreviews.update(arr => [...arr, preview]);
+    }
   }
 
-  removeNewPhoto() {
-    this.newPhotoFile.set(null);
-    this.newPhotoPreview.set(null);
+  removeNewPhotoAt(idx: number) {
+    this.newPhotoFiles.update(arr => arr.filter((_, i) => i !== idx));
+    this.newPhotoPreviews.update(arr => arr.filter((_, i) => i !== idx));
   }
 
-  async onEditPhotoSelected(event: Event) {
+  /** Multi-file picker handler for the edit form. Adds to the *staged* list — saved
+   *  photos on the entry are managed via onEditDeleteExistingPhoto(url). */
+  async onEditPhotosSelected(event: Event) {
     const input = event.target as HTMLInputElement;
-    const raw = input.files?.[0];
-    if (!raw) return;
+    const raws = Array.from(input.files ?? []);
     input.value = '';
-    const normalised = await normaliseFile(raw);
-    const file = await compressImage(normalised);
-    this.editPhotoFile.set(file);
-    this.editPhotoPreview.set(await fileToDataUrl(file));
+    if (!raws.length) return;
+    for (const raw of raws) {
+      const normalised = await normaliseFile(raw);
+      const file = await compressImage(normalised);
+      const preview = await fileToDataUrl(file);
+      this.editPhotoFiles.update(arr => [...arr, file]);
+      this.editPhotoPreviews.update(arr => [...arr, preview]);
+    }
   }
 
-  onEditDeletePhoto() {
+  removeEditStagedPhotoAt(idx: number) {
+    this.editPhotoFiles.update(arr => arr.filter((_, i) => i !== idx));
+    this.editPhotoPreviews.update(arr => arr.filter((_, i) => i !== idx));
+  }
+
+  /** Delete one already-saved photo from the entry being edited (server-side). */
+  onEditDeleteExistingPhoto(url: string) {
     const entry = this.editingEntry();
     if (!entry) return;
-    if (!confirm('Odstrániť foto z tohto záznamu?')) return;
-    this.timeEntryService.deletePhoto(entry.id).subscribe(() => {
-      this.editPhotoFile.set(null);
-      this.editPhotoPreview.set(null);
+    if (!confirm('Odstrániť túto fotku?')) return;
+    this.timeEntryService.deletePhoto(entry.id, url).subscribe(() => {
+      const remaining = this.parsePhotoUrls(entry.photoUrl).filter(u => u !== url);
+      this.editingEntry.set({ ...entry, photoUrl: remaining.length ? remaining.join(',') : undefined });
       this.load();
     });
   }
@@ -244,10 +265,10 @@ export class TimeEntriesPage implements OnInit {
     if (this.showAddForm() || this.editingEntry()) {
       this.showAddForm.set(false);
       this.editingEntry.set(null);
-      this.newPhotoFile.set(null);
-      this.newPhotoPreview.set(null);
-      this.editPhotoFile.set(null);
-      this.editPhotoPreview.set(null);
+      this.newPhotoFiles.set([]);
+      this.newPhotoPreviews.set([]);
+      this.editPhotoFiles.set([]);
+      this.editPhotoPreviews.set([]);
     } else {
       const today = new Date();
       this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: this.fmtDate(today), hoursWorked: 8, note: '' };
@@ -310,20 +331,19 @@ export class TimeEntriesPage implements OnInit {
       clockOut,
       note: this.newEntry.note || undefined
     };
-    const photoFile = this.newPhotoFile();
+    const photoFiles = this.newPhotoFiles();
     this.showAddForm.set(false);
-    this.timeEntryService.create(dto).subscribe(created => {
-      const finish = () => {
-        this.newPhotoFile.set(null);
-        this.newPhotoPreview.set(null);
-        this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: '', hoursWorked: 8, note: '' };
-        this.load();
-      };
-      if (photoFile) {
-        this.timeEntryService.uploadPhoto(created.id, photoFile).subscribe({ next: finish, error: finish });
-      } else {
-        finish();
+    this.timeEntryService.create(dto).subscribe(async created => {
+      // Upload each staged photo sequentially so the backend appends them in order.
+      // If one upload fails we still try the rest — partial failure is better than total.
+      for (const file of photoFiles) {
+        try { await firstValueFrom(this.timeEntryService.uploadPhoto(created.id, file)); }
+        catch { /* swallow individual upload error and continue */ }
       }
+      this.newPhotoFiles.set([]);
+      this.newPhotoPreviews.set([]);
+      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: '', hoursWorked: 8, note: '' };
+      this.load();
     });
   }
 
@@ -341,8 +361,10 @@ export class TimeEntriesPage implements OnInit {
       hoursWorked: hours,
       note: entry.note || ''
     };
-    this.editPhotoFile.set(null);
-    this.editPhotoPreview.set(entry.photoUrl ?? null);
+    // Existing photos remain on the entry (`editingEntry().photoUrl`); start with no
+    // staged additions.
+    this.editPhotoFiles.set([]);
+    this.editPhotoPreviews.set([]);
     this.editingEntry.set(entry);
     this.showAddForm.set(false);
   }
@@ -361,19 +383,16 @@ export class TimeEntriesPage implements OnInit {
       clockOut,
       note: this.editForm.note || undefined
     };
-    const photoFile = this.editPhotoFile();
-    this.timeEntryService.update(entry.id, dto).subscribe(() => {
-      const finish = () => {
-        this.editingEntry.set(null);
-        this.editPhotoFile.set(null);
-        this.editPhotoPreview.set(null);
-        this.load();
-      };
-      if (photoFile) {
-        this.timeEntryService.uploadPhoto(entry.id, photoFile).subscribe({ next: finish, error: finish });
-      } else {
-        finish();
+    const photoFiles = this.editPhotoFiles();
+    this.timeEntryService.update(entry.id, dto).subscribe(async () => {
+      for (const file of photoFiles) {
+        try { await firstValueFrom(this.timeEntryService.uploadPhoto(entry.id, file)); }
+        catch { /* swallow individual upload error and continue */ }
       }
+      this.editingEntry.set(null);
+      this.editPhotoFiles.set([]);
+      this.editPhotoPreviews.set([]);
+      this.load();
     });
   }
 }

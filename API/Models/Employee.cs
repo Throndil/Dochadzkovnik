@@ -12,6 +12,11 @@ public class Employee
     public string? City { get; set; }
     public string? PhotoUrl { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool NotificationsEnabled { get; set; } = true;
+    public bool WhatsAppEnabled { get; set; } = false;
+    public string? WhatsAppNumber { get; set; }
+    /// <summary>Set when the worker explicitly declines push notifications from the kiosk banner.</summary>
+    public string? NotificationsDeclineReason { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
