@@ -56,11 +56,9 @@
                     {{ formatMissingDateLong(d) }}{{ !last ? ', ' : '' }}
                   }
                 </span>
-                @if (e.phoneNumber) {
-                  <a [href]="'tel:' + e.phoneNumber"
-                     class="ml-2 text-blue-600 dark:text-blue-400 hover:underline tabular-nums whitespace-nowrap"
-                     (click)="$event.stopPropagation()">{{ e.phoneNumber }}</a>
-                }
+                <!-- Phone number deliberately NOT shown here — this list is on the
+                     public kiosk view that anyone walking past the tablet can see.
+                     Managers look numbers up in the JWT-protected admin panel. -->
               </li>
             }
           </ul>

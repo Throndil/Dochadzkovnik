@@ -509,7 +509,10 @@ public class EmployeeMissingDaysDto
     public string LastName { get; set; } = string.Empty;
     public string FullName { get; set; } = string.Empty;
     public string? PhotoUrl { get; set; }
-    public string? PhoneNumber { get; set; }
+    // PhoneNumber is intentionally NOT exposed here. This DTO is returned by the
+    // anonymous kiosk endpoint /api/kiosk/missing-hours-overview, so anything on it
+    // is publicly scrapeable. Phone numbers stay server-side; if a manager needs
+    // them they look the worker up via the JWT-protected /api/employees admin API.
     /// <summary>Dates the worker has no time entry for (yyyy-MM-dd, local Bratislava).</summary>
     public List<string> MissingDates { get; set; } = new();
 }

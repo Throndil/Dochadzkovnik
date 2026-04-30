@@ -231,6 +231,14 @@ not marketing copy. When in doubt, write less.
   - Set up separate environment configs (`environment.ts` / `environment.prod.ts`) with distinct API URLs, feature flags, logging levels
   - Ensure `ng build --configuration production` targets production API and disables dev tooling
 
+- [ ] **Commander API integration (next session)** — see `COMMANDER_PLAN.md`. Env-var slots and security guard rails are already in place; seven open questions need to be answered with the customer before any code is written. Customer credentials must never enter `appsettings.json`, logs, DTOs, or frontend code; gate the controller behind a `CommanderIntegration` feature flag matching the Notifications pattern.
+
+- [x] **Removed worker phone numbers from public kiosk view (V1.3.2, 2026-04-30)**
+  - The kiosk's "Bez záznamu hodín za posledný týždeň" list rendered each missing worker's phone number as a clickable `tel:` link. The kiosk runs on a wall-mounted tablet at construction sites — anyone walking past could read it
+  - Worse, the kiosk endpoint `/api/kiosk/missing-hours-overview` is anonymous (no JWT), so the phone numbers were also being served to any unauthenticated HTTP client
+  - Fix: removed `PhoneNumber` from `EmployeeMissingDaysDto` (backend) and `EmployeeMissingDays` (frontend interface), plus the `tel:` link from `kiosk.page.html`. Comments left in all three places explaining why so a future change doesn't reintroduce it
+  - Managers still see phone numbers via the JWT-protected admin Employees / Employee detail pages
+
 - [x] **Env-var hardening + secrets out of `appsettings.json` (V1.3.1, 2026-04-30)**
   - All credential fields in committed config files are now empty strings; values come from Railway env vars (prod) or gitignored `appsettings.Local.json` (local dev)
   - `Program.cs` fails loud on missing/short `Jwt__Key`; seed skips with a logged warning if `AdminSeed__*` / `SuperAdminSeed__*` aren't configured

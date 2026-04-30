@@ -505,7 +505,10 @@ public class KioskController : ControllerBase
                 LastName     = emp.LastName,
                 FullName     = $"{emp.FirstName} {emp.LastName}",
                 PhotoUrl     = emp.PhotoUrl,
-                PhoneNumber  = emp.PhoneNumber,
+                // PhoneNumber deliberately omitted — this endpoint is anonymous and
+                // any phone number returned is scrapeable PII visible on the public
+                // kiosk display. Managers look phone numbers up via the JWT-protected
+                // /api/employees admin API instead.
                 MissingDates = missing.Select(d => d.ToString("yyyy-MM-dd")).ToList()
             });
         }
