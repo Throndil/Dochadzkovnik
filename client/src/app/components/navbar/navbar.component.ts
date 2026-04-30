@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../services/auth.service';
 import { ThemeService } from '../../services/theme.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
 
 @Component({
   selector: 'app-navbar',
@@ -11,6 +12,7 @@ import { ThemeService } from '../../services/theme.service';
 export class NavbarComponent {
   menuOpen = signal(false);
   theme = inject(ThemeService);
+  flags = inject(FeatureFlagService);
 
   constructor(public auth: AuthService) {}
 

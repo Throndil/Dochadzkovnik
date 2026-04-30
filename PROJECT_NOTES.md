@@ -8,7 +8,7 @@ not marketing copy. When in doubt, write less.
 
 # Dochadzkovník — Project Notes
 
-> Last updated: 2026-04-26 (V1.1.2 — Multi-photo upload)
+> Last updated: 2026-04-30 (V1.3.0 — Superadmin + FeatureFlags, Spolu fix)
 
 ## What is this project?
 
@@ -256,6 +256,42 @@ The entire UI and all API messages are in **Slovak**. Error messages, kiosk resp
 ---
 
 ## Session Log
+
+### 2026-04-30 (V1.3.0) — Superadmin + FeatureFlags
+
+**Context.** The customer is about to see the dev/prod cut-over. Notifications work is real but not yet signed off, so the customer cannot see any of it on their next demo. We need a way to ship hidden features behind a runtime toggle that only an internal user can flip — without redeploys.
+
+**Shipped:**
+
+- **Spolu column — kept the existing per-month split.** Briefly tried collapsing the `Apríl: X / Máj: Y` stacked display into one combined number, then reverted at the customer's request: when the viewed week straddles a month boundary the column must show each month's hours separately so the manager sees what the worker did in each calendar month. No net change to `kiosk.page.html` after the round trip.
+- **Superadmin user** (`API/Program.cs`, `API/Services/TokenService.cs`) — second admin user seeded alongside `vladosroka`: username `admin`, password `Superadmin12345!!` (configurable via `SuperAdminSeed:Username` / `:Password` / `:DisplayName`). The seed block was refactored from "first user wins" to per-username `FindByNameAsync` so both users coexist cleanly. `TokenService.CreateToken` adds an `isSuperAdmin: "true"` claim to the JWT when the username matches the configured superadmin. Token signature is verified server-side per request, so the claim cannot be forged.
+- **`FeatureFlags` table** (`API/Models/FeatureFlag.cs`, `API/Data/AppDbContext.cs`) — single new model: `Key` (string, PK), `Enabled` (bool, default false), `UpdatedAt` (UTC). One row per feature. Seeded `Notifications=false` on startup if missing. SQLite + PostgreSQL self-heal blocks added in `Program.cs` so prod boots cleanly even before the EF migration is applied. **Migration must be generated locally**: `cd API && dotnet ef migrations add AddFeatureFlags`.
+- **Action filter** (`API/Filters/RequireFeatureOrSuperAdminAttribute.cs`) — `[RequireFeatureOrSuperAdmin("Notifications")]` applied to `NotificationsController`. Bypassed by the `isSuperAdmin` claim; everyone else (regular admin and unauthenticated kiosk callers) gets 404 when the flag is off — feature is completely invisible to the customer at the API level too.
+- **`FeatureFlagsController`** (`API/Controllers/FeatureFlagsController.cs`) — `GET /api/feature-flags` (anonymous, returns `{ notifications: bool }`) and `PUT /api/feature-flags/{key}` (authenticated, superadmin claim required, body `{ enabled: bool }`).
+- **Frontend wiring**:
+  - `services/feature-flag.service.ts` — loads flags via `provideAppInitializer` so signals are populated before first navigation. `notifications: Signal<boolean>` exposed for templates and guards. Failures default to all-off (under-show beats leaking a hidden feature).
+  - `services/auth.service.ts` — new `isSuperAdmin: Signal<boolean>` computed from a JWT claim decode helper. No new dependency.
+  - `guards/notifications-feature.guard.ts` — `/admin/notifikacie` route guard; bounces non-superadmin to `/admin/dashboard` when the flag is off (no 404 — the page simply doesn't exist as far as they're concerned).
+  - `components/navbar/navbar.component.html` — Notifikácie link gated by `flags.notifications() || auth.isSuperAdmin()` on both desktop and mobile menus.
+  - `pages/kiosk/kiosk.page.ts` — push-related `ngOnInit` setup wrapped in `if (this.flags.notifications())` so the kiosk shows zero push UI when the flag is off.
+  - `pages/employee-detail/employee-detail.page.html` — notification decline-reason card gated by the same combined check.
+  - `pages/account/account.page.*` — new "Funkcie" card visible only to superadmin, with a single toggle for `notifications`. Card has an amber "Superadmin" badge so it's obvious which account this belongs to.
+
+**Default state:** `Notifications` flag defaults to **false** in any newly-seeded DB. The dev DB stays whatever the developer last set it to (separate DB from prod). Plan: in dev, the developer logs in as `admin`/`Superadmin12345!!` once after deploy and flips it on; flag persists in the dev DB. Prod ships off; customer never sees the feature until the customer signs off.
+
+**Migration command (must run locally before pushing):**
+
+```
+cd API
+dotnet ef migrations add AddFeatureFlags
+dotnet run    # local SQLite must boot clean
+```
+
+The CLI generates both the `.cs` and `.Designer.cs` files (per Rule 1 of Migration Safety). The self-heal blocks in `Program.cs` are an idempotent backstop and will quietly do nothing if the migration runs first.
+
+**Verification status:** Frontend `tsc --noEmit` not run in this sandbox — the workspace bash mount serves stale file content so verification has to happen on Windows. Backend `dotnet build` likewise. Both should be run locally before pushing the dev branch.
+
+---
 
 ### 2026-04-26 (V1.2.0) — Notifications M1: PWA push + admin Notifikácie page + demo controls
 

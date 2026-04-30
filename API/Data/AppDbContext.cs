@@ -18,6 +18,7 @@ public class AppDbContext : IdentityDbContext<AppUser>
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
     public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
+    public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -143,6 +144,12 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.Property(x => x.VapidPrivateKey).HasMaxLength(1000);
             e.Property(x => x.VapidSubject).HasMaxLength(200);
             e.HasKey(x => x.Id);
+        });
+
+        builder.Entity<FeatureFlag>(e =>
+        {
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(100);
         });
     }
 

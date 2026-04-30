@@ -962,6 +962,83 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
+    // Self-heal: ensure FeatureFlags table exists on SQLite.
+    // Backstop in case the AddFeatureFlags EF migration has not been applied yet.
+    if (string.IsNullOrEmpty(databaseUrl))
+    {
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS ""FeatureFlags"" (
+                    ""Key""       TEXT NOT NULL CONSTRAINT ""PK_FeatureFlags"" PRIMARY KEY,
+                    ""Enabled""   INTEGER NOT NULL DEFAULT 0,
+                    ""UpdatedAt"" TEXT NOT NULL
+                );
+            ");
+        }
+        catch { /* best-effort SQLite self-heal */ }
+    }
+
+    // Self-heal: ensure FeatureFlags table exists on PostgreSQL (production).
+    // Also guards against the well-known EF-SQLite-to-PostgreSQL trap where bool
+    // columns from the migration land as INTEGER/text on Postgres — same trap
+    // already documented around NotificationConfigs above. We cast to BOOLEAN
+    // and TIMESTAMP if the EF migration created the table with the wrong types.
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'FeatureFlags') THEN
+                    CREATE TABLE ""FeatureFlags"" (
+                        ""Key""       VARCHAR(100) PRIMARY KEY,
+                        ""Enabled""   BOOLEAN NOT NULL DEFAULT FALSE,
+                        ""UpdatedAt"" TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                END IF;
+
+                -- Cast Enabled to BOOLEAN if the EF migration left it as integer/text.
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'FeatureFlags'
+                      AND column_name = 'Enabled'
+                      AND data_type IN ('integer', 'text')
+                ) THEN
+                    ALTER TABLE ""FeatureFlags""
+                        ALTER COLUMN ""Enabled"" DROP DEFAULT,
+                        ALTER COLUMN ""Enabled"" TYPE BOOLEAN USING (""Enabled""::int::boolean),
+                        ALTER COLUMN ""Enabled"" SET DEFAULT FALSE;
+                END IF;
+
+                -- Cast UpdatedAt to TIMESTAMP WITHOUT TIME ZONE if it landed as text.
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'FeatureFlags'
+                      AND column_name = 'UpdatedAt'
+                      AND data_type   = 'text'
+                ) THEN
+                    ALTER TABLE ""FeatureFlags""
+                        ALTER COLUMN ""UpdatedAt"" TYPE TIMESTAMP WITHOUT TIME ZONE USING (""UpdatedAt""::timestamp);
+                END IF;
+            END $$;
+        ");
+    }
+
+    // Seed FeatureFlags. Default OFF so the customer-facing prod environment ships with
+    // hidden features invisible. The superadmin flips them on via the Funkcie card on
+    // the Account page; the dev environment has its own DB so devs can keep them on.
+    {
+        var knownFlags = new[] { "Notifications" };
+        foreach (var key in knownFlags)
+        {
+            if (!await db.FeatureFlags.AnyAsync(f => f.Key == key))
+            {
+                db.FeatureFlags.Add(new FeatureFlag { Key = key, Enabled = false, UpdatedAt = DateTime.UtcNow });
+            }
+        }
+        await db.SaveChangesAsync();
+    }
+
     // Seed / heal NotificationConfig with defaults on first run.
     // VAPID keys are auto-generated locally if env vars and DB are both empty so
     // the developer doesn't have to install any tooling to test push.
@@ -1046,27 +1123,36 @@ using (var scope = app.Services.CreateScope())
     var targetPassword = builder.Configuration["AdminSeed:Password"]    ?? "Nikolasko1";
     var targetDisplay  = builder.Configuration["AdminSeed:DisplayName"] ?? "Administrator";
 
-    var admin = userManager.Users.FirstOrDefault();
-    if (admin == null)
+    var superAdminUsername = builder.Configuration["SuperAdminSeed:Username"]    ?? "admin";
+    var superAdminPassword = builder.Configuration["SuperAdminSeed:Password"]    ?? "Superadmin12345!!";
+    var superAdminDisplay  = builder.Configuration["SuperAdminSeed:DisplayName"] ?? "Superadmin";
+
+    // Ensure both the regular admin (customer-facing) and the superadmin (internal feature-flag
+    // controller) exist with their configured passwords. Looked up by username so renames via
+    // env var require deleting the old row first — acceptable trade-off for two-user clarity.
+    async Task SeedAdminUser(string username, string password, string displayName)
     {
-        // First run — create the admin user
-        admin = new AppUser { UserName = targetUsername, DisplayName = targetDisplay };
-        await userManager.CreateAsync(admin, targetPassword);
-    }
-    else
-    {
-        // Sync username if it changed
-        if (admin.UserName != targetUsername)
+        var existing = await userManager.FindByNameAsync(username);
+        if (existing == null)
         {
-            admin.UserName           = targetUsername;
-            admin.NormalizedUserName = targetUsername.ToUpperInvariant();
-            admin.DisplayName        = targetDisplay;
-            await userManager.UpdateAsync(admin);
+            var user = new AppUser { UserName = username, DisplayName = displayName };
+            await userManager.CreateAsync(user, password);
         }
-        // Always reset password so Railway env var changes take effect on next deploy
-        var token = await userManager.GeneratePasswordResetTokenAsync(admin);
-        await userManager.ResetPasswordAsync(admin, token, targetPassword);
+        else
+        {
+            if (existing.DisplayName != displayName)
+            {
+                existing.DisplayName = displayName;
+                await userManager.UpdateAsync(existing);
+            }
+            // Always reset password so config/env changes take effect on next deploy
+            var resetToken = await userManager.GeneratePasswordResetTokenAsync(existing);
+            await userManager.ResetPasswordAsync(existing, resetToken, password);
+        }
     }
+
+    await SeedAdminUser(targetUsername, targetPassword, targetDisplay);
+    await SeedAdminUser(superAdminUsername, superAdminPassword, superAdminDisplay);
 
     // Seed the system admin Employee used as the FK target for admin-uploaded gallery photos.
     // IsActive = false so it is invisible to the kiosk and employee lists.

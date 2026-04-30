@@ -8,11 +8,80 @@ not marketing copy. When in doubt, write less.
 
 # Chat handoff — read me first
 
-> Last session: 2026-04-27 — **dev branch set up** (git + Angular env files + Vercel/Railway config). See "Dev branch setup" section below for the remaining dashboard steps.
-> Previous: V1.2.0 **Notifications M1 shipped** (PWA push + admin Notifikácie page + demo controls). Frontend `tsc --noEmit` clean. Backend `dotnet build` not run in sandbox — verify locally before publish.
-> Next session focus: **Customer test of M1, then M2 kiosk-side "Povoliť upozornenia" tile + M3 WhatsApp credentials.** See `NOTIFICATIONS_PLAN.md`.
+> Last session: 2026-04-30 (V1.3.0) — **Superadmin + FeatureFlags.** Notifications now invisible to customer by default. New `admin` / `Superadmin12345!!` user controls a runtime "Funkcie" card on the Account page. Spolu column on month-cutoff weeks **kept** as the per-month split (Apríl: X / Máj: Y) — briefly collapsed to one number, reverted at the customer's request. Frontend tsc + backend dotnet build NOT run in sandbox — verify locally before pushing dev. **Migration must be generated locally**: `cd API && dotnet ef migrations add AddFeatureFlags`.
+> Previous: 2026-04-27 dev branch set up (Vercel/Railway env split). 2026-04-26 V1.2.0 Notifications M1 shipped.
+> Next session focus: **Run the migration locally + verify build, then push to dev.** Once dev is green, customer can be invited to test the new Spolu UI without seeing any of the still-hidden notification work.
 > ⚠️ **SMS path is deferred** — `SMS_PLAN.md` is superseded by `NOTIFICATIONS_PLAN.md`. V1 ships free-channel only (push + WhatsApp).
 > ⚠️ **Workers are older / non-tech-savvy.** Anything we ship must be obvious, big, plain Slovak, no jargon. See `NOTIFICATIONS_PLAN.md` §10 for UX rules.
+
+---
+
+## What was shipped in this session (2026-04-30 — V1.3.0)
+
+### Spolu month-cutoff display — kept the per-month split
+
+Briefly collapsed the column to one combined number (`row.totalHours + row.totalHoursMonth2`) and reverted at the customer's request. The original behaviour stays: when the viewed week straddles a month boundary, the Spolu column shows two stacked rows like `Apríl: 80h / Máj: 12h` so the manager sees per-month hours, not a fused total. `client/src/app/pages/kiosk/kiosk.page.html` ends up unchanged from before the session.
+
+### Superadmin + FeatureFlags (hides unfinished work from customer)
+
+The customer is about to see a fresh deploy and we want notifications invisible until they sign off. Solution: a second admin identity that can flip features on/off at runtime.
+
+**New superadmin user** seeded alongside `vladosroka`:
+- Username: `admin`
+- Password: `Superadmin12345!!`
+- Configurable via `SuperAdminSeed:Username` / `:Password` / `:DisplayName` (defaults match the above)
+- Marked by an `isSuperAdmin: "true"` JWT claim in `TokenService.CreateToken`
+- Seed block in `Program.cs` refactored to `FindByNameAsync` per username so both users coexist (was "first user wins")
+
+**New `FeatureFlags` table** (Key string PK + Enabled bool + UpdatedAt UTC):
+- One row per feature; seeded `Notifications=false` on first run
+- Migration: `cd API && dotnet ef migrations add AddFeatureFlags` — **must run locally before pushing**
+- SQLite + PostgreSQL self-heal blocks added to `Program.cs` (CREATE TABLE IF NOT EXISTS pattern matching prior migrations)
+
+**New `FeatureFlagsController`**:
+- `GET /api/feature-flags` — anonymous, returns `{ notifications: bool }`. Kiosk needs this to know what to hide.
+- `PUT /api/feature-flags/{key}` — superadmin-only (checks `isSuperAdmin` claim), body `{ enabled: bool }`.
+
+**Action filter** `[RequireFeatureOrSuperAdmin("Notifications")]` (`API/Filters/`) applied to `NotificationsController`. Bypassed by superadmin claim; everyone else gets a 404 when the flag is off — defence in depth at the API level too.
+
+**Frontend wiring**:
+- `services/feature-flag.service.ts` — loaded via `provideAppInitializer` in `app.config.ts` so flags are populated before first navigation. Failures default to all-off.
+- `services/auth.service.ts` — new `isSuperAdmin: Signal<boolean>` computed from a JWT claim decode (no library, just a `try/atob/JSON.parse`).
+- `guards/notifications-feature.guard.ts` — `/admin/notifikacie` bounces to `/admin/dashboard` when not allowed.
+- Navbar `Notifikácie` link gated by `flags.notifications() || auth.isSuperAdmin()` on both desktop and mobile menus.
+- Kiosk push setup in `ngOnInit` skipped entirely when the flag is off.
+- Employee detail "Odmietnutie upozornení" card gated by the same combined check.
+- New "Funkcie" card on the Account page (`/admin/ucet`), superadmin-only, with the toggle. Amber "Superadmin" badge so it's clear which account it belongs to.
+
+**Default behaviour:**
+- Prod boots with `Notifications=false`. Customer logs in as `vladosroka` and sees zero notification UI anywhere.
+- Dev: developer logs in as `admin`/`Superadmin12345!!` once after deploy, opens Account → Funkcie → flips Notifikácie ON. Flag persists in the dev DB (separate from prod).
+
+**Pre-deploy checklist:**
+1. `cd API && dotnet ef migrations add AddFeatureFlags` → confirm `.cs` and `.Designer.cs` both generated.
+2. `dotnet run` locally; SQLite boots clean with no `fail:` log lines.
+3. `cd client && npx tsc --noEmit -p tsconfig.app.json` — must be clean. The sandbox's bash mount served stale file content during this session so this needs running on Windows.
+4. `dotnet build` — same caveat.
+5. Push dev branch → Railway dev redeploys → migration applies → log in as `admin` and flip Notifikácie ON for dev only.
+6. After the customer signs off on Notifications later, log into prod as `admin` → Funkcie → toggle on.
+
+**Files touched:**
+- `client/src/app/pages/kiosk/kiosk.page.ts` — gate push init on flag
+- `client/src/app/services/auth.service.ts` — `isSuperAdmin` signal + JWT decoder
+- `client/src/app/services/feature-flag.service.ts` — NEW
+- `client/src/app/guards/notifications-feature.guard.ts` — NEW
+- `client/src/app/app.config.ts` — `provideAppInitializer`
+- `client/src/app/app.routes.ts` — guard on `/admin/notifikacie`
+- `client/src/app/components/navbar/navbar.component.{ts,html}` — gated link
+- `client/src/app/pages/account/account.page.{ts,html}` — Funkcie card
+- `client/src/app/pages/employee-detail/employee-detail.page.{ts,html}` — gated decline card
+- `API/Models/FeatureFlag.cs` — NEW
+- `API/Data/AppDbContext.cs` — DbSet + OnModelCreating
+- `API/Filters/RequireFeatureOrSuperAdminAttribute.cs` — NEW
+- `API/Controllers/FeatureFlagsController.cs` — NEW
+- `API/Controllers/NotificationsController.cs` — `[RequireFeatureOrSuperAdmin("Notifications")]`
+- `API/Services/TokenService.cs` — `isSuperAdmin` claim
+- `API/Program.cs` — refactored seed for two users + FeatureFlags self-heal + seed
 
 ---
 

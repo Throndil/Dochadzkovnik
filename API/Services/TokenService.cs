@@ -26,12 +26,20 @@ public class TokenService : ITokenService
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id),
             new Claim(ClaimTypes.Name, user.UserName ?? string.Empty),
             new Claim("displayName", user.DisplayName)
         };
+
+        // Superadmin marker — username-based, configurable via SuperAdminSeed:Username.
+        // Used by FeatureFlagsController and the frontend to gate hidden features.
+        var superAdminUsername = _config["SuperAdminSeed:Username"] ?? "admin";
+        if (string.Equals(user.UserName, superAdminUsername, StringComparison.OrdinalIgnoreCase))
+        {
+            claims.Add(new Claim("isSuperAdmin", "true"));
+        }
 
         var token = new JwtSecurityToken(
             issuer: _config["Jwt:Issuer"],

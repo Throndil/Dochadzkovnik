@@ -1,8 +1,10 @@
-﻿import { Component, signal, OnInit } from '@angular/core';
+﻿import { Component, signal, OnInit, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { EmployeeService, Employee } from '../../services/employee.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
+import { AuthService } from '../../services/auth.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
@@ -11,6 +13,8 @@ import { normaliseFile } from '../../utils/image-utils';
   templateUrl: './employee-detail.page.html'
 })
 export class EmployeeDetailPage implements OnInit {
+  flags = inject(FeatureFlagService);
+  auth = inject(AuthService);
   employee = signal<Employee | null>(null);
   firstName = '';
   lastName = '';

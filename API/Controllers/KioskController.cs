@@ -331,8 +331,9 @@ public class KioskController : ControllerBase
             };
         }).ToList();
 
-        // Slovak abbreviated month names (lowercase, as used in everyday Slovak text)
-        string[] slovakMonths = ["jan", "feb", "mar", "apr", "máj", "jún", "júl", "aug", "sep", "okt", "nov", "dec"];
+        // Slovak full month names, capitalised — shown in the kiosk Spolu header
+        // and per-month sub-totals when the viewed week straddles a month boundary.
+        string[] slovakMonths = ["Január", "Február", "Marec", "Apríl", "Máj", "Jún", "Júl", "August", "September", "Október", "November", "December"];
 
         return Ok(new WeeklyOverviewDto
         {

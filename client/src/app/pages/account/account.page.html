@@ -15,6 +15,38 @@
       </div>
     }
 
+    <!-- Funkcie (superadmin only) — runtime toggles for features hidden from the customer -->
+    @if (auth.isSuperAdmin()) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border-2 border-amber-400 dark:border-amber-500 p-6">
+        <div class="flex items-center justify-between mb-1">
+          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Funkcie</h2>
+          <span class="text-xs font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded">Superadmin</span>
+        </div>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
+          Zapni alebo vypni rozpracované funkcie pre zákazníka. Vypnutá funkcia
+          je úplne skrytá z menu, kioskového rozhrania aj profilov zamestnancov.
+        </p>
+
+        @if (flagError()) {
+          <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg mb-3 text-sm">
+            {{ flagError() }}
+          </div>
+        }
+
+        <label class="flex items-center justify-between gap-4 py-2">
+          <span class="flex flex-col">
+            <span class="text-slate-900 dark:text-white font-medium">Notifikácie</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">PWA push, admin Notifikácie stránka, kioskový banner.</span>
+          </span>
+          <input type="checkbox"
+                 [checked]="flags.notifications()"
+                 [disabled]="flagSaving()"
+                 (change)="onToggleFlag('notifications', $any($event.target).checked)"
+                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
+        </label>
+      </div>
+    }
+
     <!-- Change password -->
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
       <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Zmena hesla</h2>

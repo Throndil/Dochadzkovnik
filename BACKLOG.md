@@ -100,6 +100,8 @@ not marketing copy. When in doubt, write less.
   - The per-employee "Spolu" column next to the 7-day grid now sums hours for the whole calendar month that contains the currently viewed week, not just the 7 visible days
   - Backend `GET /api/kiosk/overview` expands its query range to cover the whole month and restricts `TotalHours` to that month; the daily cells still only show the 7 days of the viewed week
 
+- **Spolu column on month-cutoff weeks — confirmed: keep the per-month split.** Briefly collapsed to one number on 2026-04-30 and reverted at customer request. The display must show two stacked sub-totals like `Apríl: 80h / Máj: 12h` so the manager sees what the worker did in each calendar month separately. Do not collapse this again.
+
 - [x] **Manual time entry (admin) is now hours-based, not clockIn/clockOut**
   - Replaced Príchod / Odchod date+time fields on the admin Záznamy dochádzky add and edit forms with a single Dátum picker and a Počet hodín control (±0.5h buttons plus preset chips: 0.5, 1, 2, 4, 5, 5.5, 6, 7, 7.5, 8, 9, 10)
   - Mirrors the kiosk "log hours" UX — easier/faster for managers
@@ -228,6 +230,17 @@ not marketing copy. When in doubt, write less.
 - [ ] **Developer vs Production build configuration**
   - Set up separate environment configs (`environment.ts` / `environment.prod.ts`) with distinct API URLs, feature flags, logging levels
   - Ensure `ng build --configuration production` targets production API and disables dev tooling
+
+- [x] **Superadmin user + runtime feature-flag toggles (V1.3.0, 2026-04-30)**
+  - Second admin identity `admin` / `Superadmin12345!!` (configurable via `SuperAdminSeed:Username` / `:Password`) seeded alongside `vladosroka`
+  - JWT carries `isSuperAdmin: "true"` claim when the username matches the configured superadmin
+  - New `FeatureFlags` table (Key string PK + Enabled bool + UpdatedAt) stores per-feature on/off state
+  - `GET /api/feature-flags` (anonymous) returns the current map; `PUT /api/feature-flags/{key}` (superadmin only) flips a flag
+  - `[RequireFeatureOrSuperAdmin("Notifications")]` action filter applied to `NotificationsController` — superadmin always passes; everyone else gets 404 when flag is off
+  - Frontend `FeatureFlagService` loads the map via `provideAppInitializer`; `auth.isSuperAdmin()` exposed for templates and route guards
+  - "Funkcie" card on the Account page (superadmin-only) hosts the toggles; first toggle is for Notifications
+  - Prod boots with Notifications=false so the customer sees zero notification UI; flag is flipped on per-environment by the superadmin once the feature is signed off
+  - **Migration to run before first deploy:** `cd API && dotnet ef migrations add AddFeatureFlags`
 
 ---
 

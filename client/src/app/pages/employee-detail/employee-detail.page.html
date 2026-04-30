@@ -123,8 +123,10 @@
             }
           </div>
 
-          <!-- Notification decline reason (shown only if the worker opted out from the kiosk) -->
-          @if (employee()?.notificationsDeclineReason) {
+          <!-- Notification decline reason (shown only if the worker opted out from the kiosk).
+               Hidden entirely when the Notifications feature is off, unless the viewer is the
+               superadmin (who needs to see it for testing before enabling for the customer). -->
+          @if (employee()?.notificationsDeclineReason && (flags.notifications() || auth.isSuperAdmin())) {
             <div>
               <h3 class="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-1">Odmietnutie upozornení</h3>
               <div class="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg px-3 py-2">

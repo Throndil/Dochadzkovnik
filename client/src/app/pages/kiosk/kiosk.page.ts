@@ -9,6 +9,7 @@ import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 import { PushService } from '../../services/push.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
 
 type View = 'main' | 'photo-upload' | 'my-hours';
 type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'photo-reason' | 'result';
@@ -132,6 +133,9 @@ export class KioskPage implements OnInit, OnDestroy {
   private clockTimeout?: ReturnType<typeof setTimeout>;
   private resetTimer?: ReturnType<typeof setTimeout>;
   private pushService = inject(PushService);
+  /** Exposed to template so every notification surface can be hidden when the
+   *  Notifications feature flag is off in the customer's environment. */
+  flags = inject(FeatureFlagService);
 
   // ─── "Treba pripomenúť" — missing-hours dashboard (Option A + D) ──
   /** Public list of workers with no entry for past 2 days. Visible to everyone. */
@@ -175,21 +179,25 @@ export class KioskPage implements OnInit, OnDestroy {
     this.kioskService.getCars().subscribe(cars => this.cars.set(cars));
     this.scheduleTick();
 
-    // Initialize push notification support
-    this.notificationSupported.set(this.pushService.isSupported());
-    this.pushPermission.set(this.pushService.currentPermission());
+    // Initialize push notification support — only when the Notifications feature
+    // flag is enabled. Customer-facing prod ships with this off, so the kiosk
+    // shows zero push UI until the superadmin flips it on.
+    if (this.flags.notifications()) {
+      this.notificationSupported.set(this.pushService.isSupported());
+      this.pushPermission.set(this.pushService.currentPermission());
 
-    // Show prompt if not yet granted and not denied
-    if (this.notificationSupported() && this.pushPermission() === 'default') {
-      this.showNotificationPrompt.set(true);
-    } else if (this.notificationSupported() && this.pushPermission() === 'granted') {
-      // Already subscribed, hide the prompt
-      this.showNotificationPrompt.set(false);
-      // Check if an active push subscription exists for this device
-      navigator.serviceWorker.ready
-        .then(reg => reg.pushManager.getSubscription())
-        .then(sub => this.deviceSubscribed.set(!!sub))
-        .catch(() => { /* ignore — deviceSubscribed stays false */ });
+      // Show prompt if not yet granted and not denied
+      if (this.notificationSupported() && this.pushPermission() === 'default') {
+        this.showNotificationPrompt.set(true);
+      } else if (this.notificationSupported() && this.pushPermission() === 'granted') {
+        // Already subscribed, hide the prompt
+        this.showNotificationPrompt.set(false);
+        // Check if an active push subscription exists for this device
+        navigator.serviceWorker.ready
+          .then(reg => reg.pushManager.getSubscription())
+          .then(sub => this.deviceSubscribed.set(!!sub))
+          .catch(() => { /* ignore — deviceSubscribed stays false */ });
+      }
     }
   }
 
