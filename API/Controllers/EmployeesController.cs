@@ -27,6 +27,81 @@ public class EmployeesController : ControllerBase
         _config = config;
     }
 
+    private static readonly TimeZoneInfo _tz = TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava");
+
+    /// <summary>
+    /// Admin variant of "Treba pripomenúť": same shape as the anonymous kiosk endpoint
+    /// but **includes PhoneNumber** so a manager on the Notifikácie page can call/SMS
+    /// the worker. JWT-protected. Phone numbers MUST NOT be served via the kiosk
+    /// endpoint — see KioskController.GetMissingHoursOverview for the no-phone variant.
+    /// </summary>
+    [HttpGet("missing-hours-overview")]
+    public async Task<ActionResult<MissingHoursOverviewAdminDto>> GetMissingHoursOverview()
+    {
+        // Inline the date computation rather than depending on a private KioskController helper.
+        // Keeps the two endpoints fully decoupled — one anon and PII-free, one JWT and rich.
+        var config = await _db.NotificationConfigs.FirstOrDefaultAsync(c => c.Id == 1);
+        var workingDaysOnly = config?.WorkingDaysOnly ?? true;
+
+        var todayLocal = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz));
+        var datesToCheck = new List<DateOnly>();
+        for (int back = 1; back <= 7 && datesToCheck.Count < 2; back++)
+        {
+            var d = todayLocal.AddDays(-back);
+            if (workingDaysOnly && (d.DayOfWeek == DayOfWeek.Saturday || d.DayOfWeek == DayOfWeek.Sunday))
+                continue;
+            datesToCheck.Add(d);
+        }
+        datesToCheck.Reverse();
+
+        var result = new MissingHoursOverviewAdminDto
+        {
+            CheckedDates = datesToCheck.Select(d => d.ToString("yyyy-MM-dd")).ToList(),
+            Employees = new List<EmployeeMissingDaysAdminDto>()
+        };
+        if (datesToCheck.Count == 0) return Ok(result);
+
+        var rangeStartUtc = TimeZoneInfo.ConvertTimeToUtc(datesToCheck.First().ToDateTime(TimeOnly.MinValue), _tz);
+        var rangeEndUtc   = TimeZoneInfo.ConvertTimeToUtc(datesToCheck.Last().AddDays(1).ToDateTime(TimeOnly.MinValue), _tz);
+
+        const string systemPin = "SYSTEM_ADMIN_GALLERY_UPLOADER";
+        var employees = await _db.Employees
+            .Where(e => e.IsActive && e.Pin != systemPin)
+            .OrderBy(e => e.FirstName).ThenBy(e => e.LastName)
+            .ToListAsync();
+
+        var entries = await _db.TimeEntries
+            .Where(t => t.ClockIn >= rangeStartUtc && t.ClockIn < rangeEndUtc)
+            .Select(t => new { t.EmployeeId, t.ClockIn })
+            .ToListAsync();
+
+        var activityByEmp = entries
+            .GroupBy(e => e.EmployeeId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(x.ClockIn, _tz))).ToHashSet());
+
+        foreach (var emp in employees)
+        {
+            var activity = activityByEmp.GetValueOrDefault(emp.Id, new HashSet<DateOnly>());
+            var missing = datesToCheck.Where(d => !activity.Contains(d)).ToList();
+            if (missing.Count == 0) continue;
+
+            result.Employees.Add(new EmployeeMissingDaysAdminDto
+            {
+                Id           = emp.Id,
+                FirstName    = emp.FirstName,
+                LastName     = emp.LastName,
+                FullName     = $"{emp.FirstName} {emp.LastName}",
+                PhotoUrl     = emp.PhotoUrl,
+                PhoneNumber  = emp.PhoneNumber,
+                MissingDates = missing.Select(d => d.ToString("yyyy-MM-dd")).ToList()
+            });
+        }
+
+        return Ok(result);
+    }
+
     [HttpGet]
     public async Task<ActionResult<List<EmployeeDto>>> GetAll()
     {

@@ -35,6 +35,27 @@ export interface UpdateEmployee {
   isActive: boolean;
 }
 
+/**
+ * Admin-only "Treba pripomenúť" row. Same shape as the kiosk anonymous version
+ * but additionally carries the worker's phone number so the manager can call /
+ * SMS them from the Notifikácie page. Only ever returned from the JWT-protected
+ * GET /api/employees/missing-hours-overview endpoint.
+ */
+export interface EmployeeMissingDaysAdmin {
+  id: number;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  photoUrl?: string;
+  phoneNumber?: string;
+  missingDates: string[];
+}
+
+export interface MissingHoursOverviewAdmin {
+  checkedDates: string[];
+  employees: EmployeeMissingDaysAdmin[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class EmployeeService {
   private url = `${environment.apiUrl}/employees`;
@@ -81,5 +102,10 @@ export class EmployeeService {
     const formData = new FormData();
     formData.append('file', file);
     return this.http.post<string>(`${this.url}/${id}/photo`, formData);
+  }
+
+  /** Admin "Treba pripomenúť" — JWT-protected, includes phone numbers. */
+  getMissingHoursOverview() {
+    return this.http.get<MissingHoursOverviewAdmin>(`${this.url}/missing-hours-overview`);
   }
 }

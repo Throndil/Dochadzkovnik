@@ -3,8 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { NotificationConfigService, NotificationConfig, NotificationEmployeeStatus, NotificationLogEntry } from '../../services/notification-config.service';
-import { EmployeeService, Employee } from '../../services/employee.service';
-import { KioskService, MissingHoursOverview } from '../../services/kiosk.service';
+import { EmployeeService, Employee, MissingHoursOverviewAdmin } from '../../services/employee.service';
 
 @Component({
   selector: 'app-notifications',
@@ -15,12 +14,11 @@ import { KioskService, MissingHoursOverview } from '../../services/kiosk.service
 export class NotificationsPage implements OnInit {
   private configSvc = inject(NotificationConfigService);
   private employeeSvc = inject(EmployeeService);
-  private kioskSvc = inject(KioskService);
 
   // "Treba pripomenúť" — workers missing entries for the past 2 days.
-  // This is the primary feature now (option A from the discussion above):
-  // a list the manager can use to call/SMS people directly.
-  missingOverview = signal<MissingHoursOverview | null>(null);
+  // Uses the JWT-protected /api/employees/missing-hours-overview admin endpoint
+  // (NOT the anonymous kiosk one) so we can include phone numbers for call/SMS.
+  missingOverview = signal<MissingHoursOverviewAdmin | null>(null);
   missingOverviewLoading = signal(false);
 
   // Card 1: Config state
@@ -90,7 +88,7 @@ export class NotificationsPage implements OnInit {
 
   loadMissingOverview() {
     this.missingOverviewLoading.set(true);
-    this.kioskSvc.getMissingHoursOverview().subscribe({
+    this.employeeSvc.getMissingHoursOverview().subscribe({
       next: data => { this.missingOverview.set(data); this.missingOverviewLoading.set(false); },
       error: () => { this.missingOverview.set(null); this.missingOverviewLoading.set(false); }
     });

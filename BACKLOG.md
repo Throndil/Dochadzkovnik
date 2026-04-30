@@ -233,11 +233,15 @@ not marketing copy. When in doubt, write less.
 
 - [ ] **Commander API integration (next session)** — see `COMMANDER_PLAN.md`. Env-var slots and security guard rails are already in place; seven open questions need to be answered with the customer before any code is written. Customer credentials must never enter `appsettings.json`, logs, DTOs, or frontend code; gate the controller behind a `CommanderIntegration` feature flag matching the Notifications pattern.
 
-- [x] **Removed worker phone numbers from public kiosk view (V1.3.2, 2026-04-30)**
+- [x] **Removed worker phone numbers from public kiosk view + split into two endpoints (V1.3.2, 2026-04-30)**
   - The kiosk's "Bez záznamu hodín za posledný týždeň" list rendered each missing worker's phone number as a clickable `tel:` link. The kiosk runs on a wall-mounted tablet at construction sites — anyone walking past could read it
   - Worse, the kiosk endpoint `/api/kiosk/missing-hours-overview` is anonymous (no JWT), so the phone numbers were also being served to any unauthenticated HTTP client
-  - Fix: removed `PhoneNumber` from `EmployeeMissingDaysDto` (backend) and `EmployeeMissingDays` (frontend interface), plus the `tel:` link from `kiosk.page.html`. Comments left in all three places explaining why so a future change doesn't reintroduce it
-  - Managers still see phone numbers via the JWT-protected admin Employees / Employee detail pages
+  - The admin Notifikácie page legitimately needs phone numbers (for call/SMS), so a single shared DTO doesn't work
+  - Fix: split into two endpoints with two separate DTOs:
+    - `/api/kiosk/missing-hours-overview` — anonymous, **no phone**, used by the kiosk public banner. DTO `EmployeeMissingDaysDto` (no PhoneNumber field at all)
+    - `/api/employees/missing-hours-overview` — JWT-protected, **with phone**, used by the admin Notifikácie page. DTO `EmployeeMissingDaysAdminDto`
+  - Frontend mirror: `EmployeeMissingDays` (in `kiosk.service.ts`, no phone) vs `EmployeeMissingDaysAdmin` (in `employee.service.ts`, with phone). Type system enforces the boundary
+  - Comments in DTOs and services explain the split so a future change can't accidentally merge them and reintroduce the leak
 
 - [x] **Env-var hardening + secrets out of `appsettings.json` (V1.3.1, 2026-04-30)**
   - All credential fields in committed config files are now empty strings; values come from Railway env vars (prod) or gitignored `appsettings.Local.json` (local dev)

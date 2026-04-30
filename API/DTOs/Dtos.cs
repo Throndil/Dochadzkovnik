@@ -523,3 +523,31 @@ public class MyMissingDaysDto
     public List<string> MissingDates { get; set; } = new();
 }
 
+// =================================================================
+//  Admin variant of "Treba pripomenúť" — JWT-protected, includes
+//  PhoneNumber so the manager can call/SMS workers from the
+//  Notifikácie page. NEVER serve this from an anonymous endpoint.
+// =================================================================
+public class MissingHoursOverviewAdminDto
+{
+    public List<string> CheckedDates { get; set; } = new();
+    public List<EmployeeMissingDaysAdminDto> Employees { get; set; } = new();
+}
+
+public class EmployeeMissingDaysAdminDto
+{
+    public int Id { get; set; }
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string FullName { get; set; } = string.Empty;
+    public string? PhotoUrl { get; set; }
+    /// <summary>
+    /// Phone number is included here because this DTO is only ever returned
+    /// by JWT-protected admin endpoints. If you find yourself adding it to
+    /// an anonymous response you have made a mistake — use
+    /// EmployeeMissingDaysDto (no phone) for the kiosk path instead.
+    /// </summary>
+    public string? PhoneNumber { get; set; }
+    public List<string> MissingDates { get; set; } = new();
+}
+
