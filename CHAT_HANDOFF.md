@@ -8,7 +8,8 @@ not marketing copy. When in doubt, write less.
 
 # Chat handoff — read me first
 
-> Last session: 2026-04-30 (V1.3.0) — **Superadmin + FeatureFlags.** Notifications now invisible to customer by default. New `admin` / `Superadmin12345!!` user controls a runtime "Funkcie" card on the Account page. Spolu column on month-cutoff weeks **kept** as the per-month split (Apríl: X / Máj: Y) — briefly collapsed to one number, reverted at the customer's request. Frontend tsc + backend dotnet build NOT run in sandbox — verify locally before pushing dev. **Migration must be generated locally**: `cd API && dotnet ef migrations add AddFeatureFlags`.
+> Last session: 2026-04-30 (V1.3.1) — **Env-var hardening + secrets refactor.** Stripped every credential out of `appsettings.json`, removed all hardcoded password fallbacks from `Program.cs`, added fail-loud `Jwt__Key` startup check, gitignored `appsettings.Local.json`, shipped `SECRETS.md` as the canonical env-var reference. Pre-allocated `Commander__Username` / `Commander__Password` slots for the upcoming Commander API integration. Discovered + flagged a Railway naming bug where single-underscore env vars (`Jwt_Key`, `AdminSeed_Password`) were silently ignored by ASP.NET Core's config provider — operator fixed by renaming to `Jwt__Key`, `AdminSeed__Password`, etc. before this code change deploys. **Read `SECRETS.md` before doing any infra/secrets work.**
+> Previous (same day, V1.3.0): Superadmin + FeatureFlags. Notifications now invisible to customer by default. New `admin` / `Superadmin12345!!` user controls a runtime "Funkcie" card on the Account page. Spolu column on month-cutoff weeks **kept** as the per-month split (Apríl: X / Máj: Y) — briefly collapsed to one number, reverted at the customer's request. **Migration must be generated locally**: `cd API && dotnet ef migrations add AddFeatureFlags` (the user reports it's already generated as `20260430172404_AddFeatureFlags`).
 > Previous: 2026-04-27 dev branch set up (Vercel/Railway env split). 2026-04-26 V1.2.0 Notifications M1 shipped.
 > Next session focus: **Run the migration locally + verify build, then push to dev.** Once dev is green, customer can be invited to test the new Spolu UI without seeing any of the still-hidden notification work.
 > ⚠️ **SMS path is deferred** — `SMS_PLAN.md` is superseded by `NOTIFICATIONS_PLAN.md`. V1 ships free-channel only (push + WhatsApp).
@@ -16,7 +17,57 @@ not marketing copy. When in doubt, write less.
 
 ---
 
-## What was shipped in this session (2026-04-30 — V1.3.0)
+## What was shipped in this session (2026-04-30 — V1.3.1, env-var hardening)
+
+### The real-world trigger
+
+Audit before plumbing in the Commander API (which carries the customer's third-party login credentials). Found:
+
+- `appsettings.json` shipped `vladosroka` / `Nikolasko1` as `AdminSeed:Username/Password` since commit `09d4d22`. In git history forever.
+- `Program.cs` had `?? "Nikolasko1"` and `?? "Superadmin12345!!"` fallbacks meaning the API would silently boot with the leaked defaults when env was misconfigured.
+- Railway env vars were named with **single underscore** (`Jwt_Key`, `AdminSeed_Password`, ...) which ASP.NET Core's config provider does NOT translate — values were being ignored, prod was running on the placeholder `appsettings.json` JWT key.
+
+Repo is private with two collaborators — owner accepted residual risk on `Nikolasko1` staying in history rather than rewriting git. Operational password kept; everything else hardened.
+
+### Code changes
+
+- `appsettings.json` — every credential field now empty string. Top `_README` block explains the policy. New `Cloudinary` and `Commander` placeholder sections added so future secrets have an obvious slot.
+- `Program.cs`:
+  - Loads `appsettings.Local.json` (gitignored) before env vars in the config chain — local dev source of truth.
+  - `Jwt:Key` now fails loud at startup if missing or shorter than 32 bytes, with a message naming the exact env var to set.
+  - `SeedAdminUser` no longer takes positional fallback strings. Reads `AdminSeed:*` and `SuperAdminSeed:*` straight from config; if username or password is missing it logs a clear `[SeedAdminUser] X skipped` warning and returns. Existing users keep their passwords on a config-less redeploy.
+- `Services/TokenService.cs` — `superAdminUsername` no longer falls back to `"admin"`. If config is missing, NO user gets the `isSuperAdmin` claim (safer than implicit default).
+- `.gitignore` — added `appsettings.Local.json` (root + nested glob).
+- `appsettings.Local.example.json` — committed template for devs to copy → `appsettings.Local.json` and fill in.
+- `SECRETS.md` (new, root) — canonical env-var reference. Required vs optional, the `__` vs `_` trap, fresh-environment runbook, what-to-do-when-Commander-ships block.
+
+### Operator changes (already done in Railway by the user before this code shipped)
+
+- Renamed `Jwt_Key` → `Jwt__Key`, `Jwt_Audience` → `Jwt__Audience`, `Jwt_Issuer` → `Jwt__Issuer`, `AdminSeed_Password` → `AdminSeed__Password`.
+- Deleted the dead `ALLOWED__ORIGINS` (not picked up; the `AllowedOrigins__0/1` array form is what works).
+- Generated a new strong `Jwt__Key`, replacing the leaked placeholder.
+- Added `AdminSeed__Username = vladosroka`, `SuperAdminSeed__Username = admin`, `SuperAdminSeed__Password = <strong>`, `SuperAdminSeed__DisplayName = Superadmin`.
+- `AdminSeed__Password` value left as `Nikolasko1` per owner decision (already in git history; private repo; rotation cost > residual risk).
+
+### Pre-deploy checklist for THIS commit
+
+1. `dotnet build` locally — should succeed (no API surface change beyond the JWT length check).
+2. Run `dotnet run` locally with **no** `appsettings.Local.json` and **no** `Jwt__Key` env var → confirm it throws with the helpful `Jwt:Key is not configured...` message. Then create `appsettings.Local.json` from the example, fill in a 32+ char dev key + dev passwords, re-run → confirm boots clean and seeds the local users.
+3. `cd client && npx tsc --noEmit -p tsconfig.app.json` — clean (no frontend changes this round).
+4. Push to dev → Railway dev redeploys. Watch logs for:
+   - `[SeedAdminUser] AdminSeed skipped …` — means the dev env vars aren't set; fix them.
+   - JWT crash — means `Jwt__Key` isn't set on dev; set it (different value from prod).
+5. Log in as `admin` (superadmin) on the Vercel dev preview, confirm the Funkcie card still works, confirm Notifikácie toggle still works.
+6. Once dev is green, promote to master.
+
+### What's NOT in this commit
+
+- Commander API controller. Just placeholder `Commander__Username` / `Commander__Password` slots in env config + a section in `SECRETS.md` describing how to wire it.
+- Git history rewrite for `Nikolasko1`. Owner declined; private repo + 2 collaborators makes residual risk acceptable.
+
+---
+
+## What was shipped earlier the same day (2026-04-30 — V1.3.0)
 
 ### Spolu month-cutoff display — kept the per-month split
 

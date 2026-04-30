@@ -35,8 +35,10 @@ public class TokenService : ITokenService
 
         // Superadmin marker — username-based, configurable via SuperAdminSeed:Username.
         // Used by FeatureFlagsController and the frontend to gate hidden features.
-        var superAdminUsername = _config["SuperAdminSeed:Username"] ?? "admin";
-        if (string.Equals(user.UserName, superAdminUsername, StringComparison.OrdinalIgnoreCase))
+        // No hardcoded fallback: if the config is missing, NO user is considered superadmin.
+        var superAdminUsername = _config["SuperAdminSeed:Username"];
+        if (!string.IsNullOrWhiteSpace(superAdminUsername)
+            && string.Equals(user.UserName, superAdminUsername, StringComparison.OrdinalIgnoreCase))
         {
             claims.Add(new Claim("isSuperAdmin", "true"));
         }

@@ -15,6 +15,11 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Local-dev secrets file. Optional + gitignored. Loaded last so it overrides
+// appsettings.json + appsettings.{Environment}.json but stays below env vars.
+// Devs copy appsettings.Local.example.json → appsettings.Local.json and fill it in.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+
 // Database
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -46,8 +51,20 @@ builder.Services.AddIdentityCore<AppUser>(opt =>
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
 
-// JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new Exception("JWT key not configured");
+// JWT Authentication.
+// Jwt:Key is REQUIRED — fail loud at startup so a missing/blank value never
+// silently downgrades the app to an unsigned or trivially-forgeable token.
+// HMAC-SHA256 needs at least 32 bytes of key material.
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey))
+    throw new InvalidOperationException(
+        "Jwt:Key is not configured. Set the Jwt__Key environment variable on Railway " +
+        "(double underscore is required to map to the Jwt:Key config path) or define it " +
+        "in a gitignored appsettings.Local.json. See SECRETS.md.");
+if (Encoding.UTF8.GetByteCount(jwtKey) < 32)
+    throw new InvalidOperationException(
+        "Jwt:Key is too short. HMAC-SHA256 requires at least 32 bytes / characters of " +
+        "random key material. Generate one with: openssl rand -base64 48");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -1119,19 +1136,33 @@ using (var scope = app.Services.CreateScope())
     }
 
     var userManager    = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
-    var targetUsername = builder.Configuration["AdminSeed:Username"]    ?? "vladosroka";
-    var targetPassword = builder.Configuration["AdminSeed:Password"]    ?? "Nikolasko1";
-    var targetDisplay  = builder.Configuration["AdminSeed:DisplayName"] ?? "Administrator";
+    var targetUsername = builder.Configuration["AdminSeed:Username"];
+    var targetPassword = builder.Configuration["AdminSeed:Password"];
+    var targetDisplay  = builder.Configuration["AdminSeed:DisplayName"] ?? "Manažér";
 
-    var superAdminUsername = builder.Configuration["SuperAdminSeed:Username"]    ?? "admin";
-    var superAdminPassword = builder.Configuration["SuperAdminSeed:Password"]    ?? "Superadmin12345!!";
+    var superAdminUsername = builder.Configuration["SuperAdminSeed:Username"];
+    var superAdminPassword = builder.Configuration["SuperAdminSeed:Password"];
     var superAdminDisplay  = builder.Configuration["SuperAdminSeed:DisplayName"] ?? "Superadmin";
 
     // Ensure both the regular admin (customer-facing) and the superadmin (internal feature-flag
     // controller) exist with their configured passwords. Looked up by username so renames via
     // env var require deleting the old row first — acceptable trade-off for two-user clarity.
-    async Task SeedAdminUser(string username, string password, string displayName)
+    //
+    // SECURITY: there are NO hardcoded fallback credentials. If username or password is missing
+    // we log loudly and skip — better than silently using a leaked default. Existing users
+    // keep their existing passwords on a config-less redeploy, so the API stays usable while
+    // the operator fixes the Railway env vars.
+    async Task SeedAdminUser(string label, string? username, string? password, string displayName)
     {
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        {
+            Console.WriteLine(
+                $"[SeedAdminUser] {label} skipped — username or password not configured. " +
+                $"Set {label}__Username and {label}__Password as Railway env vars (or via " +
+                $"appsettings.Local.json for local dev). See SECRETS.md.");
+            return;
+        }
+
         var existing = await userManager.FindByNameAsync(username);
         if (existing == null)
         {
@@ -1151,8 +1182,8 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
-    await SeedAdminUser(targetUsername, targetPassword, targetDisplay);
-    await SeedAdminUser(superAdminUsername, superAdminPassword, superAdminDisplay);
+    await SeedAdminUser("AdminSeed",      targetUsername,     targetPassword,     targetDisplay);
+    await SeedAdminUser("SuperAdminSeed", superAdminUsername, superAdminPassword, superAdminDisplay);
 
     // Seed the system admin Employee used as the FK target for admin-uploaded gallery photos.
     // IsActive = false so it is invisible to the kiosk and employee lists.

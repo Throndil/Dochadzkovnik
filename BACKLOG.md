@@ -231,6 +231,13 @@ not marketing copy. When in doubt, write less.
   - Set up separate environment configs (`environment.ts` / `environment.prod.ts`) with distinct API URLs, feature flags, logging levels
   - Ensure `ng build --configuration production` targets production API and disables dev tooling
 
+- [x] **Env-var hardening + secrets out of `appsettings.json` (V1.3.1, 2026-04-30)**
+  - All credential fields in committed config files are now empty strings; values come from Railway env vars (prod) or gitignored `appsettings.Local.json` (local dev)
+  - `Program.cs` fails loud on missing/short `Jwt__Key`; seed skips with a logged warning if `AdminSeed__*` / `SuperAdminSeed__*` aren't configured
+  - `Commander__Username` / `Commander__Password` placeholder slots pre-allocated for the upcoming Commander API integration so customer credentials never enter code
+  - `SECRETS.md` is the canonical env-var reference; read it before touching infra
+  - The single-underscore env-var trap (`Jwt_Key` ignored vs. `Jwt__Key` mapped to `Jwt:Key`) is documented so it doesn't bite again
+
 - [x] **Superadmin user + runtime feature-flag toggles (V1.3.0, 2026-04-30)**
   - Second admin identity `admin` / `Superadmin12345!!` (configurable via `SuperAdminSeed:Username` / `:Password`) seeded alongside `vladosroka`
   - JWT carries `isSuperAdmin: "true"` claim when the username matches the configured superadmin

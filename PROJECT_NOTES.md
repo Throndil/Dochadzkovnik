@@ -8,7 +8,7 @@ not marketing copy. When in doubt, write less.
 
 # Dochadzkovník — Project Notes
 
-> Last updated: 2026-04-30 (V1.3.0 — Superadmin + FeatureFlags, Spolu fix)
+> Last updated: 2026-04-30 (V1.3.1 — env-var hardening + secrets refactor)
 
 ## What is this project?
 
@@ -256,6 +256,39 @@ The entire UI and all API messages are in **Slovak**. Error messages, kiosk resp
 ---
 
 ## Session Log
+
+### 2026-04-30 (V1.3.1) — Env-var hardening, secrets out of code
+
+**Context.** Pre-flight before adding the Commander API integration (which carries the customer's third-party credentials). Audit of the current secret-handling surface found:
+
+- `appsettings.json` shipped real customer credentials (`vladosroka` / `Nikolasko1`) in git since `09d4d22`.
+- `Program.cs` had hardcoded password fallbacks (`?? "Nikolasko1"`, `?? "Superadmin12345!!"`) that silently masked misconfigured environments.
+- Railway env vars used **single underscore** naming (`Jwt_Key`, `AdminSeed_Password`) which ASP.NET Core's config provider does not translate — values were being ignored entirely, prod was running on the placeholder `appsettings.json` JWT key.
+
+**Shipped:**
+
+- `appsettings.json` — every credential field now empty. New `Cloudinary` and `Commander` placeholder sections added so future secrets have an obvious slot. Top `_README` field documents the no-secrets-here policy.
+- `Program.cs`:
+  - Loads `appsettings.Local.json` (gitignored) before env vars in the config chain — local dev source of truth.
+  - `Jwt:Key` fails loud at startup if missing or shorter than 32 bytes, with a message naming the exact env var to set (`Jwt__Key`).
+  - `SeedAdminUser` no longer takes positional fallback strings. If `AdminSeed:Username` or `AdminSeed:Password` is missing it logs `[SeedAdminUser] AdminSeed skipped` and returns. Existing users keep their passwords on a config-less redeploy.
+- `Services/TokenService.cs` — `superAdminUsername` no longer falls back to `"admin"`. If config is missing, NO user gets the `isSuperAdmin` claim.
+- `.gitignore` — added `appsettings.Local.json`.
+- `appsettings.Local.example.json` — committed template.
+- `SECRETS.md` (new, root) — canonical reference for every env var: required vs optional, the `__` vs `_` trap, what to do on a fresh Railway env, how to onboard the Commander integration without leaking credentials.
+
+**Operator changes (made by the owner in Railway before this code shipped):**
+
+- Renamed every misnamed env var to use `__` (e.g. `Jwt_Key` → `Jwt__Key`).
+- Generated and set a fresh strong `Jwt__Key`, replacing the leaked placeholder.
+- Added explicit `AdminSeed__Username`, `SuperAdminSeed__Username`, `SuperAdminSeed__Password`, `SuperAdminSeed__DisplayName`.
+- Kept `AdminSeed__Password` as `Nikolasko1` per operational decision (private repo, two collaborators, residual risk accepted; the value is in git history but is no longer a "live default" once the code refactor lands).
+
+**Decision log:** considered rewriting git history with `git filter-repo` to remove `Nikolasko1`; declined because (a) the repo is private with a fixed two-person collaborator list so the practical exposure is bounded, (b) GitHub keeps dangling commits accessible by SHA for ~90 days even after force-push, (c) rotation is the only thing that actually closes the hole and the owner explicitly chose not to rotate.
+
+**Pre-deploy checklist:** see `SECRETS.md` "What to do on a fresh Railway environment" + the same-named section in `CHAT_HANDOFF.md`.
+
+---
 
 ### 2026-04-30 (V1.3.0) — Superadmin + FeatureFlags
 
