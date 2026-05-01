@@ -305,28 +305,75 @@ using (var scope = app.Services.CreateScope())
 
     await db.Database.MigrateAsync();
 
-    // Fix DateTime columns created as TEXT by the old SQLite-specific type annotations
+    // Fix DateTime + decimal columns left as `text` by the SQLite→PostgreSQL migration
+    // scar. Two parallel passes:
+    //   1. DateTime: scan every text-typed column whose name matches one of our DateTime
+    //      domain fields and convert it to `timestamp without time zone`.
+    //   2. Decimal: a small allowlist of (table, column, precision, scale) tuples,
+    //      converting any still-text-typed match to `numeric(p,s)`.
+    // Both passes are idempotent — once the column is fixed they yield zero rows on the
+    // next deploy, and the EF Core SQL logger has been dropped to Warning so they emit
+    // zero log lines on a healthy DB.
     if (!string.IsNullOrEmpty(databaseUrl))
     {
         await db.Database.ExecuteSqlRawAsync(@"
             DO $$
+            DECLARE rec RECORD;
             BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'Employees' AND column_name = 'CreatedAt' AND data_type = 'text'
-                ) THEN
-                    ALTER TABLE ""Employees""
-                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-                    ALTER TABLE ""Locations""
-                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-                    ALTER TABLE ""TimeEntries""
-                        ALTER COLUMN ""ClockIn""   TYPE timestamp without time zone USING ""ClockIn""::timestamptz::timestamp,
-                        ALTER COLUMN ""ClockOut""  TYPE timestamp without time zone USING ""ClockOut""::timestamptz::timestamp,
-                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-                END IF;
+                -- ── DateTime columns: text → timestamp without time zone ──
+                FOR rec IN
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND data_type = 'text'
+                      AND column_name IN (
+                          'CreatedAt','UpdatedAt',
+                          'ClockIn','ClockOut',
+                          'Date','TriggerDate','LastTickAt','LastUsedAt',
+                          'StartedAt','FinishedAt','SentAt'
+                      )
+                LOOP
+                    EXECUTE format(
+                        'ALTER TABLE %I ALTER COLUMN %I TYPE timestamp without time zone USING %I::timestamptz::timestamp',
+                        rec.table_name, rec.column_name, rec.column_name
+                    );
+                END LOOP;
+
+                -- ── Decimal columns: text → numeric(p,s) ──
+                -- Allowlist matches the [HasPrecision(p,s)] declarations in AppDbContext.
+                FOR rec IN
+                    SELECT * FROM (VALUES
+                        ('Materials',      'PricePerUnit',     12, 4),
+                        ('MaterialUsages', 'Quantity',         12, 3),
+                        ('MaterialUsages', 'UnitPriceAtTime',  12, 4)
+                    ) AS t(table_name, column_name, prec, scl)
+                LOOP
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns c
+                        WHERE c.table_schema = 'public'
+                          AND c.table_name   = rec.table_name
+                          AND c.column_name  = rec.column_name
+                          AND c.data_type    = 'text'
+                    ) THEN
+                        -- DROP DEFAULT first: the text column was created with DEFAULT '0'
+                        -- (or similar) by the original self-heal block, and Postgres refuses
+                        -- to auto-cast a text default to numeric during ALTER TYPE
+                        -- (SqlState 42804). We drop, convert, and re-add a numeric default
+                        -- in one statement. COALESCE handles legacy rows that wrote empty
+                        -- string into the text column — empty becomes 0 rather than tripping
+                        -- NOT NULL on the ALTER.
+                        EXECUTE format(
+                            'ALTER TABLE %I '
+                            || 'ALTER COLUMN %I DROP DEFAULT, '
+                            || 'ALTER COLUMN %I TYPE numeric(%s,%s) USING COALESCE(NULLIF(%I, '''')::numeric, 0), '
+                            || 'ALTER COLUMN %I SET DEFAULT 0',
+                            rec.table_name,
+                            rec.column_name,
+                            rec.column_name, rec.prec, rec.scl, rec.column_name,
+                            rec.column_name
+                        );
+                    END IF;
+                END LOOP;
             END $$;
         ");
     }
@@ -1135,27 +1182,82 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
-    // Seed the materials catalogue with ~10 common Slovak construction items on first run only.
-    // Idempotent — only inserts items that don't already exist by name.
-    if (!await db.Materials.AnyAsync())
+    // Seed the materials catalogue with ~10 common Slovak construction items.
+    //
+    // Per-item idempotent (runs on every startup, not just first-run):
+    //   - if no row with this Name exists → insert it (active, default price 0)
+    //   - if a row with this Name exists and is inactive → flip IsActive back on
+    //   - if a row with this Name exists and is active → leave it alone
+    //
+    // Customer edits to Unit / PricePerUnit on existing rows are preserved; we only
+    // touch IsActive on the predefined names. Rationale: in production we observed
+    // a soft-deleted "Cement" row blocking a Create with the same name (catalogue
+    // listing showed empty, the Create endpoint 409'd). The Create endpoint now
+    // resurrects soft-deleted matches; this seed block is the belt-and-braces
+    // backstop that guarantees the standard 10 items are always present and
+    // visible after a deploy, regardless of how the DB got into its current state.
+    //
+    // If the customer explicitly deactivates one of these later, it WILL come back
+    // active on the next deploy. That's the trade-off we accept for the safety net.
+    var predefinedMaterials = new[]
     {
-        var seed = new[]
+        ("Cement",     "vrece"),
+        ("Voda",       "l"),
+        ("Piesok",     "kg"),
+        ("Štrk",       "kg"),
+        ("Obklad",     "m²"),
+        ("Dlažba",     "m²"),
+        ("Omietka",    "kg"),
+        ("Lepidlo",    "vrece"),
+        ("Sadrokartón","ks"),
+        ("Skrutky",    "ks"),
+    };
+    // Pull only the columns we need (Id / Name / IsActive). DO NOT materialise
+    // full Material entities here — production has legacy rows where CreatedAt /
+    // UpdatedAt are stored as `text` (a SQLite→PostgreSQL migration scar) and
+    // EF will throw InvalidCastException trying to read them as DateTime. The
+    // type-fix self-heal block earlier in this file already corrects those
+    // columns, but this projection is the safety belt that keeps startup alive
+    // even if something about the order of operations regresses.
+    var existingIndex = await db.Materials
+        .Select(m => new { m.Id, m.Name, m.IsActive })
+        .ToListAsync();
+    var firstByKey = new Dictionary<string, (int Id, bool IsActive)>(StringComparer.Ordinal);
+    foreach (var row in existingIndex)
+    {
+        var k = (row.Name ?? string.Empty).Trim().ToLowerInvariant();
+        if (!firstByKey.ContainsKey(k)) firstByKey[k] = (row.Id, row.IsActive);
+    }
+    var idsToReactivate = new List<int>();
+    var namesToInsert = new List<(string name, string unit)>();
+    foreach (var (name, unit) in predefinedMaterials)
+    {
+        var key = name.Trim().ToLowerInvariant();
+        if (firstByKey.TryGetValue(key, out var hit))
         {
-            ("Cement",     "vrece"),
-            ("Voda",       "l"),
-            ("Piesok",     "kg"),
-            ("Štrk",       "kg"),
-            ("Obklad",     "m²"),
-            ("Dlažba",     "m²"),
-            ("Omietka",    "kg"),
-            ("Lepidlo",    "vrece"),
-            ("Sadrokartón","ks"),
-            ("Skrutky",    "ks"),
-        };
-        foreach (var (name, unit) in seed)
-        {
-            db.Materials.Add(new Material { Name = name, Unit = unit });
+            if (!hit.IsActive) idsToReactivate.Add(hit.Id);
         }
+        else
+        {
+            namesToInsert.Add((name, unit));
+        }
+    }
+    // Reactivate via ExecuteUpdateAsync (EF Core 7+) so we never have to
+    // materialise the entity — keeps us clear of the legacy text-typed
+    // CreatedAt / UpdatedAt columns. Generates a pure UPDATE … WHERE Id IN (…)
+    // that works on both SQLite (local dev) and PostgreSQL (production).
+    if (idsToReactivate.Count > 0)
+    {
+        await db.Materials
+            .Where(m => idsToReactivate.Contains(m.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsActive, true));
+    }
+    foreach (var (name, unit) in namesToInsert)
+    {
+        db.Materials.Add(new Material { Name = name, Unit = unit });
+    }
+    if (namesToInsert.Count > 0)
+    {
         await db.SaveChangesAsync();
     }
 

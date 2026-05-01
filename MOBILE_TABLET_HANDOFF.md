@@ -93,6 +93,49 @@ None of these are confirmed bugs. They're the surfaces I'd open the device on fi
    - Switch tabs Detail ↔ Prehľad. Map re-mounts cleanly.
 6. Note anything that looks broken: text clipping, controls below 44×44 px, controls overlapping the navbar, scroll regions inside scroll regions, anything that requires a second tap to land.
 
+## What was done this session (2026-05-01, tablet pass)
+
+Edits, all frontend-only, no backend / DB / migration touched. `npx tsc --noEmit -p tsconfig.app.json` clean. Local `ng build` not run in sandbox (lightningcss native binary missing under the Linux mount); verify on Windows before push.
+
+`client/src/styles.css`
+- Added `@media (pointer: coarse)` block that resizes Leaflet's `.leaflet-bar a` zoom buttons to 44×44 px (font 22 px). Desktop mouse density unchanged.
+- Added a `.touch-target` utility (`min-height: 44px; min-width: 44px`) — applied to small buttons across the Commander surfaces below.
+
+`client/src/app/pages/commander/commander.page.html`
+- Page wrapper `min-h-screen` → `min-h-dvh` so iOS / Android dynamic viewport tracks correctly (per the PWA rules in `PROJECT_NOTES.md`).
+- Header buttons "Sledovať live" and "Obnoviť": `px-3 py-2` → `touch-target px-4 py-2.5`, larger live-state dot (`w-2.5 h-2.5`), text bumps from `text-sm` to `text-sm sm:text-base`.
+- Tabs (Detail / Prehľad): `px-4 py-2` → `touch-target px-5 py-3`, ARIA `role="tab"` and `aria-selected`.
+- Detail layout grid: `lg:grid-cols-[18rem_1fr]` → `xl:grid-cols-[18rem_1fr]`. The Acer at portrait (1024 wide) now stacks single-column instead of forcing the cramped 18 rem sidebar at the breakpoint edge. Landscape (1366) and desktop still get side-by-side.
+- Sidebar list `max-h-[28rem] lg:max-h-[36rem]` → `max-h-[55dvh] xl:max-h-[36rem]`. List rows `py-2` → `min-h-[44px] py-2.5`, status dot 2.5→3, item text `text-sm sm:text-base`, added `active:bg-amber-100` for tactile feedback.
+- Map container heights: `h-72 sm:h-96` → `h-72 sm:h-96 md:h-[28rem] xl:h-[32rem] max-h-[60dvh] xl:max-h-none` for both live and ride mode. The dvh cap prevents the map from crowding the cards on portrait when the toolbar collapses.
+- Map header buttons "Späť na živú polohu" and "Zobraziť v Google Maps": were unpadded text-only; now `touch-target px-3 py-2 rounded-md` with hover backgrounds. Header is now `flex-wrap` so they don't overflow when both are present.
+- Posledné jazdy list rows: `min-h-[56px]` floor + `active:bg-amber-100`, max-h widened on `xl` (`xl:max-h-[40rem]`).
+- Empty-state copy: "Vyberte vozidlo zo zoznamu **vľavo**." → "Vyberte vozidlo zo zoznamu." (Stacked layout no longer puts the list on the left.)
+- Prehľad layout grid: `lg:grid-cols-[1fr_24rem]` → `xl:grid-cols-[1fr_24rem]` (same reasoning as Detail).
+- Prehľad table: now hidden below `md` and replaced with a stacked card list (vehicle name + plate + status pill + Pozícia / Rýchlosť row + 2-line address). Cards are full-row tap targets.
+- Prehľad table at `md`+: row padding `py-2` → `py-3`. Adresa column is hidden below `xl` (it was the column most likely to push a horizontal scroll on portrait); the address still renders inline under the vehicle name in that mode.
+- Prehľad side-map: heights `h-72 lg:h-[28rem]` → `h-72 sm:h-80 md:h-96 xl:h-[28rem] max-h-[55dvh] xl:max-h-none`, header is `flex-wrap`, and the "Otvoriť v Google Maps" link is now a `touch-target` button.
+
+`client/src/app/components/commander-car-panel/commander-car-panel.component.html`
+- Padding `p-6` → `p-4 sm:p-6` (less wasted space at narrow widths).
+- Title-row `flex-wrap` so the title and Obnoviť don't overlap on portrait.
+- "Obnoviť" button `px-3 py-1` → `touch-target px-4 py-2`, contrast bumped (`text-slate-700 dark:text-slate-200`), `active:scale-[0.98]`.
+
+Other admin pages (`dashboard`, `employees`, `employee-detail`, `locations`, `location-detail`, `cars`, `car-detail`, `materials`, `time-entries`, `notifications`, `account`, `reports`)
+- Page wrapper `min-h-screen` → `min-h-dvh`. This is the same fix V1.1.1 applied selectively; rolling it out to every admin page kills the "tiny scroll on iOS Safari standalone" symptom across the surface, not just on commander.
+
+What is **not** changed
+- Card grids `grid-cols-2 md:grid-cols-4` on the Detail tab. Already tablet-friendly. Only the values use `truncate` so long addresses don't push the card.
+- Navbar layout. Already polished in V1.1.1 (`sticky top-0 z-30` + safe-area-insets + `h-14`). No regressions introduced.
+- Any backend file. No DB or migration touched.
+
+What still needs eyes-on-device
+- Pinch-zoom behaviour on the Leaflet maps. The default `touchZoom` should be on, but verify on the Acer.
+- Confirm no horizontal scroll on portrait Prehľad. The Adresa-hidden + inline-under-name pattern was a guess; if the table still scrolls on the device, hide one more column or shrink padding further.
+- Confirm the dvh-based heights don't oscillate when the Android Chrome toolbar shows / hides. (Should be fine — `dvh` is exactly the unit designed to handle this — but the Acer is the source of truth.)
+
+---
+
 ## Open backlog (do not derail tablet work)
 
 These are deferred from the Commander integration:

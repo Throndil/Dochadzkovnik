@@ -51,6 +51,41 @@
   display: none;
 }
 
+/* ── Leaflet controls — touch-friendly sizing ─────────────────── */
+/* Default Leaflet zoom +/- buttons are 26px square — borderline unusable on a
+   tablet stand. Bump to 44px on coarse pointers (touch screens), keep the
+   default density on mouse devices so the desktop UI doesn't bloat. */
+@media (pointer: coarse) {
+  .leaflet-bar a,
+  .leaflet-bar a:hover {
+    width: 44px;
+    height: 44px;
+    line-height: 44px;
+    font-size: 22px;
+  }
+  .leaflet-touch .leaflet-bar a:first-child {
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+  }
+  .leaflet-touch .leaflet-bar a:last-child {
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+  }
+  /* Larger attribution text so it remains legible without zooming. */
+  .leaflet-control-attribution {
+    font-size: 11px;
+  }
+}
+
+/* Tablet-friendly minimum tap target. The `.touch-target` utility can be
+   added to any small button or link that risks falling below 44×44 px on the
+   Acer Iconia A16 (the customer's tablet). Apple HIG and Material both call
+   for 44 px; we round up. */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
 /* ── Disable double-tap zoom on mobile/tablet ─────────────────── */
 html {
   touch-action: manipulation;
