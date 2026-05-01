@@ -305,28 +305,34 @@ using (var scope = app.Services.CreateScope())
 
     await db.Database.MigrateAsync();
 
-    // Fix DateTime columns created as TEXT by the old SQLite-specific type annotations
+    // Fix DateTime columns left as `text` by the SQLite→PostgreSQL migration scar.
+    // Self-discovers every text-typed column whose name matches one of our DateTime
+    // domain columns and converts it in place. Idempotent: the FOR loop only finds
+    // text-typed rows, so once the column is fixed it isn't touched again.
+    // Adds zero log lines on a healthy DB (the loop body doesn't execute).
     if (!string.IsNullOrEmpty(databaseUrl))
     {
         await db.Database.ExecuteSqlRawAsync(@"
             DO $$
+            DECLARE rec RECORD;
             BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name = 'Employees' AND column_name = 'CreatedAt' AND data_type = 'text'
-                ) THEN
-                    ALTER TABLE ""Employees""
-                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-                    ALTER TABLE ""Locations""
-                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-                    ALTER TABLE ""TimeEntries""
-                        ALTER COLUMN ""ClockIn""   TYPE timestamp without time zone USING ""ClockIn""::timestamptz::timestamp,
-                        ALTER COLUMN ""ClockOut""  TYPE timestamp without time zone USING ""ClockOut""::timestamptz::timestamp,
-                        ALTER COLUMN ""CreatedAt"" TYPE timestamp without time zone USING ""CreatedAt""::timestamptz::timestamp,
-                        ALTER COLUMN ""UpdatedAt"" TYPE timestamp without time zone USING ""UpdatedAt""::timestamptz::timestamp;
-                END IF;
+                FOR rec IN
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND data_type = 'text'
+                      AND column_name IN (
+                          'CreatedAt','UpdatedAt',
+                          'ClockIn','ClockOut',
+                          'Date','TriggerDate','LastTickAt','LastUsedAt',
+                          'StartedAt','FinishedAt','SentAt'
+                      )
+                LOOP
+                    EXECUTE format(
+                        'ALTER TABLE %I ALTER COLUMN %I TYPE timestamp without time zone USING %I::timestamptz::timestamp',
+                        rec.table_name, rec.column_name, rec.column_name
+                    );
+                END LOOP;
             END $$;
         ");
     }
@@ -1165,38 +1171,51 @@ using (var scope = app.Services.CreateScope())
         ("Sadrokartón","ks"),
         ("Skrutky",    "ks"),
     };
-    // Pull all materials in one query, then index in memory by normalised name.
-    // Using a single query + manual indexing rather than ToDictionaryAsync because a
-    // legacy DB could in principle contain two rows whose names differ only in case
-    // or whitespace (the bug this seed is here to paper over). ToDictionaryAsync
-    // would throw on the duplicate key; this approach picks the first match and
-    // leaves the rest alone — a deactivate/cleanup decision for the customer.
-    var allMaterials = await db.Materials.ToListAsync();
-    var firstByKey = new Dictionary<string, Material>(StringComparer.Ordinal);
-    foreach (var m in allMaterials)
+    // Pull only the columns we need (Id / Name / IsActive). DO NOT materialise
+    // full Material entities here — production has legacy rows where CreatedAt /
+    // UpdatedAt are stored as `text` (a SQLite→PostgreSQL migration scar) and
+    // EF will throw InvalidCastException trying to read them as DateTime. The
+    // type-fix self-heal block earlier in this file already corrects those
+    // columns, but this projection is the safety belt that keeps startup alive
+    // even if something about the order of operations regresses.
+    var existingIndex = await db.Materials
+        .Select(m => new { m.Id, m.Name, m.IsActive })
+        .ToListAsync();
+    var firstByKey = new Dictionary<string, (int Id, bool IsActive)>(StringComparer.Ordinal);
+    foreach (var row in existingIndex)
     {
-        var k = (m.Name ?? string.Empty).Trim().ToLowerInvariant();
-        if (!firstByKey.ContainsKey(k)) firstByKey[k] = m;
+        var k = (row.Name ?? string.Empty).Trim().ToLowerInvariant();
+        if (!firstByKey.ContainsKey(k)) firstByKey[k] = (row.Id, row.IsActive);
     }
-    var materialsTouched = false;
+    var idsToReactivate = new List<int>();
+    var namesToInsert = new List<(string name, string unit)>();
     foreach (var (name, unit) in predefinedMaterials)
     {
         var key = name.Trim().ToLowerInvariant();
-        if (firstByKey.TryGetValue(key, out var existing))
+        if (firstByKey.TryGetValue(key, out var hit))
         {
-            if (!existing.IsActive)
-            {
-                existing.IsActive = true;
-                materialsTouched = true;
-            }
+            if (!hit.IsActive) idsToReactivate.Add(hit.Id);
         }
         else
         {
-            db.Materials.Add(new Material { Name = name, Unit = unit });
-            materialsTouched = true;
+            namesToInsert.Add((name, unit));
         }
     }
-    if (materialsTouched)
+    // Reactivate via ExecuteUpdateAsync (EF Core 7+) so we never have to
+    // materialise the entity — keeps us clear of the legacy text-typed
+    // CreatedAt / UpdatedAt columns. Generates a pure UPDATE … WHERE Id IN (…)
+    // that works on both SQLite (local dev) and PostgreSQL (production).
+    if (idsToReactivate.Count > 0)
+    {
+        await db.Materials
+            .Where(m => idsToReactivate.Contains(m.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.IsActive, true));
+    }
+    foreach (var (name, unit) in namesToInsert)
+    {
+        db.Materials.Add(new Material { Name = name, Unit = unit });
+    }
+    if (namesToInsert.Count > 0)
     {
         await db.SaveChangesAsync();
     }
