@@ -98,6 +98,15 @@ html, body {
   /* Smooth font rendering on iOS / macOS Safari. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Pin the document background so any iOS overscroll, dynamic-island gap, or
+     status-bar bleed-through reveals the same slate as our page wrappers — never
+     the user-agent default white. Light = slate-50, dark = slate-900. The
+     `.dark` class is applied to <html> by ThemeService. */
+  background-color: #f8fafc;
+}
+html.dark,
+html.dark body {
+  background-color: #0f172a;
 }
 
 /* No grey/blue tap highlight on iOS Safari when buttons or links are tapped — we use our own

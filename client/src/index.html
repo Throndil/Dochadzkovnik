@@ -13,9 +13,13 @@
   <meta name="mobile-web-app-capable" content="yes">
   <!-- iOS standalone (added-to-home-screen) status bar: default = system style with content under it. -->
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <!-- Theme colour matches navbar (light) / slate (dark) — iOS Safari and Android Chrome both honour this. -->
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1e293b" media="(prefers-color-scheme: dark)">
+  <!-- Theme colour matches the page background (slate-50 / slate-900). The two
+       media-scoped tags below cover the first paint before our JS runs (the OS's
+       dark-mode preference). ThemeService later injects a third unscoped
+       <meta name="theme-color"> that follows the app's own dark-mode toggle —
+       needed because the user can have a light-mode OS and a dark-mode app. -->
+  <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
 </head>
 <body>
