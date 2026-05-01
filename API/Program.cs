@@ -355,11 +355,22 @@ using (var scope = app.Services.CreateScope())
                           AND c.column_name  = rec.column_name
                           AND c.data_type    = 'text'
                     ) THEN
-                        -- COALESCE handles legacy rows that wrote empty string into the text
-                        -- column — empty becomes 0 rather than tripping NOT NULL on the ALTER.
+                        -- DROP DEFAULT first: the text column was created with DEFAULT '0'
+                        -- (or similar) by the original self-heal block, and Postgres refuses
+                        -- to auto-cast a text default to numeric during ALTER TYPE
+                        -- (SqlState 42804). We drop, convert, and re-add a numeric default
+                        -- in one statement. COALESCE handles legacy rows that wrote empty
+                        -- string into the text column — empty becomes 0 rather than tripping
+                        -- NOT NULL on the ALTER.
                         EXECUTE format(
-                            'ALTER TABLE %I ALTER COLUMN %I TYPE numeric(%s,%s) USING COALESCE(NULLIF(%I, '''')::numeric, 0)',
-                            rec.table_name, rec.column_name, rec.prec, rec.scl, rec.column_name
+                            'ALTER TABLE %I '
+                            || 'ALTER COLUMN %I DROP DEFAULT, '
+                            || 'ALTER COLUMN %I TYPE numeric(%s,%s) USING COALESCE(NULLIF(%I, '''')::numeric, 0), '
+                            || 'ALTER COLUMN %I SET DEFAULT 0',
+                            rec.table_name,
+                            rec.column_name,
+                            rec.column_name, rec.prec, rec.scl, rec.column_name,
+                            rec.column_name
                         );
                     END IF;
                 END LOOP;
