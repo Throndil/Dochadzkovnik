@@ -2,12 +2,13 @@ import { Component, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { CommanderCarPanelComponent } from '../../components/commander-car-panel/commander-car-panel.component';
 import { CarService } from '../../services/car.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-car-detail',
-  imports: [NavbarComponent, FormsModule],
+  imports: [NavbarComponent, CommanderCarPanelComponent, FormsModule],
   templateUrl: './car-detail.page.html'
 })
 export class CarDetailPage implements OnInit {

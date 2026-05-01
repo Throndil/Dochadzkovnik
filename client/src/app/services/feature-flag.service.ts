@@ -16,6 +16,9 @@ export class FeatureFlagService {
   private notificationsSignal = signal(false);
   notifications = computed(() => this.notificationsSignal());
 
+  private commanderIntegrationSignal = signal(false);
+  commanderIntegration = computed(() => this.commanderIntegrationSignal());
+
   constructor(private http: HttpClient) {}
 
   /**
@@ -31,8 +34,10 @@ export class FeatureFlagService {
         this.http.get<Record<string, boolean>>(`${environment.apiUrl}/feature-flags`)
       );
       this.notificationsSignal.set(!!flags?.['notifications']);
+      this.commanderIntegrationSignal.set(!!flags?.['commanderIntegration']);
     } catch {
       this.notificationsSignal.set(false);
+      this.commanderIntegrationSignal.set(false);
     }
   }
 

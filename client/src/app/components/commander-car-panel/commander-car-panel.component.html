@@ -1,0 +1,103 @@
+@if (enabled()) {
+  <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+        <span>Commander</span>
+        @if (auth.isSuperAdmin() && !flags.commanderIntegration()) {
+          <span class="text-xs font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded">Skryté</span>
+        }
+      </h2>
+      <button type="button" (click)="load()"
+              [disabled]="loading()"
+              class="text-sm bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 px-3 py-1 rounded-lg transition-colors disabled:opacity-50">
+        {{ loading() ? 'Načítavam…' : 'Obnoviť' }}
+      </button>
+    </div>
+
+    @if (loading()) {
+      <p class="text-sm text-slate-500 dark:text-slate-400">Načítavam Commander údaje…</p>
+    } @else if (error(); as err) {
+      <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm flex flex-col gap-2">
+        <span>{{ err.error }}</span>
+        @if (err.retryable) {
+          <button type="button" (click)="load()"
+                  class="self-start bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-lg text-xs transition-colors">
+            Skúsiť znovu
+          </button>
+        }
+      </div>
+    } @else if (noMatch()) {
+      <p class="text-sm text-slate-500 dark:text-slate-400">
+        @if (licensePlate()) {
+          Vozidlo sa nepodarilo spárovať s Commander záznamom (žiadna zhoda podľa ŠPZ).
+          Skontrolujte, či sa ŠPZ <span class="font-mono text-slate-700 dark:text-slate-200">{{ licensePlate() }}</span> presne zhoduje s vozidlom v Commander systéme.
+        } @else {
+          Pridajte ŠPZ a uložte zmeny — potom bude možné Commander údaje načítať.
+        }
+      </p>
+    } @else if (vehicle(); as v) {
+      <dl class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+        @if (tacho()?.km != null) {
+          <div>
+            <dt class="text-slate-500 dark:text-slate-400">Stav tachometra</dt>
+            <dd class="text-slate-900 dark:text-white text-lg font-semibold">{{ tacho()!.km | number:'1.0-0' }} km</dd>
+          </div>
+        }
+        @if (tacho()?.engineHours != null) {
+          <div>
+            <dt class="text-slate-500 dark:text-slate-400">Motohodiny</dt>
+            <dd class="text-slate-900 dark:text-white text-lg font-semibold">{{ tacho()!.engineHours | number:'1.0-2' }} h</dd>
+          </div>
+        }
+        @if (position(); as p) {
+          @if (p.latitude != null && p.longitude != null) {
+            <div class="md:col-span-2">
+              <dt class="text-slate-500 dark:text-slate-400">Posledná GPS poloha</dt>
+              <dd class="text-slate-900 dark:text-white">
+                <a [href]="mapHref()" target="_blank" rel="noopener noreferrer"
+                   class="underline decoration-dotted hover:text-amber-500">
+                  {{ p.latitude | number:'1.6-6' }}, {{ p.longitude | number:'1.6-6' }}
+                </a>
+                @if (p.address) {
+                  <span class="text-slate-500 dark:text-slate-400 block text-xs mt-0.5">{{ p.address }}</span>
+                }
+              </dd>
+            </div>
+          }
+          @if (p.gpsTimeUtc) {
+            <div>
+              <dt class="text-slate-500 dark:text-slate-400">Čas polohy</dt>
+              <dd class="text-slate-900 dark:text-white">{{ p.gpsTimeUtc | date:'dd.MM.yyyy HH:mm' }}</dd>
+            </div>
+          }
+          @if (p.ignitionOn != null) {
+            <div>
+              <dt class="text-slate-500 dark:text-slate-400">Zapaľovanie</dt>
+              <dd>
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                      [class.text-green-400]="p.ignitionOn"
+                      [class.bg-green-900/40]="p.ignitionOn"
+                      [class.text-slate-400]="!p.ignitionOn"
+                      [class.bg-slate-700/40]="!p.ignitionOn">
+                  {{ p.ignitionOn ? 'Zapnuté' : 'Vypnuté' }}
+                </span>
+              </dd>
+            </div>
+          }
+          @if (p.speedKmh != null) {
+            <div>
+              <dt class="text-slate-500 dark:text-slate-400">Rýchlosť</dt>
+              <dd class="text-slate-900 dark:text-white">{{ p.speedKmh | number:'1.0-0' }} km/h</dd>
+            </div>
+          }
+        }
+        @if (v.lastCommunicationUtc) {
+          <div class="md:col-span-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+            <dt class="text-slate-500 dark:text-slate-400 text-xs">Posledná komunikácia s Commander</dt>
+            <dd class="text-slate-900 dark:text-white text-sm">{{ v.lastCommunicationUtc | date:'dd.MM.yyyy HH:mm' }}</dd>
+          </div>
+        }
+      </dl>
+    }
+  </div>
+}
