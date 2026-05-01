@@ -108,6 +108,30 @@ builder.Services.AddScoped<IPushNotificationService, WebPushService>();
 builder.Services.AddScoped<NoActivity48hEvaluator>();
 builder.Services.AddHostedService<NotificationBackgroundService>();
 
+// Commander API integration — read-only fleet data, gated by the
+// CommanderIntegration feature flag. BaseUrl defaults to the public spec URL
+// (https://online.commander-systems.com/api/v1) and can be overridden with
+// the Commander__BaseUrl env var if the customer ever moves to a different
+// host. HTTPS is enforced here so a misconfigured value fails the boot
+// rather than silently downgrading the channel. Username/Password are
+// validated per request inside CommanderClient.SendAsync; they MUST NOT be
+// logged from this code, ever. See SECRETS.md and COMMANDER_PLAN.md.
+var commanderBaseUrl = builder.Configuration["Commander:BaseUrl"]?.Trim();
+if (string.IsNullOrWhiteSpace(commanderBaseUrl))
+    commanderBaseUrl = "https://online.commander-systems.com/api/v1";
+if (!commanderBaseUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+    throw new InvalidOperationException(
+        "Commander:BaseUrl must use HTTPS. Set Commander__BaseUrl to a https://... " +
+        "value, or remove the env var to fall back to the spec default. See SECRETS.md.");
+if (!commanderBaseUrl.EndsWith('/'))
+    commanderBaseUrl += "/";
+builder.Services.AddMemoryCache();
+builder.Services.AddHttpClient<ICommanderClient, CommanderClient>(c =>
+{
+    c.BaseAddress = new Uri(commanderBaseUrl);
+    c.Timeout = TimeSpan.FromSeconds(15);
+});
+
 // CORS
 // Base origins come from appsettings / Railway config section.
 // ALLOWED_ORIGINS env var adds extra comma-separated origins at runtime.
@@ -1045,7 +1069,7 @@ using (var scope = app.Services.CreateScope())
     // hidden features invisible. The superadmin flips them on via the Funkcie card on
     // the Account page; the dev environment has its own DB so devs can keep them on.
     {
-        var knownFlags = new[] { "Notifications" };
+        var knownFlags = new[] { "Notifications", "CommanderIntegration" };
         foreach (var key in knownFlags)
         {
             if (!await db.FeatureFlags.AnyAsync(f => f.Key == key))

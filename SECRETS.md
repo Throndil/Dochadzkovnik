@@ -50,8 +50,9 @@ no "—" as rhetoric, no exclamation marks, no padding. Bold sparingly.
 | `Email__Password` | `Email:Password` | SMTP auth password | |
 | `Email__From` | `Email:From` | From address | |
 | `AppUrl` | `AppUrl` | Base URL used in password-reset links | E.g. `https://sichtovnica.vercel.app`. |
-| `Commander__Username` | `Commander:Username` | Customer's Commander API account | **When the Commander integration ships.** Empty until then. |
-| `Commander__Password` | `Commander:Password` | Customer's Commander API password | Same. |
+| `Commander__BaseUrl` | `Commander:BaseUrl` | Commander REST API base URL | **When the Commander integration ships.** Production value is `https://online.commander-systems.com/api/v1` (per the official spec, `docs/CommanderAPI-REST_API_v1_specification_2024.pdf`). Must start with `https://` — startup throws otherwise. No sandbox URL exists. |
+| `Commander__Username` | `Commander:Username` | Customer's Commander API account | **When the Commander integration ships.** Empty until then. Single shared customer account; HTTP Basic auth on every request. |
+| `Commander__Password` | `Commander:Password` | Customer's Commander API password | Same. **Never** logged at any level; never returned in any DTO. |
 
 ---
 
@@ -89,13 +90,28 @@ If a third collaborator is ever added, audit `Settings → Collaborators` and ro
 
 ## Adding the Commander integration (later)
 
+> Updated 2026-05-01 with answers from `COMMANDER_PLAN.md` §2 (working draft).
+
+What the integration is: a **read-only** consumer of the customer's Commander fleet-management API (`https://online.commander-systems.com/api/v1`). HTTP Basic auth on every request, single shared customer account. Spec is preserved at `docs/CommanderAPI-REST_API_v1_specification_2024.pdf`.
+
 When the Commander API controller is implemented:
 
-1. Set `Commander__Username` and `Commander__Password` in Railway (prod and dev separately — dev should have throwaway sandbox credentials, not the customer's real ones).
-2. The controller reads them via `Configuration["Commander:Username"]` / `Configuration["Commander:Password"]`.
-3. **Never** log these values. Never include them in error responses. Never include them in DTOs returned to the frontend.
-4. If the Commander integration needs to refresh-auth or store a session token, the token goes into the same `Configuration` pattern (`Commander:Token`) or a dedicated DB row — but **the customer's plaintext password never leaves the env var**.
-5. Add the new env-var rows to the table above in this doc.
+1. Set `Commander__BaseUrl`, `Commander__Username`, and `Commander__Password` in Railway (prod and dev). **No sandbox exists**, so dev points at the same production Commander instance — see §"Sandbox" below before wiring this up.
+2. The client reads them via `Configuration["Commander:BaseUrl" / ":Username" / ":Password"]`.
+3. **Never** log Username or Password. Never include either in error responses. Never include either in any DTO returned to the frontend.
+4. There is no token / session model in Commander v1 — every request carries Basic Auth. The plaintext password lives only in env / `appsettings.Local.json`. Do not write it to the database.
+5. Reject startup if `Commander:BaseUrl` does not begin with `https://`.
+6. Honour `Retry-After` exactly on 429 responses. Cache `/vehicles` for ≥24h (the spec explicitly warns about over-calling it).
+7. Sanitise Commander error messages before returning to the frontend (the `{"status":"error","message":"…"}` body can echo internal IDs).
+
+### Sandbox
+
+There is no Commander sandbox environment. Development hits the customer's live fleet data — read-only, but the rate-limit and PII concerns are real:
+
+- Local dev creds in `appsettings.Local.json` only (gitignored). Never in the repo.
+- Dev Railway env gets the same creds via env vars; never committed.
+- Dev environment respects the same caching discipline as prod (`/vehicles` once per day, `/last-positions` ~30s).
+- Logging discipline applies in dev too. No `Console.WriteLine($"…{username}…")` "just for debugging" — there is no isolated environment that makes that safe.
 
 ---
 

@@ -257,6 +257,62 @@ The entire UI and all API messages are in **Slovak**. Error messages, kiosk resp
 
 ## Session Log
 
+### 2026-05-01 — Commander integration: Q1–Q8 answered + M1 + M2 shipped
+
+**Context.** Started this session frozen behind the eight open questions in `COMMANDER_PLAN.md` §2. The customer prefers to validate by reviewing the implementation rather than answering a questionnaire up-front, so the developer answered Q1–Q8 as a working draft (vehicle / fleet management, read-only, HTTP Basic, single shared API user, on-demand fetch, surface-and-retry on failure, prod creds for dev), and the integration shipped end-to-end behind the `CommanderIntegration` feature flag.
+
+**Reference materials added.** Official Commander v1 REST API spec preserved at `docs/CommanderAPI-REST_API_v1_specification_2024.pdf` (34 pp, Oct 2024). Treat the PDF as authoritative for endpoint shapes; the cheat-sheet in `COMMANDER_PLAN.md` §"Commander API specifics" is a summary.
+
+**Operator setup (real customer credentials).** The Commander login that drives `Commander__Username` / `Commander__Password` is an **API user** named `Dochadzkovnik-API`, set up via Commander's web UI under Nastavenia → Prepoje na tretiu stranu → Pridať prepoj (Tretia strana = "Commander API", Identifikátor = the API username, Heslo = customer's password, Všetky vozidlá checked). The customer's regular web-portal login (`vladimir.sroka`) is **not** what the API accepts. This caught us once during dev (401s); recording here for the next operator setup.
+
+**Backend shipped (no DB schema change, no migration).**
+
+- `API/Services/ICommanderClient.cs` and `CommanderClient.cs` — typed HttpClient. Basic-auth header built per-call (never on `DefaultRequestHeaders`, never logged). 429 + `Retry-After` honoured exactly. `IMemoryCache` for `/vehicles` 24h, `/last-positions` 30s, ride summary + recent rides 60s. All exception paths funnel through one helper that emits Slovak user-facing messages and never echoes Commander's own error strings.
+- `API/DTOs/CommanderDtos.cs` — internal `*Raw` types for parsing (with the `[JsonConverter]` attributes for the spec's numeric gotchas), public `*Dto` types returned to the frontend. Sanitised by construction.
+- `API/Converters/CommanderJsonConverters.cs` — `FlexibleNullable{Double,Long,Int}Converter` and `FlexibleStringConverter`. Cover the spec's "numerics may be string, may use comma decimal, may be 0/null/empty" behaviour and `vehicleId` arriving as either string or number across endpoints.
+- `API/Controllers/CommanderController.cs` — six routes under `/api/commander/*`: `vehicles`, `vehicles/{id}`, `last-positions`, `vehicles/{id}/current-tacho`, `vehicles/{id}/ride-summary`, `vehicles/{id}/rides`. `[Authorize]` + `[RequireFeatureOrSuperAdmin("CommanderIntegration")]` at class level.
+- `API/Program.cs` — added `"CommanderIntegration"` to `knownFlags` (seeds row in `FeatureFlags` on startup), `AddMemoryCache()`, the typed `AddHttpClient<ICommanderClient, CommanderClient>` registration with HTTPS-only validation and a built-in default for `Commander:BaseUrl`.
+- `API/appsettings.json` — empty Commander block; `appsettings.Local.example.json` — pre-filled `BaseUrl` and placeholder username/password.
+
+**Frontend shipped (Angular 20, standalone, signals-first).**
+
+- `client/package.json` — `leaflet@^1.9.4` + `@types/leaflet@^1.9.12`.
+- `client/src/styles.css` — `@import "leaflet/dist/leaflet.css"`, plus `.commander-marker` / `.cm-pin-start` / `.cm-pin-stop` / `.commander-ride-tooltip` styling.
+- `client/src/app/services/commander.service.ts` — `getVehicles`, `getVehicle`, `getLastPositions`, `getCurrentTacho`, `getRideSummary`, `getRecentRides`, plus a typed `CommanderError` shape and a static `normalisePlate` helper.
+- `client/src/app/services/feature-flag.service.ts` — `commanderIntegration: Signal<boolean>`.
+- `client/src/app/guards/commander-feature.guard.ts` — same flag-or-superadmin pattern as `notificationsFeatureGuard`.
+- `client/src/app/app.routes.ts` — new `/admin/commander` route.
+- `client/src/app/components/navbar/navbar.component.html` — Commander link in desktop + mobile menus, gated by flag-or-superadmin.
+- `client/src/app/pages/account/account.page.html` — Commander toggle row in the Funkcie card.
+- `client/src/app/components/commander-car-panel/commander-car-panel.component.ts/html` — embedded panel on `/admin/cars/:id`. Pairs the local `Car.licensePlate` with Commander's `vehicleRegistrationPlate` (alphanumeric-only, case-insensitive). Shows odometer, last GPS, ignition state, address, last-communication. Permanent fallback message when no plate match exists.
+- `client/src/app/pages/commander/commander.page.ts/html` — the main admin Commander dashboard. Two tabs: **Detail** (sidebar vehicle list with status dots, info card grid, big interactive Leaflet map, Prehľad jázd 5-bucket aggregate card, Posledné jazdy list of last 7 days) and **Prehľad** (Commander-style wide table + small live map on the right). Shared state: status counts chip row, "Sledovať live" toggle (30s polling of `/last-positions`, no extra Commander quota), last-refresh timestamp.
+
+**Map specifics.**
+
+- Single Leaflet instance reused across both tabs. Re-mounts onto the active tab's container on tab switch.
+- State machine: live mode (one red dot) vs ride mode (green Štart pill, red Cieľ pill, amber dashed connector, fitBounds). Driven by the `selectedRideId` signal.
+- Recenter logic: `lastRenderedVehicleId` and `lastRenderedRideId` track current map content; recenter only fires on actual change. Live polling does not fight manual pan.
+- Marker icons are `divIcon`-based (no Leaflet image-asset dependency). Permanent tooltips for ride mode are styled as colour-matched pills.
+- Dashed line is intentional: the Commander v1 API does not expose per-second GPS samples, so the line is a straight-line approximation, not the actual driven path. Commander's own ride-playback control cannot be replicated from this API.
+
+**What was deliberately NOT done (deferred):**
+
+- M3 live-tracking trail — would need a `CommanderPositionSample` table + `BackgroundService` polling `/last-positions` continuously. Separate project.
+- `Car.CommanderVehicleId` column — current pairing on car-detail is by licence-plate normalisation. Works for the customer's fleet today; cleaner with a real FK + small picker UI later.
+- Per-employee km attribution on `TimeEntry` (the original M2 listed in `COMMANDER_PLAN.md`, distinct from the rides M2 we shipped). Plumbing is in place: `/api/commander/vehicles/{id}/rides` returns per-ride distance, addresses, and time windows.
+
+**Doc updates landed today.**
+
+- `COMMANDER_PLAN.md` — §2 rewritten as answered questions, "Commander API specifics" cheat-sheet section added.
+- `SECRETS.md` — `Commander__BaseUrl` row added; "Adding the Commander integration (later)" section rewritten with the API-user setup path.
+- `MOBILE_TABLET_HANDOFF.md` (new, root) — handoff for the next session, which will focus on tablet UX (Acer Iconia Tab A16).
+- `CHAT_HANDOFF.md` — top-of-file pointer flipped from "Commander M1 implementation" to "tablet / mobile UX pass".
+- `docs/CommanderAPI-REST_API_v1_specification_2024.pdf` — preserved copy of the official spec.
+
+**Verification status.** Local `ng serve` + `dotnet run` against the customer's real Commander dev creds. Vehicle list, last-positions, current tacho, ride summary and recent rides all confirmed working. Frontend `tsc --noEmit` not run in sandbox; verify locally before publish. Backend `dotnet build` not run in sandbox; verify locally.
+
+---
+
 ### 2026-04-30 (V1.3.1) — Env-var hardening, secrets out of code
 
 **Context.** Pre-flight before adding the Commander API integration (which carries the customer's third-party credentials). Audit of the current secret-handling surface found:

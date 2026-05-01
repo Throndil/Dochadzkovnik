@@ -1,5 +1,55 @@
 @import "tailwindcss";
 @import "flatpickr/dist/flatpickr.min.css";
+@import "leaflet/dist/leaflet.css";
+
+/* Commander map markers — divIcon-based, so we don't pull in Leaflet's
+   bundled marker PNGs. The default cm-pin is the live-tracking dot (red).
+   .cm-pin-start (green) and .cm-pin-stop (red, ring) are used in ride mode. */
+.commander-marker {
+  background: transparent;
+  border: none;
+}
+.commander-marker .cm-pin {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 3px solid white;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+.commander-marker .cm-pin.cm-pin-start {
+  background: #16a34a;
+}
+.commander-marker .cm-pin.cm-pin-stop {
+  background: #ef4444;
+}
+
+/* Ride-mode pill labels above the start/stop markers. Permanent (always
+   visible) so the role is obvious without hover; colour-matched to the dot
+   below. The default Leaflet tooltip arrow tail is hidden — we want a clean
+   pill, not a speech bubble. */
+.leaflet-tooltip.commander-ride-tooltip {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 2px 10px;
+  border: none;
+  border-radius: 9999px;
+  color: white;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.leaflet-tooltip.commander-ride-tooltip-start {
+  background: #16a34a;
+}
+.leaflet-tooltip.commander-ride-tooltip-stop {
+  background: #dc2626;
+}
+/* Hide the arrow tail Leaflet renders via ::before for the top direction. */
+.leaflet-tooltip.commander-ride-tooltip-top::before,
+.leaflet-tooltip.commander-ride-tooltip::before {
+  display: none;
+}
 
 /* ── Disable double-tap zoom on mobile/tablet ─────────────────── */
 html {
