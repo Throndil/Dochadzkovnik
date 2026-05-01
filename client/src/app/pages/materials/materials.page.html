@@ -1,11 +1,16 @@
 <app-navbar />
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
   <div class="max-w-5xl mx-auto px-4 py-4 sm:p-6">
-    <div class="flex justify-between items-center mb-4 sm:mb-6">
+    <div class="flex justify-between items-center gap-3 mb-4 sm:mb-6 flex-wrap">
       <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Katalóg materiálu</h1>
       <button (click)="toggleForm()"
-              class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
-        {{ showForm() ? 'Zrušiť' : '+ Pridať materiál' }}
+              class="touch-target bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-lg transition-colors active:scale-[0.98] text-sm sm:text-base">
+        @if (showForm()) {
+          Zrušiť
+        } @else {
+          <span class="sm:hidden">+ Pridať</span>
+          <span class="hidden sm:inline">+ Pridať materiál</span>
+        }
       </button>
     </div>
 
@@ -55,7 +60,98 @@
       </div>
     }
 
-    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <!-- Stacked card list — shown below md (phones + narrow tablets).   -->
+    <!-- Each card carries the full row of info plus action buttons in   -->
+    <!-- a row that wraps to a second line on tiny screens.              -->
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <div class="md:hidden space-y-2">
+      @for (m of materials(); track m.id) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3"
+             [class.opacity-70]="!m.isActive">
+          @if (editingId() === m.id) {
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Názov</label>
+                <input type="text" [(ngModel)]="editForm.name"
+                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Jednotka</label>
+                <input type="text" [(ngModel)]="editForm.unit"
+                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Cena za jednotku (€)</label>
+                <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
+                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-right tabular-nums" />
+              </div>
+              <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                <input type="checkbox" [(ngModel)]="editForm.isActive" class="w-4 h-4 rounded" />
+                Aktívny
+              </label>
+              <div class="flex gap-2 pt-1">
+                <button (click)="saveEdit()"
+                        class="touch-target flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+                  Uložiť
+                </button>
+                <button (click)="cancelEdit()"
+                        class="touch-target flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                  Zrušiť
+                </button>
+              </div>
+            </div>
+          } @else {
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="text-base font-semibold text-slate-900 dark:text-white truncate">{{ m.name }}</div>
+                <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ m.unit }}</div>
+              </div>
+              <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                <div class="text-base font-semibold tabular-nums whitespace-nowrap"
+                     [class.text-amber-600]="!m.pricePerUnit"
+                     [class.dark:text-amber-400]="!m.pricePerUnit"
+                     [class.text-slate-900]="m.pricePerUnit"
+                     [class.dark:text-white]="m.pricePerUnit">
+                  {{ formatEur(m.pricePerUnit) }}
+                </div>
+                <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                      [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'">
+                  {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
+                </span>
+              </div>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button (click)="startEdit(m)"
+                      class="touch-target flex-1 min-w-[5rem] bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                Upraviť
+              </button>
+              <button (click)="onToggleActive(m)"
+                      class="touch-target flex-1 min-w-[6rem] px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                      [class]="m.isActive
+                                 ? 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
+                                 : 'bg-green-600 hover:bg-green-700 text-white'">
+                {{ m.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+              </button>
+              <button (click)="onDelete(m)"
+                      class="touch-target px-3 py-2 rounded-lg text-sm font-medium bg-red-600/10 dark:bg-red-900/30 hover:bg-red-600/20 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
+                      title="Odstrániť">
+                Odstrániť
+              </button>
+            </div>
+          }
+        </div>
+      } @empty {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
+          Žiadny materiál v katalógu.
+        </div>
+      }
+    </div>
+
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <!-- Table — shown md+ (tablets in landscape, desktops).            -->
+    <!-- ────────────────────────────────────────────────────────────── -->
+    <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
       <table class="w-full text-sm">
         <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
           <tr>
