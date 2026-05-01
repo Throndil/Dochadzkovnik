@@ -1135,27 +1135,69 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
-    // Seed the materials catalogue with ~10 common Slovak construction items on first run only.
-    // Idempotent — only inserts items that don't already exist by name.
-    if (!await db.Materials.AnyAsync())
+    // Seed the materials catalogue with ~10 common Slovak construction items.
+    //
+    // Per-item idempotent (runs on every startup, not just first-run):
+    //   - if no row with this Name exists → insert it (active, default price 0)
+    //   - if a row with this Name exists and is inactive → flip IsActive back on
+    //   - if a row with this Name exists and is active → leave it alone
+    //
+    // Customer edits to Unit / PricePerUnit on existing rows are preserved; we only
+    // touch IsActive on the predefined names. Rationale: in production we observed
+    // a soft-deleted "Cement" row blocking a Create with the same name (catalogue
+    // listing showed empty, the Create endpoint 409'd). The Create endpoint now
+    // resurrects soft-deleted matches; this seed block is the belt-and-braces
+    // backstop that guarantees the standard 10 items are always present and
+    // visible after a deploy, regardless of how the DB got into its current state.
+    //
+    // If the customer explicitly deactivates one of these later, it WILL come back
+    // active on the next deploy. That's the trade-off we accept for the safety net.
+    var predefinedMaterials = new[]
     {
-        var seed = new[]
+        ("Cement",     "vrece"),
+        ("Voda",       "l"),
+        ("Piesok",     "kg"),
+        ("Štrk",       "kg"),
+        ("Obklad",     "m²"),
+        ("Dlažba",     "m²"),
+        ("Omietka",    "kg"),
+        ("Lepidlo",    "vrece"),
+        ("Sadrokartón","ks"),
+        ("Skrutky",    "ks"),
+    };
+    // Pull all materials in one query, then index in memory by normalised name.
+    // Using a single query + manual indexing rather than ToDictionaryAsync because a
+    // legacy DB could in principle contain two rows whose names differ only in case
+    // or whitespace (the bug this seed is here to paper over). ToDictionaryAsync
+    // would throw on the duplicate key; this approach picks the first match and
+    // leaves the rest alone — a deactivate/cleanup decision for the customer.
+    var allMaterials = await db.Materials.ToListAsync();
+    var firstByKey = new Dictionary<string, Material>(StringComparer.Ordinal);
+    foreach (var m in allMaterials)
+    {
+        var k = (m.Name ?? string.Empty).Trim().ToLowerInvariant();
+        if (!firstByKey.ContainsKey(k)) firstByKey[k] = m;
+    }
+    var materialsTouched = false;
+    foreach (var (name, unit) in predefinedMaterials)
+    {
+        var key = name.Trim().ToLowerInvariant();
+        if (firstByKey.TryGetValue(key, out var existing))
         {
-            ("Cement",     "vrece"),
-            ("Voda",       "l"),
-            ("Piesok",     "kg"),
-            ("Štrk",       "kg"),
-            ("Obklad",     "m²"),
-            ("Dlažba",     "m²"),
-            ("Omietka",    "kg"),
-            ("Lepidlo",    "vrece"),
-            ("Sadrokartón","ks"),
-            ("Skrutky",    "ks"),
-        };
-        foreach (var (name, unit) in seed)
+            if (!existing.IsActive)
+            {
+                existing.IsActive = true;
+                materialsTouched = true;
+            }
+        }
+        else
         {
             db.Materials.Add(new Material { Name = name, Unit = unit });
+            materialsTouched = true;
         }
+    }
+    if (materialsTouched)
+    {
         await db.SaveChangesAsync();
     }
 

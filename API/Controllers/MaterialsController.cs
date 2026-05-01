@@ -60,14 +60,44 @@ public class MaterialsController : ControllerBase
     {
         // Reject duplicate names (case-insensitive) so the customer doesn't end up with
         // "Cement" and "cement" as two different catalogue entries.
+        //
+        // Edge case observed in production (2026-05-01): if a previously-used material was
+        // soft-deleted (DELETE on a Material that has Usages flips IsActive=false instead of
+        // hard-deleting, so MaterialUsage history stays valid), a Create with the same name
+        // would 409 even though the customer cannot see the soft-deleted row in the catalogue
+        // listing UI. Result: "Materiál s týmto názvom už existuje" is shown next to an empty
+        // catalogue table — confusing for the customer. Fix: when the only existing match is
+        // inactive, resurrect it (flip IsActive back on, refresh Unit + PricePerUnit) instead
+        // of returning a conflict. Existing MaterialUsage snapshots are inflation-protected
+        // by their own UnitPriceAtTime column so updating the catalogue price here does not
+        // touch history.
         var nameTrim = dto.Name.Trim();
-        var exists = await _db.Materials.AnyAsync(m => m.Name.ToLower() == nameTrim.ToLower());
-        if (exists) return Conflict("Materiál s týmto názvom už existuje.");
+        var unitTrim = dto.Unit.Trim();
+        var nameLower = nameTrim.ToLower();
+        var existing = await _db.Materials
+            .FirstOrDefaultAsync(m => m.Name.ToLower() == nameLower);
+
+        if (existing != null)
+        {
+            if (existing.IsActive)
+            {
+                return Conflict("Materiál s týmto názvom už existuje.");
+            }
+
+            existing.IsActive = true;
+            existing.Unit = unitTrim;
+            existing.PricePerUnit = dto.PricePerUnit;
+            // Normalise stored Name to the trimmed input (handles legacy rows with stray
+            // whitespace; keeps the canonical name visible in the catalogue).
+            existing.Name = nameTrim;
+            await _db.SaveChangesAsync();
+            return Ok(ToDto(existing));
+        }
 
         var material = new Material
         {
             Name = nameTrim,
-            Unit = dto.Unit.Trim(),
+            Unit = unitTrim,
             PricePerUnit = dto.PricePerUnit
         };
         _db.Materials.Add(material);
