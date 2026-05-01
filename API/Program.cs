@@ -305,17 +305,22 @@ using (var scope = app.Services.CreateScope())
 
     await db.Database.MigrateAsync();
 
-    // Fix DateTime columns left as `text` by the SQLite→PostgreSQL migration scar.
-    // Self-discovers every text-typed column whose name matches one of our DateTime
-    // domain columns and converts it in place. Idempotent: the FOR loop only finds
-    // text-typed rows, so once the column is fixed it isn't touched again.
-    // Adds zero log lines on a healthy DB (the loop body doesn't execute).
+    // Fix DateTime + decimal columns left as `text` by the SQLite→PostgreSQL migration
+    // scar. Two parallel passes:
+    //   1. DateTime: scan every text-typed column whose name matches one of our DateTime
+    //      domain fields and convert it to `timestamp without time zone`.
+    //   2. Decimal: a small allowlist of (table, column, precision, scale) tuples,
+    //      converting any still-text-typed match to `numeric(p,s)`.
+    // Both passes are idempotent — once the column is fixed they yield zero rows on the
+    // next deploy, and the EF Core SQL logger has been dropped to Warning so they emit
+    // zero log lines on a healthy DB.
     if (!string.IsNullOrEmpty(databaseUrl))
     {
         await db.Database.ExecuteSqlRawAsync(@"
             DO $$
             DECLARE rec RECORD;
             BEGIN
+                -- ── DateTime columns: text → timestamp without time zone ──
                 FOR rec IN
                     SELECT table_name, column_name
                     FROM information_schema.columns
@@ -332,6 +337,31 @@ using (var scope = app.Services.CreateScope())
                         'ALTER TABLE %I ALTER COLUMN %I TYPE timestamp without time zone USING %I::timestamptz::timestamp',
                         rec.table_name, rec.column_name, rec.column_name
                     );
+                END LOOP;
+
+                -- ── Decimal columns: text → numeric(p,s) ──
+                -- Allowlist matches the [HasPrecision(p,s)] declarations in AppDbContext.
+                FOR rec IN
+                    SELECT * FROM (VALUES
+                        ('Materials',      'PricePerUnit',     12, 4),
+                        ('MaterialUsages', 'Quantity',         12, 3),
+                        ('MaterialUsages', 'UnitPriceAtTime',  12, 4)
+                    ) AS t(table_name, column_name, prec, scl)
+                LOOP
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns c
+                        WHERE c.table_schema = 'public'
+                          AND c.table_name   = rec.table_name
+                          AND c.column_name  = rec.column_name
+                          AND c.data_type    = 'text'
+                    ) THEN
+                        -- COALESCE handles legacy rows that wrote empty string into the text
+                        -- column — empty becomes 0 rather than tripping NOT NULL on the ALTER.
+                        EXECUTE format(
+                            'ALTER TABLE %I ALTER COLUMN %I TYPE numeric(%s,%s) USING COALESCE(NULLIF(%I, '''')::numeric, 0)',
+                            rec.table_name, rec.column_name, rec.prec, rec.scl, rec.column_name
+                        );
+                    END IF;
                 END LOOP;
             END $$;
         ");
