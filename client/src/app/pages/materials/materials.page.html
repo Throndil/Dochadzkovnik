@@ -60,6 +60,9 @@
       </div>
     }
 
+    @if (loading()) {
+      <app-spinner />
+    } @else {
     <!-- ────────────────────────────────────────────────────────────── -->
     <!-- Stacked card list — shown below md (phones + narrow tablets).   -->
     <!-- Each card carries the full row of info plus action buttons in   -->
@@ -216,5 +219,6 @@
         </tbody>
       </table>
     </div>
+    }
   </div>
 </div>

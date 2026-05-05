@@ -2,16 +2,18 @@ import { Component, signal, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { CarService, Car, CreateCar } from '../../services/car.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-cars',
-  imports: [NavbarComponent, RouterLink, FormsModule],
+  imports: [NavbarComponent, RouterLink, FormsModule, SpinnerComponent],
   templateUrl: './cars.page.html'
 })
 export class CarsPage implements OnInit {
   cars = signal<Car[]>([]);
+  loading = signal(true);
   showForm = signal(false);
   newCar: CreateCar = { name: '', licensePlate: '' };
   newCarPhoto: File | null = null;
@@ -22,7 +24,13 @@ export class CarsPage implements OnInit {
 
   ngOnInit() { this.load(); }
 
-  load() { this.carService.getAll().subscribe(cars => this.cars.set(cars)); }
+  load() {
+    this.loading.set(true);
+    this.carService.getAll().subscribe({
+      next: cars => { this.cars.set(cars); this.loading.set(false); },
+      error: () => this.loading.set(false),
+    });
+  }
 
   cancelForm() {
     this.showForm.set(false);

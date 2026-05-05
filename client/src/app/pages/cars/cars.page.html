@@ -65,6 +65,9 @@
       </div>
     }
 
+    @if (loading()) {
+      <app-spinner />
+    } @else {
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       @for (car of cars(); track car.id) {
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -105,5 +108,6 @@
         </div>
       }
     </div>
+    }
   </div>
 </div>

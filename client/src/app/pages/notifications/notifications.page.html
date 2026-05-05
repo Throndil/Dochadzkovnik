@@ -46,7 +46,7 @@
       <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Konfigurácia upozornení</h2>
 
       @if (configLoading()) {
-        <p class="text-slate-500">Načítavam...</p>
+        <app-spinner />
       } @else {
         <div class="space-y-4">
           <!-- Toggle: NoActivity48hEnabled -->
@@ -137,7 +137,7 @@
       @if (employeesError()) {
         <p class="text-red-600 dark:text-red-400 text-sm">{{ employeesError() }}</p>
       } @else if (employeesLoading()) {
-        <p class="text-slate-500">Načítavam...</p>
+        <app-spinner />
       } @else if (employees().length === 0) {
         <p class="text-slate-500">Žiadni aktívni zamestnanci.</p>
       } @else {
@@ -373,7 +373,7 @@
       @if (historyError()) {
         <p class="text-red-600 dark:text-red-400 text-sm">{{ historyError() }}</p>
       } @else if (historyLoading()) {
-        <p class="text-slate-500 text-sm">Načítavam...</p>
+        <app-spinner />
       } @else if (history().length === 0) {
         <p class="text-slate-500 text-sm">Žiadne odoslania v zvolenom období.</p>
       } @else {

@@ -67,6 +67,13 @@
     <!-- Slide-over panel for material management on the selected Lokácia -->
     <app-location-manage-panel [location]="manageLocation()" (close)="onPanelClose()" />
 
+    @if (loading()) {
+      <app-spinner />
+    } @else if (locations().length === 0) {
+      <div class="py-12 text-center text-slate-500 dark:text-slate-400">
+        Žiadne pracoviská. Pridajte prvé pracovisko pomocou tlačidla vyššie.
+      </div>
+    } @else {
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       @for (loc of locations(); track loc.id) {
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -110,5 +117,6 @@
         </div>
       }
     </div>
+    }
   </div>
 </div>

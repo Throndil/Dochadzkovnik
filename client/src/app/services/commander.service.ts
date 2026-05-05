@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Observable, catchError, throwError } from 'rxjs';
+import { HttpClient, HttpErrorResponse, HttpParams, HttpResponse } from '@angular/common/http';
+import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { environment } from '../../environments/environment';
 
 /**
@@ -19,7 +19,7 @@ export interface CommanderVehicle {
   registrationPlate?: string | null;
   vin?: string | null;
   /** ISO-8601 string. May be null if Commander has never received a packet from the unit. */
-  lastCommunicationUtc?: string | null;
+  lastCommunication?: string | null;
 }
 
 export interface CommanderVehicleDetail extends CommanderVehicle {
@@ -33,7 +33,7 @@ export interface CommanderVehicleDetail extends CommanderVehicle {
 export interface CommanderPosition {
   vehicleId: string;
   /** ISO-8601 string. */
-  gpsTimeUtc?: string | null;
+  gpsTime?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   speedKmh?: number | null;
@@ -51,11 +51,26 @@ export interface CommanderRideBucket {
   rideCount: number;
   distanceKm: number;
   durationSeconds: number;
+  /** Total-distance ÷ total-time over the bucket, not a per-ride mean. */
+  avgSpeedKmh: number;
+}
+
+/**
+ * Per-vehicle batch from /api/commander/fleet-stats — drives the Tachometer
+ * + Štatistiky columns on the Prehlad table. tachoKm is null when Commander
+ * didn't return one for that vehicle (transient error, missing CAN-bus).
+ */
+export interface CommanderFleetVehicleStats {
+  vehicleId: string;
+  tachoKm: number | null;
+  today: CommanderRideBucket;
+  currentWeek: CommanderRideBucket;
+  thisMonth: CommanderRideBucket;
 }
 
 /**
  * Aggregated ride totals matching Commander's own "Prehľad jázd" panel:
- * Dnes / Včera / Posledných 7 dní / Tento mesiac / Minulý mesiac.
+ * Dnes / Včera / Aktuálny týždeň / Tento mesiac / Minulý mesiac.
  * Bucketed server-side by ride startTime in Europe/Bratislava local time.
  *
  * <code>truncated</code> is true when the underlying paginated /rides call
@@ -65,7 +80,7 @@ export interface CommanderRideBucket {
 export interface CommanderRideSummary {
   today: CommanderRideBucket;
   yesterday: CommanderRideBucket;
-  last7Days: CommanderRideBucket;
+  currentWeek: CommanderRideBucket;
   thisMonth: CommanderRideBucket;
   lastMonth: CommanderRideBucket;
   truncated: boolean;
@@ -79,8 +94,8 @@ export interface CommanderRideSummary {
  */
 export interface CommanderRideDetail {
   rideId: string;
-  startTimeUtc?: string | null;
-  stopTimeUtc?: string | null;
+  startTime?: string | null;
+  stopTime?: string | null;
   durationSeconds?: number | null;
   distanceKm?: number | null;
   avgSpeedKmh?: number | null;
@@ -93,6 +108,20 @@ export interface CommanderRideDetail {
   lonStop?: number | null;
   startAddress?: string | null;
   stopAddress?: string | null;
+}
+
+/**
+ * Snapped (road-following) ride path returned by the backend route-snapping
+ * proxy. Coordinates are in GeoJSON [lon, lat] order — Leaflet expects
+ * [lat, lon], so the page swaps before drawing.
+ */
+export interface CommanderSnappedRoute {
+  /** Sequence of [lon, lat] pairs along the snapped path. */
+  coordinates: [number, number][];
+  /** Routing-engine's distance estimate. May differ from Commander's own. */
+  distanceMeters: number;
+  /** Routing-engine's duration estimate. */
+  durationSeconds: number;
 }
 
 /**
@@ -161,6 +190,73 @@ export class CommanderService {
     return this.http
       .get<CommanderRideDetail[]>(`${this.baseUrl}/vehicles/${enc}/rides`)
       .pipe(catchError(err => throwError(() => this.toCommanderError(err))));
+  }
+
+  /**
+   * Fleet-stats batch: tachometer + Today/7-day/Month roll-ups for every
+   * known vehicle. Single call, cached server-side 60s. Used by the Prehlad
+   * page to fill the Tachometer + Štatistiky columns without fanning out
+   * N×2 requests per page load.
+   */
+  getFleetStats(): Observable<CommanderFleetVehicleStats[]> {
+    return this.http
+      .get<CommanderFleetVehicleStats[]>(`${this.baseUrl}/fleet-stats`)
+      .pipe(catchError(err => throwError(() => this.toCommanderError(err))));
+  }
+
+  /**
+   * Reverse-geocode a single lat/lon to a human-readable address label.
+   * Returns null when the geocoder gave no result, the API key isn't
+   * configured, or any error path was hit — caller treats null as
+   * "fall back to coords".
+   */
+  reverseGeocode(lat: number, lon: number): Observable<string | null> {
+    const params = new HttpParams().set('lat', lat).set('lon', lon);
+    return this.http
+      .get<{ label: string }>(`${this.baseUrl}/reverse-geocode`, {
+        params,
+        observe: 'response',
+      })
+      .pipe(
+        map((resp: HttpResponse<{ label: string }>) =>
+          resp.status === 204 ? null : (resp.body?.label ?? null),
+        ),
+        catchError(() => of(null)),
+      );
+  }
+
+  /**
+   * Snap a ride's start/stop straight-line to a road-following polyline using
+   * the backend route-snapping proxy (currently OpenRouteService).
+   *
+   * Returns the snapped route, or <code>null</code> in three cases:
+   *   1. The backend returned 204 No Content — no API key, "no route found",
+   *      ORS outage, parse error, etc.
+   *   2. Any HTTP error.
+   *   3. The backend reported the route is invalid.
+   *
+   * Callers should treat null as "fall back to the dashed straight line"
+   * — it always means the same thing to the user.
+   */
+  snapRoute(
+    startLat: number, startLon: number,
+    stopLat: number,  stopLon: number,
+  ): Observable<CommanderSnappedRoute | null> {
+    const params = new HttpParams()
+      .set('startLat', startLat).set('startLon', startLon)
+      .set('stopLat',  stopLat ).set('stopLon',  stopLon);
+    return this.http
+      .get<CommanderSnappedRoute>(`${this.baseUrl}/snap-route`, {
+        params,
+        observe: 'response',
+      })
+      .pipe(
+        map((resp: HttpResponse<CommanderSnappedRoute>) =>
+          // 204 No Content → no body → null. 200 → snapped route.
+          resp.status === 204 ? null : (resp.body ?? null),
+        ),
+        catchError(() => of(null)),
+      );
   }
 
   /**

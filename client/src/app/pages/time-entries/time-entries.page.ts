@@ -4,6 +4,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
 import { ReportService } from '../../services/report.service';
 import { EmployeeService, Employee } from '../../services/employee.service';
@@ -15,11 +16,12 @@ import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-u
 
 @Component({
   selector: 'app-time-entries',
-  imports: [NavbarComponent, FormsModule, DatePipe, DecimalPipe, HmPipe, DatepickerDirective],
+  imports: [NavbarComponent, FormsModule, DatePipe, DecimalPipe, HmPipe, DatepickerDirective, SpinnerComponent],
   templateUrl: './time-entries.page.html'
 })
 export class TimeEntriesPage implements OnInit {
   entries = signal<TimeEntry[]>([]);
+  loading = signal(true);
   employees = signal<Employee[]>([]);
   locations = signal<Location[]>([]);
   cars = signal<Car[]>([]);
@@ -135,7 +137,11 @@ export class TimeEntriesPage implements OnInit {
   }
 
   load() {
-    this.timeEntryService.getAll(this.getFilters()).subscribe(e => this.entries.set(e));
+    this.loading.set(true);
+    this.timeEntryService.getAll(this.getFilters()).subscribe({
+      next: e => { this.entries.set(e); this.loading.set(false); },
+      error: () => this.loading.set(false),
+    });
   }
 
   exportCsv() {

@@ -1,5 +1,5 @@
 import { ApplicationConfig, LOCALE_ID, inject, provideAppInitializer, provideBrowserGlobalErrorListeners, provideZoneChangeDetection } from '@angular/core';
-import { provideRouter } from '@angular/router';
+import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 
 import { routes } from './app.routes';
@@ -10,7 +10,19 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideZoneChangeDetection({ eventCoalescing: true }),
-    provideRouter(routes),
+    // scrollPositionRestoration: 'top'
+    //   On every navigation, snap the viewport back to the top. Without this,
+    //   tapping a navbar link on a phone leaves you scrolled wherever the
+    //   previous page was, which is disorienting on small screens.
+    // anchorScrolling: 'enabled'
+    //   Honour fragment links (#whatever) when used.
+    provideRouter(
+      routes,
+      withInMemoryScrolling({
+        scrollPositionRestoration: 'top',
+        anchorScrolling: 'enabled',
+      }),
+    ),
     provideHttpClient(withInterceptors([authInterceptor])),
     { provide: LOCALE_ID, useValue: 'sk' },
     // Load feature flags before the first navigation so guards/templates have

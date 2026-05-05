@@ -64,10 +64,10 @@
               </dd>
             </div>
           }
-          @if (p.gpsTimeUtc) {
+          @if (p.gpsTime) {
             <div>
               <dt class="text-slate-500 dark:text-slate-400">Čas polohy</dt>
-              <dd class="text-slate-900 dark:text-white">{{ p.gpsTimeUtc | date:'dd.MM.yyyy HH:mm' }}</dd>
+              <dd class="text-slate-900 dark:text-white">{{ p.gpsTime | date:'dd.MM.yyyy HH:mm' }}</dd>
             </div>
           }
           @if (p.ignitionOn != null) {
@@ -91,10 +91,10 @@
             </div>
           }
         }
-        @if (v.lastCommunicationUtc) {
+        @if (v.lastCommunication) {
           <div class="md:col-span-2 pt-3 border-t border-slate-200 dark:border-slate-700">
             <dt class="text-slate-500 dark:text-slate-400 text-xs">Posledná komunikácia s Commander</dt>
-            <dd class="text-slate-900 dark:text-white text-sm">{{ v.lastCommunicationUtc | date:'dd.MM.yyyy HH:mm' }}</dd>
+            <dd class="text-slate-900 dark:text-white text-sm">{{ v.lastCommunication | date:'dd.MM.yyyy HH:mm' }}</dd>
           </div>
         }
       </dl>

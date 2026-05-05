@@ -236,7 +236,7 @@ public sealed class CommanderVehicleDto
     public string? Name { get; set; }
     public string? RegistrationPlate { get; set; }
     public string? Vin { get; set; }
-    public DateTime? LastCommunicationUtc { get; set; }
+    public DateTime? LastCommunication { get; set; }
 }
 
 public sealed class CommanderVehicleDetailDto
@@ -245,7 +245,7 @@ public sealed class CommanderVehicleDetailDto
     public string? Name { get; set; }
     public string? RegistrationPlate { get; set; }
     public string? Vin { get; set; }
-    public DateTime? LastCommunicationUtc { get; set; }
+    public DateTime? LastCommunication { get; set; }
     public string? Model { get; set; }
     public string? ManufactureYear { get; set; }
     public string? CommissioningDate { get; set; }
@@ -256,7 +256,7 @@ public sealed class CommanderVehicleDetailDto
 public sealed class CommanderPositionDto
 {
     public string VehicleId { get; set; } = string.Empty;
-    public DateTime? GpsTimeUtc { get; set; }
+    public DateTime? GpsTime { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
     public double? SpeedKmh { get; set; }
@@ -277,11 +277,19 @@ public sealed class CommanderRideBucketDto
     public int RideCount { get; set; }
     public double DistanceKm { get; set; }
     public long DurationSeconds { get; set; }
+    /// <summary>
+    /// Average speed across the bucket = TotalDistanceKm / TotalDrivingHours.
+    /// 0 when DurationSeconds is 0 (no rides at all). NOT a running mean of
+    /// per-ride speeds: a 1 km / 30 min ride and a 100 km / 1 h ride sum to
+    /// 101 km / 1.5 h ⇒ ~67 km/h, which is what the manager wants — the
+    /// fleet's effective speed for the period, not a per-ride mean.
+    /// </summary>
+    public double AvgSpeedKmh { get; set; }
 }
 
 /// <summary>
 /// Five buckets that mirror Commander's own "Prehľad jázd" panel:
-/// Dnes / Včera / Posledných 7 dní / Tento mesiac / Minulý mesiac.
+/// Dnes / Včera / Aktuálny týždeň / Tento mesiac / Minulý mesiac.
 /// Bucketing is by ride.startTime in Europe/Bratislava local time.
 ///
 /// <see cref="Truncated"/> is true if the underlying paginated /rides call hit
@@ -292,7 +300,7 @@ public sealed class CommanderRideSummaryDto
 {
     public CommanderRideBucketDto Today { get; set; } = new();
     public CommanderRideBucketDto Yesterday { get; set; } = new();
-    public CommanderRideBucketDto Last7Days { get; set; } = new();
+    public CommanderRideBucketDto CurrentWeek { get; set; } = new();
     public CommanderRideBucketDto ThisMonth { get; set; } = new();
     public CommanderRideBucketDto LastMonth { get; set; } = new();
     public bool Truncated { get; set; }
@@ -307,8 +315,8 @@ public sealed class CommanderRideSummaryDto
 public sealed class CommanderRideDetailDto
 {
     public string RideId { get; set; } = string.Empty;
-    public DateTime? StartTimeUtc { get; set; }
-    public DateTime? StopTimeUtc { get; set; }
+    public DateTime? StartTime { get; set; }
+    public DateTime? StopTime { get; set; }
     public long? DurationSeconds { get; set; }
     public double? DistanceKm { get; set; }
     public double? AvgSpeedKmh { get; set; }
@@ -329,4 +337,40 @@ public sealed class CommanderErrorDto
     public string Code { get; set; } = string.Empty;      // e.g. "ratelimited", "network", "notfound"
     public bool Retryable { get; set; }
     public int? RetryAfterSeconds { get; set; }
+}
+
+/// <summary>
+/// One snapped (road-following) ride path returned by the route-snapping
+/// service. Coordinates use the GeoJSON [lon, lat] convention so the
+/// frontend can feed them straight back into a Leaflet polyline (after
+/// swapping to [lat, lon] — Leaflet's quirk, not GeoJSON's).
+///
+/// This is the routing engine's BEST GUESS, not the actual driven path.
+/// The frontend labels it accordingly ("trasa po cestách (odhad)").
+/// </summary>
+public sealed class SnappedRouteDto
+{
+    public double[][] Coordinates { get; set; } = Array.Empty<double[]>();
+    public double DistanceMeters { get; set; }
+    public double DurationSeconds { get; set; }
+}
+
+/// <summary>
+/// Per-vehicle stats batch returned by /api/commander/fleet-stats. Drives
+/// the new Tachometer + Štatistiky columns on the Prehlad table: the page
+/// asks once, fills every row from the response.
+///
+/// <see cref="TachoKm"/> is null when the underlying /current-tacho call
+/// failed for that vehicle (transient errors are swallowed per-vehicle so
+/// one bad reply doesn't tank the whole batch). The three buckets are
+/// always present but may have all-zero counts when the vehicle hasn't
+/// driven in the period.
+/// </summary>
+public sealed class FleetVehicleStatsDto
+{
+    public string VehicleId { get; set; } = string.Empty;
+    public double? TachoKm { get; set; }
+    public CommanderRideBucketDto Today { get; set; } = new();
+    public CommanderRideBucketDto CurrentWeek { get; set; } = new();
+    public CommanderRideBucketDto ThisMonth { get; set; } = new();
 }
