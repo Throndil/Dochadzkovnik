@@ -87,12 +87,13 @@ export class CommanderPage implements OnInit, OnDestroy {
   vehicles = signal<CommanderVehicle[]>([]);
   positionsById = signal<Record<string, CommanderPosition>>({});
   /**
-   * Per-vehicle stats batch keyed by vehicleId. Populated by load() and on
-   * each Obnoviť, NOT on the 10s live-position polling tick (the underlying
-   * /rides + /current-tacho calls are quota-heavier than /last-positions
-   * and the daily totals don't change second-to-second).
+   * Per-vehicle stats batch keyed by vehicleId. Loaded lazily — only when
+   * the user opens the Prehlad tab — because the underlying /fleet-stats
+   * endpoint fans out to N×~4 Commander calls (tacho + paged /rides per
+   * vehicle). Detail-only sessions never pay that cost.
    */
   fleetStatsById = signal<Record<string, CommanderFleetVehicleStats>>({});
+  fleetStatsLoading = signal(false);
   /**
    * Resolved street/place labels per vehicleId, fetched lazily via the
    * /api/commander/reverse-geocode proxy (OpenRouteService Pelias geocoder).
@@ -225,6 +226,39 @@ export class CommanderPage implements OnInit, OnDestroy {
       const snapped = this.selectedRideSnapped();
       this.syncMap(el, ride, livePos, snapped);
     });
+
+    // Lazy fleet-stats: only load the heavy /fleet-stats endpoint when the
+    // user is on the Prehlad tab and we haven't loaded it yet (or it was
+    // cleared by an Obnoviť). Saves N×4 Commander calls per page open for
+    // Detail-only sessions, which is the typical access pattern.
+    effect(() => {
+      const view = this.view();
+      const hasStats = Object.keys(this.fleetStatsById()).length > 0;
+      const loading = this.fleetStatsLoading();
+      if (view === 'prehlad' && !hasStats && !loading && this.enabled()
+          && this.vehicles().length > 0) {
+        this.triggerFleetStatsLoad();
+      }
+    });
+
+    // View-aware reverse geocoding. Detail tab only needs the selected
+    // vehicle's address (shown on the location card + map tooltip); Prehlad
+    // tab needs every visible row. This effect re-runs on every position
+    // update, every vehicle selection, every tab switch — the
+    // maybeResolveAddressFor() dedupe map keeps the cost cheap.
+    effect(() => {
+      const view = this.view();
+      const positions = this.positionsById();
+      const selectedId = this.selectedVehicleId();
+      if (view === 'prehlad') {
+        for (const p of Object.values(positions)) {
+          this.maybeResolveAddressFor(p);
+        }
+      } else if (selectedId) {
+        const p = positions[selectedId];
+        if (p) this.maybeResolveAddressFor(p);
+      }
+    });
   }
 
   ngOnInit() {
@@ -264,6 +298,10 @@ export class CommanderPage implements OnInit, OnDestroy {
    * Re-fetches /last-positions only (not /vehicles, those rarely change and
    * are cached 24h on the backend per spec). Errors are swallowed so a single
    * transient failure doesn't tear down live mode — the next tick will retry.
+   *
+   * Reverse-geocoding is NOT invoked from here; the view-aware effect in the
+   * constructor reads positionsById() and triggers maybeResolveAddressFor()
+   * for the right set of vehicles based on which tab is active.
    */
   private refreshPositionsOnly() {
     if (!this.enabled()) return;
@@ -275,7 +313,6 @@ export class CommanderPage implements OnInit, OnDestroy {
         }
         this.positionsById.set(map);
         this.lastRefreshAt.set(new Date());
-        this.resolveAddressesIfNeeded(positions);
       },
       error: () => {
         // Skip this tick. Don't tear down — give the next interval a chance.
@@ -284,27 +321,25 @@ export class CommanderPage implements OnInit, OnDestroy {
   }
 
   /**
-   * For each position, if its rounded coords differ from the last cell we
-   * resolved for that vehicle, fire a reverseGeocode and store the result
-   * in addressesByVehicleId. Deduped by 3-decimal coord cell so a moving
-   * vehicle doesn't burn a fresh API call every 11 m.
+   * Resolve one vehicle's coords to an address label if we haven't already
+   * for that 3-decimal coord cell (≈ 110 m). Called by the view-aware
+   * reverse-geocoding effect — never directly. Dedupe map keeps cost
+   * negligible across re-runs.
    *
    * Resolution failures are silent — the address simply stays at the last
    * good value (or absent), and the UI falls back to coords as it does
-   * when no key is configured.
+   * when no API key is configured.
    */
-  private resolveAddressesIfNeeded(positions: CommanderPosition[]) {
-    for (const p of positions) {
-      if (!p.vehicleId || p.latitude == null || p.longitude == null) continue;
-      const key = `${p.latitude.toFixed(3)},${p.longitude.toFixed(3)}`;
-      if (this.lastResolvedCoordKeyByVehicleId.get(p.vehicleId) === key) continue;
-      this.lastResolvedCoordKeyByVehicleId.set(p.vehicleId, key);
-      const vehicleId = p.vehicleId;
-      this.commander.reverseGeocode(p.latitude, p.longitude).subscribe(label => {
-        if (!label) return;
-        this.addressesByVehicleId.update(curr => ({ ...curr, [vehicleId]: label }));
-      });
-    }
+  private maybeResolveAddressFor(p: CommanderPosition) {
+    if (!p.vehicleId || p.latitude == null || p.longitude == null) return;
+    const key = `${p.latitude.toFixed(3)},${p.longitude.toFixed(3)}`;
+    if (this.lastResolvedCoordKeyByVehicleId.get(p.vehicleId) === key) return;
+    this.lastResolvedCoordKeyByVehicleId.set(p.vehicleId, key);
+    const vehicleId = p.vehicleId;
+    this.commander.reverseGeocode(p.latitude, p.longitude).subscribe(label => {
+      if (!label) return;
+      this.addressesByVehicleId.update(curr => ({ ...curr, [vehicleId]: label }));
+    });
   }
 
   /** Look up the latest resolved address for a vehicle, or null. */
@@ -319,25 +354,25 @@ export class CommanderPage implements OnInit, OnDestroy {
     this.error.set(null);
     this.vehicles.set([]);
     this.positionsById.set({});
+    // Drop any cached fleet stats so the lazy effect re-fires when the
+    // user is on / switches to the Prehlad tab.
     this.fleetStatsById.set({});
     this.addressesByVehicleId.set({});
     this.lastResolvedCoordKeyByVehicleId.clear();
     this.selectedVehicleId.set(null);
     this.selectedTacho.set(null);
 
-    // Fleet stats failure is non-fatal — the rest of the page should still
-    // load if /fleet-stats happens to be slow or returns an error. The
-    // Prehlad columns just stay blank for that load.
+    // Fast path: only fetch what's needed to paint the page. fleet-stats
+    // (heavy) is loaded lazily by an effect when the Prehlad tab is opened.
+    // Reverse-geocoding is also driven by an effect — only the visible
+    // vehicle(s) get resolved, not every vehicle on every load.
     forkJoin({
       vehicles: this.commander.getVehicles(),
       positions: this.commander
         .getLastPositions()
         .pipe(catchError(() => of([] as CommanderPosition[]))),
-      fleetStats: this.commander
-        .getFleetStats()
-        .pipe(catchError(() => of([] as CommanderFleetVehicleStats[]))),
     }).subscribe({
-      next: ({ vehicles, positions, fleetStats }) => {
+      next: ({ vehicles, positions }) => {
         const sorted = [...vehicles].sort((a, b) =>
           (a.name ?? '').localeCompare(b.name ?? '', 'sk'),
         );
@@ -347,16 +382,7 @@ export class CommanderPage implements OnInit, OnDestroy {
           if (p.vehicleId) map[p.vehicleId] = p;
         }
         this.positionsById.set(map);
-        const stats: Record<string, CommanderFleetVehicleStats> = {};
-        for (const s of fleetStats) {
-          if (s.vehicleId) stats[s.vehicleId] = s;
-        }
-        this.fleetStatsById.set(stats);
         this.loading.set(false);
-
-        // Kick off reverse-geocoding for every vehicle's current position.
-        // Deduped by 3-decimal coord cell so this stays cheap on quota.
-        this.resolveAddressesIfNeeded(positions);
 
         if (sorted.length > 0) this.select(sorted[0].vehicleId);
       },
@@ -365,6 +391,27 @@ export class CommanderPage implements OnInit, OnDestroy {
         this.error.set(err);
       },
     });
+  }
+
+  /**
+   * Idempotent fleet-stats fetch. Re-runs on Obnoviť (load() clears the
+   * stats map → the Prehlad effect detects "empty" and calls back here).
+   * Failure is non-fatal: Tachometer / Štatistiky cells just stay '—'.
+   */
+  private triggerFleetStatsLoad() {
+    if (this.fleetStatsLoading()) return;
+    this.fleetStatsLoading.set(true);
+    this.commander
+      .getFleetStats()
+      .pipe(catchError(() => of([] as CommanderFleetVehicleStats[])))
+      .subscribe(fleetStats => {
+        const stats: Record<string, CommanderFleetVehicleStats> = {};
+        for (const s of fleetStats) {
+          if (s.vehicleId) stats[s.vehicleId] = s;
+        }
+        this.fleetStatsById.set(stats);
+        this.fleetStatsLoading.set(false);
+      });
   }
 
   /** Look up the cached fleet-stats row for a vehicleId (or null). */

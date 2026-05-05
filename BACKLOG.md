@@ -227,6 +227,16 @@ not marketing copy. When in doubt, write less.
 
 ## ⚙️ Technical / Infrastructure
 
+- [ ] **Commander page perf — additional optimisations (parked)**
+  - First wave shipped 2026-05-05: tacho+summary parallelised per vehicle inside `BuildOneVehicleStatsAsync`; fleet-stats moved off the initial `forkJoin` and lazy-loaded via an effect when the user opens the Prehlad tab; reverse-geocoding refactored to a view-aware effect (Detail → only the selected vehicle, Prehlad → all visible). For a Detail-only session at any fleet size, page open now costs **2 cheap Commander calls + 1 ORS call** instead of `4N + 5` Commander + `N` ORS.
+  - The following are deferred. Pick when the customer's actual fleet size + behaviour data shows we still need them:
+    1. **Bump fleet-stats cache TTL to 2-3 min.** Currently 60 s. Halves Commander load on rapid Obnoviť cycles. Trade-off: today's km / avg-speed are up to 3 min stale; rides happening "right now" don't show up until the next refresh window.
+    2. **Batched reverse-geocode endpoint.** New `POST /api/commander/reverse-geocode-batch` taking N coords, returning N labels. Backend fans out to ORS in parallel (cache-first per coord cell). Saves the per-load HTTP round-trip count from N to 1. Only worth it past N ≈ 20 vehicles.
+    3. **Background fleet-stats warmer.** A `BackgroundService` (same shape as `NotificationBackgroundService`) hits `/fleet-stats` every 2 min during business hours so the cache is always primed. Eliminates the first-Prehlad-open latency. Adds steady idle Commander quota cost — at 4N calls / 2 min = ~2N calls/min, fine even for 30-vehicle fleets (~60/min vs. 300/min cap).
+    4. **Per-row expansion in Prehlad.** Show only `Tachometer` + `Dnes` by default; `Týždeň` + `Mesiac` revealed on row click. Drops the per-vehicle `/rides` window from 31 days to today-only, which collapses pagination from up to 5 calls/vehicle to 1. Costs UX clarity — managers lose at-a-glance week/month context.
+    5. **Smarter `/rides` pagination cap.** Currently `MaxRidePages = 5` (≈ 500 rides ≈ 31 days). Drop to 3 pages (~300 rides ~18 days) and rely on the existing `Truncated` flag to surface incomplete data. Most vehicles never hit the cap; high-mileage / high-frequency vehicles would lose Mesiac accuracy until we paginate further on demand.
+  - All five layer additively. Combination is fine; #2 + #3 together gets the strongest result for large fleets.
+
 - [ ] **Developer vs Production build configuration**
   - Set up separate environment configs (`environment.ts` / `environment.prod.ts`) with distinct API URLs, feature flags, logging levels
   - Ensure `ng build --configuration production` targets production API and disables dev tooling
