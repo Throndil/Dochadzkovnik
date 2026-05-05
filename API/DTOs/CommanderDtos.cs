@@ -329,6 +329,18 @@ public sealed class CommanderRideDetailDto
     public double? LonStop { get; set; }
     public string? StartAddress { get; set; }
     public string? StopAddress { get; set; }
+
+    // ─── Local attribution ────────────────────────────────────────
+    // Filled by CommanderController.GetRecentRides after pairing the
+    // Commander vehicle with our local Car (by license plate) and
+    // looking up the TimeEntry whose [ClockIn, ClockOut] window contained
+    // this ride's StartTime. Null when no matching entry was found —
+    // either the worker didn't book that car for that shift, or the ride
+    // happened outside any clocked-in window (e.g. weekend personal use).
+    public int? AttributedEmployeeId { get; set; }
+    public string? AttributedEmployeeName { get; set; }
+    public int? AttributedLocationId { get; set; }
+    public string? AttributedLocationName { get; set; }
 }
 
 public sealed class CommanderErrorDto

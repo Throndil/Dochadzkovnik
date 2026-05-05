@@ -108,6 +108,17 @@ export interface CommanderRideDetail {
   lonStop?: number | null;
   startAddress?: string | null;
   stopAddress?: string | null;
+
+  /**
+   * Local attribution — set by the backend after pairing the Commander
+   * vehicle with our local Car (by license plate) and looking up the
+   * TimeEntry whose ClockIn/ClockOut window contained the ride's StartTime.
+   * Null when no booked entry covers this ride window.
+   */
+  attributedEmployeeId?: number | null;
+  attributedEmployeeName?: string | null;
+  attributedLocationId?: number | null;
+  attributedLocationName?: string | null;
 }
 
 /**

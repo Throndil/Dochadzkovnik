@@ -482,6 +482,25 @@
                                 {{ r.startAddress || '?' }} → {{ r.stopAddress || '?' }}
                               </div>
                             }
+                            <!-- Local attribution row: who was clocked in on which
+                                 location during this ride window. Backend-side join
+                                 on Car.licensePlate ↔ vehicleRegistrationPlate +
+                                 TimeEntry overlap on ride.startTime. Hidden when
+                                 no time entry covers the ride. -->
+                            @if (r.attributedEmployeeName || r.attributedLocationName) {
+                              <div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                                @if (r.attributedEmployeeName) {
+                                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-medium whitespace-nowrap">
+                                    <span aria-hidden="true">👤</span>{{ r.attributedEmployeeName }}
+                                  </span>
+                                }
+                                @if (r.attributedLocationName) {
+                                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700/60 text-slate-700 dark:text-slate-200 font-medium whitespace-nowrap">
+                                    <span aria-hidden="true">📍</span>{{ r.attributedLocationName }}
+                                  </span>
+                                }
+                              </div>
+                            }
                             @if (!plottable && !isPrivate) {
                               <div class="text-xs text-slate-400 mt-1">Pre túto jazdu nie sú k dispozícii GPS súradnice.</div>
                             }
