@@ -22,7 +22,10 @@
       </div>
 
       @if (report()!.entries.length > 0) {
-        <!-- Desktop table -->
+        <!-- Desktop table. The Príchod column was dropped per customer
+             request; the "Aktívny" indicator that used to sit beside the
+             clock-in time now lives in the Hodiny cell when the shift is
+             still in progress (entry.clockOut == null). -->
         <div class="hidden sm:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
           <table class="w-full">
             <thead class="bg-slate-100 dark:bg-slate-700/50">
@@ -30,7 +33,6 @@
                 <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Zamestnanec</th>
                 <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Pracovisko</th>
                 <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Auto</th>
-                <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Príchod</th>
                 <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hodiny</th>
               </tr>
             </thead>
@@ -46,19 +48,23 @@
                       <span class="text-slate-600">—</span>
                     }
                   </td>
-                  <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
-                    {{ entry.clockIn | date:'HH:mm' }}
-                    @if (!entry.clockOut) {
-                      <span class="ml-2 text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full">Aktívny</span>
+                  <td class="px-4 py-3 text-amber-400 font-medium">
+                    @if (entry.hoursWorked) {
+                      {{ entry.hoursWorked | number:'1.1-1' }}
+                    } @else if (!entry.clockOut) {
+                      <span class="inline-block text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full font-medium">Aktívny</span>
+                    } @else {
+                      —
                     }
                   </td>
-                  <td class="px-4 py-3 text-amber-400 font-medium">{{ entry.hoursWorked ? (entry.hoursWorked | number:'1.1-1') : '—' }}</td>
                 </tr>
               }
             </tbody>
           </table>
         </div>
-        <!-- Mobile cards -->
+        <!-- Mobile cards. Same simplification as the desktop table — no
+             clock-in time row; "Aktívny" badge replaces the hours number
+             in the right-hand corner when a shift is still open. -->
         <div class="sm:hidden space-y-3">
           @for (entry of report()!.entries; track $index) {
             <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
@@ -70,12 +76,12 @@
                     <div class="text-sm text-slate-500 dark:text-slate-400">🚗 {{ entry.carName }}</div>
                   }
                 </div>
-                <span class="font-semibold text-amber-400">{{ entry.hoursWorked ? (entry.hoursWorked | number:'1.1-1') + ' hod' : '—' }}</span>
-              </div>
-              <div class="flex items-center gap-2 mt-2 text-sm text-slate-500 dark:text-slate-400">
-                <span>Príchod {{ entry.clockIn | date:'HH:mm' }}</span>
-                @if (!entry.clockOut) {
-                  <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full">Aktívny</span>
+                @if (entry.hoursWorked) {
+                  <span class="font-semibold text-amber-400 whitespace-nowrap">{{ entry.hoursWorked | number:'1.1-1' }} hod</span>
+                } @else if (!entry.clockOut) {
+                  <span class="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">Aktívny</span>
+                } @else {
+                  <span class="font-semibold text-slate-400">—</span>
                 }
               </div>
             </div>

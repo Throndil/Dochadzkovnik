@@ -378,3 +378,57 @@ input[type="datetime-local"] {
 }
 .dark .flatpickr-time input:hover,
 .dark .flatpickr-time input:focus { background: #334155; }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────
+   Replace the default chunky-grey browser scrollbar with a thin themed one
+   that matches the slate palette. Applies to every overflowing element:
+   admin tables, ride lists, modal slide-overs, the kiosk gallery lightbox.
+   - WebKit (Chromium / Safari / Edge): ::-webkit-scrollbar pseudo-elements,
+     thumb sized 6 px wide on a transparent track. Padding-box trick keeps
+     the thumb visually inset so it doesn't hug the column edge.
+   - Firefox: scrollbar-width: thin + scrollbar-color (Mozilla-only). Same
+     visual goal, slightly less control over the thumb shape.
+   - Dark mode: bumped thumb opacity so it remains visible against the
+     slate-800 / slate-900 backgrounds.
+
+   The customer's primary device is an Android Chrome PWA (WebKit family),
+   so the WebKit rules are what they actually see in production. The Firefox
+   block is for the developer experience.
+─────────────────────────────────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+.dark * {
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.35);  /* slate-400 / 35% */
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;     /* visual inset — thumb is 6 px wide */
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.55);  /* slate-500 / 55% */
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Dark-mode bump: lift the thumb opacity so it stays legible on slate-800
+   / slate-900 backgrounds where the lighter alpha would wash out. */
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.45);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(203, 213, 225, 0.6);   /* slate-300 / 60% */
+}
