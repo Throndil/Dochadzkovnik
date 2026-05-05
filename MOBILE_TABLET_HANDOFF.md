@@ -14,11 +14,14 @@ The customer uses the app primarily on a tablet. The session that just ended shi
 
 ## Target device
 
-**Acer Iconia Tab A16** (model A16-11MN-A9VM). 11" IPS display, 8 GB RAM, 256 GB storage. Android. The customer uses it primarily in landscape on a stand, but portrait must work too.
+**Acer Iconia Tab A16** — 16" IPS display, 1920×1200 native resolution, 8 GB RAM, 256 GB storage. **Android.** The customer uses it primarily in landscape on a stand, but portrait must work too.
 
-Effective CSS viewport at default DPR is roughly 1366×1024 in landscape, 1024×1366 in portrait. The device sits right on Tailwind's `lg` breakpoint (1024 px), so the same rule that helps a desktop in 1024-mode helps the tablet in landscape, and the same rule that helps a phone in portrait helps the tablet in portrait. Test both orientations.
+CSS viewport at default DPR ≈ 1 is roughly **1920×1200 in landscape, 1200×1920 in portrait**. Tailwind breakpoints in play:
 
-Reference: https://www.nay.sk/bazar/tablet-acer-iconia-a16-a16-11mn-a9vm-8-gb-256-gb-nt-lkaee-008-strieborny-zanovny-24-mesiacov-zaruka
+- Landscape (1920 wide) clears every Tailwind breakpoint up to `2xl` (1536 px). At this width the page should look essentially "desktop". The `xl:` rules added in the recent tablet pass kick in here.
+- Portrait (1200 wide) sits **between `lg` (1024) and `xl` (1280)**. Anything gated on `xl:` will collapse to the smaller layout in portrait — that is the intended behaviour for the Commander Detail and Prehľad grids in the recent pass: portrait stacks, landscape does not.
+
+Test both orientations. The PWA install path is **Add to Home Screen in Chrome / Edge for Android** (no iOS path on this device).
 
 ## Read first, in this order
 
@@ -55,7 +58,7 @@ The map is now Leaflet on OSM tiles. There is no iframe. State machine: live mod
 
 In rough priority order:
 
-1. `/admin/commander` Detail tab uses `grid-cols-1 lg:grid-cols-[18rem_1fr]`. In portrait on the Acer (~1024 wide) the layout collapses to single column, sidebar above detail. The sidebar's `max-h-[28rem] lg:max-h-[36rem]` becomes a tiny scroll area on a tall portrait viewport. Consider `max-h-[60dvh]` or no cap below `lg`.
+1. `/admin/commander` Detail tab uses `grid-cols-1 lg:grid-cols-[18rem_1fr]` (now `xl:` after the tablet pass). In portrait on the Acer (~1200 wide, between `lg` and `xl`) the layout collapses to single column, sidebar above detail. The sidebar's `max-h-[28rem] lg:max-h-[36rem]` becomes a tiny scroll area on a tall 1920-px portrait viewport. The pass already shipped `max-h-[55dvh] xl:max-h-[36rem]`; verify it still feels right at this resolution.
 2. `/admin/commander` Prehľad tab table is five columns wide (Vozidlo, Stav, Pozícia (čas), Adresa, Rýchlosť). Already wraps in `overflow-x-auto`, but horizontal touch-scroll is awkward. Consider a stacked card layout below `md` and/or hiding low-priority columns at narrow widths.
 3. Leaflet map height: `h-72 sm:h-96`. On portrait tablet under the cards that reads as cramped. Try `h-[40dvh] sm:h-96`.
 4. Card grids on Detail tab use `grid-cols-2 md:grid-cols-4`. At ~768 px effective width the 2-col layout should be fine; verify line-wrap inside individual cards (Pozícia timestamp, Adresa).
@@ -82,7 +85,7 @@ None of these are confirmed bugs. They're the surfaces I'd open the device on fi
 
 1. Local boot: `cd client && ng serve` and `cd API && dotnet run`. Local creds for Commander are already in `API/appsettings.Local.json`.
 2. Sign in as `admin` (superadmin). The Commander flag stays ON in the dev DB across restarts; if it isn't, flip it on under Account → Funkcie.
-3. Open the Acer's browser on the dev URL (or the Vercel dev preview). Use Add to Home Screen if PWA testing is in scope.
+3. Open the Acer's browser (Chrome / Edge for Android) on the dev URL (or the Vercel dev preview). Use Add to Home Screen for PWA standalone mode — that is the customer's actual usage. There is no iOS surface on this device; iPhone Safari testing is **complementary, not primary** for this customer.
 4. In landscape and portrait, walk every admin page:
    - Dashboard, Zamestnanci, Pracoviská, Autá, Materiál, Záznamy, Notifikácie, **Commander (Detail and Prehľad tabs)**, Účet.
 5. On `/admin/commander` specifically:

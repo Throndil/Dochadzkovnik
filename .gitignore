@@ -12,6 +12,15 @@
 appsettings.Local.json
 **/appsettings.Local.json
 
+# Legacy SQLite local-dev artefacts. As of 2026-05-01 local dev runs PostgreSQL
+# via docker-compose.yml; the SQLite file is no longer created. Kept gitignored
+# so a stray copy from an old checkout / branch doesn't get committed.
+dochadzkovnik.db
+**/dochadzkovnik.db
+*.db-journal
+*.db-shm
+*.db-wal
+
 # User-specific files
 *.rsuser
 *.suo

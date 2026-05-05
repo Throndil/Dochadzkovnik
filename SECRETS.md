@@ -58,10 +58,13 @@ no "—" as rhetoric, no exclamation marks, no padding. Bold sparingly.
 
 ## Local development
 
-1. Copy `API/appsettings.Local.example.json` to `API/appsettings.Local.json`.
-2. Fill in **dev-only** values. Use any 32+ char string for `Jwt:Key` — local dev doesn't need a real secret. Use throwaway passwords for `AdminSeed` / `SuperAdminSeed`.
-3. **Never commit `appsettings.Local.json`.** It's gitignored (`/appsettings.Local.json`, `**/appsettings.Local.json`).
-4. `dotnet run` from `API/` picks it up automatically — `Program.cs` does `AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true)` after the default configuration sources.
+1. **Start the local PostgreSQL container.** From the repo root: `docker compose up -d`. This brings up the `dochadzkovnik-db` Postgres 16 service on `localhost:5432` defined in `docker-compose.yml` — the same engine Railway runs in prod, so local self-heal blocks, type quirks, and migrations all behave 1:1 with deployed. Data persists in the named `dochadzkovnik-pgdata` volume across restarts; `docker compose down -v` wipes it.
+2. **Copy** `API/appsettings.Local.example.json` to `API/appsettings.Local.json`.
+3. **Fill in dev-only values.** Use any 32+ char string for `Jwt:Key` — local dev doesn't need a real secret. Use throwaway passwords for `AdminSeed` / `SuperAdminSeed`. The `ConnectionStrings:DefaultConnection` line in the example file already matches the docker-compose container; only override if you're running Postgres natively / on a different port.
+4. **Never commit `appsettings.Local.json`.** It's gitignored (`/appsettings.Local.json`, `**/appsettings.Local.json`).
+5. `dotnet run` from `API/` picks it up automatically — `Program.cs` does `AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true)` after the default configuration sources.
+
+**Migrating an existing local SQLite checkout.** If you had the old SQLite-based local setup and are upgrading: stop the API, run `docker compose up -d`, run `cd API && dotnet ef database update` to apply migrations to the fresh Postgres container, then `dotnet run`. The old `API/dochadzkovnik.db` file is no longer used and is now gitignored. If it's still tracked in your local checkout, run `git rm --cached API/dochadzkovnik.db` once. Keep the `.db` file on disk if you want to refer back to old data — read it with the SQLite CLI or VS Code's SQLite extension; the API will never touch it again.
 
 Configuration precedence (highest wins):
 ```

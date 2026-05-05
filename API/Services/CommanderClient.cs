@@ -42,7 +42,12 @@ namespace API.Services;
 public sealed class CommanderClient : ICommanderClient
 {
     private static readonly TimeSpan VehiclesCacheTtl     = TimeSpan.FromHours(24);
-    private static readonly TimeSpan PositionsCacheTtl    = TimeSpan.FromSeconds(30);
+    // /last-positions: lowered from 30 s to 10 s so the live "follow the dot"
+    // mode on the Commander page reflects movement quickly enough for the
+    // customer. At 10 s one admin in live mode burns 6 req/min on
+    // /last-positions; even with multiple admins watching simultaneously we
+    // stay well under Commander's 300-req/window cap.
+    private static readonly TimeSpan PositionsCacheTtl    = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan RideSummaryCacheTtl  = TimeSpan.FromSeconds(60);
 
     /// <summary>Hard cap on the number of /rides pages we'll follow per
