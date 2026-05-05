@@ -319,13 +319,15 @@
                         <span class="text-xs whitespace-nowrap"
                               [class.text-amber-400]="row.totalHours > 0"
                               [class.font-bold]="row.totalHours > 0"
-                              [class.text-slate-500]="row.totalHours === 0">
+                              [class.text-slate-500]="row.totalHours === 0"
+                              [class.dark:text-slate-400]="row.totalHours === 0">
                           {{ overview()!.month1Label }}: {{ row.totalHours > 0 ? (row.totalHours | hm) : '—' }}
                         </span>
                         <span class="text-xs whitespace-nowrap"
                               [class.text-amber-400]="row.totalHoursMonth2 > 0"
                               [class.font-bold]="row.totalHoursMonth2 > 0"
-                              [class.text-slate-500]="row.totalHoursMonth2 === 0">
+                              [class.text-slate-500]="row.totalHoursMonth2 === 0"
+                              [class.dark:text-slate-400]="row.totalHoursMonth2 === 0">
                           {{ overview()!.month2Label }}: {{ row.totalHoursMonth2 > 0 ? (row.totalHoursMonth2 | hm) : '—' }}
                         </span>
                       </div>
@@ -333,16 +335,18 @@
                       @if (row.totalHours > 0) {
                         <span class="text-amber-400 font-bold text-base">{{ row.totalHours | hm }}</span>
                       } @else {
-                        <span class="text-slate-500 text-sm">—</span>
+                        <span class="text-slate-500 dark:text-slate-400 text-sm">—</span>
                       }
                     }
                   </div>
                 </div>
 
-                <!-- 7 day rows -->
+                <!-- 7 day rows. Bumped contrast on the day label + location name
+                     (was slate-500 / dark:slate-400) so the kiosk stays legible
+                     on a phone with low brightness or iOS Night Shift on. -->
                 <div class="grid grid-cols-[3.5rem_1fr] gap-x-3 gap-y-1 text-sm">
                   @for (dayData of row.days; track dayData.date) {
-                    <div class="text-slate-500 dark:text-slate-400 tabular-nums whitespace-nowrap"
+                    <div class="text-slate-700 dark:text-slate-200 font-medium tabular-nums whitespace-nowrap"
                          [class.text-amber-400]="isToday(dayData.date)"
                          [class.font-semibold]="isToday(dayData.date)">
                       {{ getDayName(dayData.date) }} {{ getDayNum(dayData.date) }}
@@ -357,12 +361,12 @@
                           @for (entry of dayData.entries; track $index) {
                             <div class="flex items-baseline gap-2">
                               <span class="text-slate-900 dark:text-white font-semibold tabular-nums">{{ entry.hours | hm }}</span>
-                              <span class="text-slate-500 dark:text-slate-400 text-xs truncate">{{ entry.locationName }}</span>
+                              <span class="text-slate-700 dark:text-slate-200 text-xs font-medium truncate">{{ entry.locationName }}</span>
                             </div>
                           }
                         </div>
                       } @else {
-                        <span class="text-slate-500">—</span>
+                        <span class="text-slate-400 dark:text-slate-500">—</span>
                       }
                     </div>
                   }
@@ -381,17 +385,17 @@
             <table class="w-full text-sm min-w-max">
               <thead>
                 <tr class="border-b border-slate-200 dark:border-slate-700">
-                  <th class="text-left px-4 py-2 text-slate-500 dark:text-slate-400 font-medium w-36">Zamestnanec</th>
+                  <th class="text-left px-4 py-2 text-slate-700 dark:text-slate-200 font-semibold w-36">Zamestnanec</th>
                   @for (day of overview()!.days; track day) {
                     <th class="px-2 py-2 text-center font-medium min-w-24"
-                        [class]="isToday(day) ? 'text-amber-400' : 'text-slate-400'">
+                        [class]="isToday(day) ? 'text-amber-400' : 'text-slate-700 dark:text-slate-200'">
                       <div>{{ getDayName(day) }}</div>
-                      <div [class]="isToday(day) ? 'text-amber-300 font-bold' : 'text-slate-300 font-semibold'">
+                      <div [class]="isToday(day) ? 'text-amber-300 font-bold' : 'text-slate-900 dark:text-slate-100 font-semibold'">
                         {{ getDayNum(day) }}
                       </div>
                     </th>
                   }
-                  <th class="px-3 py-2 text-center text-slate-500 dark:text-slate-400 font-medium">
+                  <th class="px-3 py-2 text-center text-slate-700 dark:text-slate-200 font-semibold">
                     @if (overview()!.spansTwoMonths) {
                       <div class="leading-tight">
                         <div>{{ overview()!.month1Label }}</div>
@@ -432,12 +436,12 @@
                             @for (entry of dayData.entries; track $index) {
                               <div>
                                 <div class="text-slate-900 dark:text-white font-semibold text-sm">{{ entry.hours | hm }}</div>
-                                <div class="text-slate-500 dark:text-slate-400 text-xs leading-tight">{{ entry.locationName }}</div>
+                                <div class="text-slate-700 dark:text-slate-200 text-xs font-medium leading-tight">{{ entry.locationName }}</div>
                               </div>
                             }
                           </div>
                         } @else {
-                          <span class="text-slate-600">—</span>
+                          <span class="text-slate-400 dark:text-slate-500">—</span>
                         }
                       </td>
                     }
@@ -450,19 +454,19 @@
                           @if (row.totalHours > 0) {
                             <span class="text-amber-400 font-bold text-xs whitespace-nowrap">{{ overview()!.month1Label }}: {{ row.totalHours | hm }}</span>
                           } @else {
-                            <span class="text-slate-600 text-xs whitespace-nowrap">{{ overview()!.month1Label }}: —</span>
+                            <span class="text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{{ overview()!.month1Label }}: —</span>
                           }
                           @if (row.totalHoursMonth2 > 0) {
                             <span class="text-amber-400 font-bold text-xs whitespace-nowrap">{{ overview()!.month2Label }}: {{ row.totalHoursMonth2 | hm }}</span>
                           } @else {
-                            <span class="text-slate-600 text-xs whitespace-nowrap">{{ overview()!.month2Label }}: —</span>
+                            <span class="text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{{ overview()!.month2Label }}: —</span>
                           }
                         </div>
                       } @else {
                         @if (row.totalHours > 0) {
                           <span class="text-amber-400 font-bold">{{ row.totalHours | hm }}</span>
                         } @else {
-                          <span class="text-slate-600">—</span>
+                          <span class="text-slate-500 dark:text-slate-400">—</span>
                         }
                       }
                     </td>
@@ -482,7 +486,7 @@
 
       <!-- Employee tiles -->
       <div>
-        <p class="text-slate-500 dark:text-slate-400 text-sm mb-3 font-medium">Kliknite na svoje meno pre zadanie hodín</p>
+        <p class="text-slate-700 dark:text-slate-200 text-sm mb-3 font-medium">Kliknite na svoje meno pre zadanie hodín</p>
         <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
           @if (overview()) {
             @for (emp of overview()!.rows; track emp.employeeId) {
@@ -839,28 +843,31 @@
             @if (myHoursError()) {
               <p class="py-10 text-center text-red-600 dark:text-red-400 font-medium px-5">{{ myHoursError() }}</p>
             } @else if (myHoursEntries().length === 0) {
-              <p class="py-10 text-center text-slate-500">Žiadne záznamy za toto obdobie.</p>
+              <p class="py-10 text-center text-slate-700 dark:text-slate-300">Žiadne záznamy za toto obdobie.</p>
             } @else {
               <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
                 <p class="text-slate-900 dark:text-white font-semibold text-lg">{{ myHoursEmployeeName() }}</p>
               </div>
               <div class="overflow-x-auto">
+                <!-- Higher-contrast text on header + body cells (was slate-600 / dark:slate-300
+                     and slate-500 / dark:slate-400). The kiosk is read in evenings on phones
+                     with reduced brightness or iOS Night Shift, where mid-greys wash out. -->
                 <table class="w-full text-sm">
                   <thead class="bg-slate-100 dark:bg-slate-700/50">
                     <tr>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Dátum</th>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Pracovisko</th>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Auto</th>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Hodiny</th>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Foto záznamu</th>
-                      <th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Poznámka</th>
+                      <th class="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">Dátum</th>
+                      <th class="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">Pracovisko</th>
+                      <th class="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">Auto</th>
+                      <th class="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">Hodiny</th>
+                      <th class="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">Foto záznamu</th>
+                      <th class="text-left px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">Poznámka</th>
                     </tr>
                   </thead>
                   <tbody>
                     @for (e of myHoursEntries(); track e.id) {
                       <tr class="border-t border-slate-200 dark:border-slate-700/50 hover:bg-slate-700/30">
                         <!-- Dátum -->
-                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{ e.clockIn | date:'dd.MM.yyyy' }}</td>
+                        <td class="px-4 py-3 text-slate-800 dark:text-slate-100 font-medium whitespace-nowrap">{{ e.clockIn | date:'dd.MM.yyyy' }}</td>
                         <!-- Pracovisko + location thumbnail -->
                         <td class="px-4 py-3">
                           <div class="flex items-center gap-2">
@@ -871,11 +878,11 @@
                             <span class="text-slate-900 dark:text-white font-medium leading-tight">{{ e.locationName }}</span>
                           </div>
                         </td>
-                        <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                        <td class="px-4 py-3 text-slate-800 dark:text-slate-100">
                           @if (e.carName) {
-                            <span class="inline-flex items-center gap-1 text-sm">🚗 {{ e.carName }}</span>
+                            <span class="inline-flex items-center gap-1 text-sm font-medium">🚗 {{ e.carName }}</span>
                           } @else {
-                            <span class="text-slate-500">—</span>
+                            <span class="text-slate-400 dark:text-slate-500">—</span>
                           }
                         </td>
                         <td class="px-4 py-3 text-amber-400 font-semibold">{{ e.hoursWorked | hm }}</td>
@@ -890,16 +897,16 @@
                               }
                             </div>
                           } @else {
-                            <span class="inline-block text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full whitespace-nowrap">✗ Nenahral</span>
+                            <span class="inline-block text-xs font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-full whitespace-nowrap">✗ Nenahral</span>
                           }
                         </td>
-                        <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-sm">{{ e.note || '' }}</td>
+                        <td class="px-4 py-3 text-slate-700 dark:text-slate-200 text-sm">{{ e.note || '' }}</td>
                       </tr>
                     }
                   </tbody>
                   <tfoot>
                     <tr class="border-t-2 border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700/50">
-                      <td class="px-4 py-3 text-slate-600 dark:text-slate-300 font-semibold" colspan="3">Spolu</td>
+                      <td class="px-4 py-3 text-slate-800 dark:text-slate-100 font-semibold" colspan="3">Spolu</td>
                       <td class="px-4 py-3 text-amber-400 font-bold text-base">{{ myHoursTotalHours() | hm }}</td>
                       <td colspan="2"></td>
                     </tr>

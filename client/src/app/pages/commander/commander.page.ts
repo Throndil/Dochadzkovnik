@@ -42,7 +42,7 @@ import {
  *   - /vehicles is cached server-side for 24h (per the Commander spec's "call
  *     it e.g. once a day" guidance). So `lastCommunication` is up to 24h
  *     stale; the Pozícia card and table column instead use `gpsTime` from
- *     /last-positions (cached 30s) which is the relevant freshness signal.
+ *     /last-positions (cached 10s) which is the relevant freshness signal.
  *   - /current-tacho/{id} is fetched on row select, not cached.
  *
  * Status derivation (sidebar dots, table badges, Stav vozidla card):
@@ -107,13 +107,16 @@ export class CommanderPage implements OnInit, OnDestroy {
   });
 
   // Live position polling. When `liveRefresh` is on we re-fetch /last-positions
-  // every 30 s — matching the backend's cache TTL, so we burn zero extra
-  // Commander API quota. Marker updates flow through the same effect that
-  // drives initial map render, so no separate redraw logic is needed.
+  // every 10 s, matching the backend's cache TTL so we burn zero extra
+  // Commander API quota. Customer asked for tighter live updates (originally
+  // 30 s); 10 s is still well within the 300-req/window rate limit (one
+  // /last-positions call per 10 s = 6/min, plus on-select tacho/rides).
+  // Marker updates flow through the same effect that drives initial map
+  // render, so no separate redraw logic is needed.
   liveRefresh = signal(false);
   lastRefreshAt = signal<Date | null>(null);
   private refreshTimerId?: ReturnType<typeof setInterval>;
-  private static readonly LIVE_REFRESH_INTERVAL_MS = 30_000;
+  private static readonly LIVE_REFRESH_INTERVAL_MS = 10_000;
 
   selectedVehicle = computed(() => {
     const id = this.selectedVehicleId();
@@ -154,12 +157,14 @@ export class CommanderPage implements OnInit, OnDestroy {
   private leafletRidePolyline?: L.Polyline;
 
   // Tracks what the map is currently centred on so we can decide when to
-  // pan/zoom. We only recenter on *changes* — e.g. clicking a different
-  // vehicle in the sidebar — never on every live-polling tick (otherwise
-  // the camera would yank back to the marker each time the user tries to
-  // pan around). null after tearDownMap.
+  // pan/zoom. Vehicle / ride changes use a hard `setView` (snaps + resets
+  // zoom). When live mode is on, position changes do a smooth `panTo` so
+  // the map "follows the dot" without resetting the user's zoom level.
+  // null after tearDownMap.
   private lastRenderedVehicleId: string | null = null;
   private lastRenderedRideId: string | null = null;
+  private lastRenderedLat: number | null = null;
+  private lastRenderedLon: number | null = null;
 
   constructor() {
     // Single effect handles map lifecycle: which container to mount onto,
@@ -417,6 +422,15 @@ export class CommanderPage implements OnInit, OnDestroy {
         attributionControl: true,
       }).setView(initial, 14);
 
+      // Drop Leaflet's default prefix ("Leaflet" + a Ukrainian-flag emoji baked
+      // into the library since 2022). We keep the OSM attribution because the
+      // OSM tile-usage policy requires it; we just don't show Leaflet's own
+      // branding + flag, which is unrelated to the customer's product.
+      // NB: Leaflet 1.9 also accepts `false` at runtime to suppress the prefix
+      // entirely, but @types/leaflet only types it as `string`. An empty
+      // string achieves the same end result.
+      this.leafletMap.attributionControl.setPrefix('');
+
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
         maxZoom: 19,
@@ -445,12 +459,20 @@ export class CommanderPage implements OnInit, OnDestroy {
         this.leafletRidePolyline.remove();
         this.leafletRidePolyline = undefined;
       }
-      // Recenter when the vehicle changed OR we just exited ride mode.
-      // Stay put when the same vehicle's position updates via live polling.
+      // Recenter (hard setView, resets zoom) when the vehicle changed or we
+      // just exited ride mode. Otherwise: if live mode is on and the dot
+      // actually moved, smooth-pan to it ("follow the dot"); if live mode
+      // is off, leave the camera where the user put it.
       const recenter =
         currentVehicleId !== this.lastRenderedVehicleId ||
         this.lastRenderedRideId !== null;
-      this.renderLiveMarker(livePos!, recenter);
+      const positionChanged =
+        livePos!.latitude !== this.lastRenderedLat ||
+        livePos!.longitude !== this.lastRenderedLon;
+      const follow = !recenter && this.liveRefresh() && positionChanged;
+      this.renderLiveMarker(livePos!, recenter, follow);
+      this.lastRenderedLat = livePos!.latitude!;
+      this.lastRenderedLon = livePos!.longitude!;
     }
 
     this.lastRenderedVehicleId = currentVehicleId;
@@ -459,7 +481,7 @@ export class CommanderPage implements OnInit, OnDestroy {
     setTimeout(() => this.leafletMap?.invalidateSize(), 50);
   }
 
-  private renderLiveMarker(p: CommanderPosition, recenter: boolean) {
+  private renderLiveMarker(p: CommanderPosition, recenter: boolean, follow: boolean) {
     if (!this.leafletMap) return;
     const lat = p.latitude!;
     const lon = p.longitude!;
@@ -475,7 +497,11 @@ export class CommanderPage implements OnInit, OnDestroy {
       this.leafletMarker = L.marker([lat, lon], { icon }).addTo(this.leafletMap);
     }
     if (recenter) {
+      // Hard snap on vehicle change / ride exit — also resets zoom to 14.
       this.leafletMap.setView([lat, lon], 14);
+    } else if (follow) {
+      // Smooth pan, keep current zoom so the user's view is preserved.
+      this.leafletMap.panTo([lat, lon], { animate: true, duration: 0.5 });
     }
   }
 
@@ -561,5 +587,7 @@ export class CommanderPage implements OnInit, OnDestroy {
     // the recenter checks should treat it as such.
     this.lastRenderedVehicleId = null;
     this.lastRenderedRideId = null;
+    this.lastRenderedLat = null;
+    this.lastRenderedLon = null;
   }
 }

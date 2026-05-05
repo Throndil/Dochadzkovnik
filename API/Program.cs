@@ -21,25 +21,51 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 // Database
+//
+// PostgreSQL only — local dev now runs Postgres via the docker-compose.yml at repo
+// root, the same engine prod runs on Railway. Source priority:
+//   1. DATABASE_URL env var (Railway prod + dev convention) — parsed from the
+//      postgres://user:pass@host:port/db URL form Railway hands us.
+//   2. ConnectionStrings:DefaultConnection from config — local dev default lives
+//      in appsettings.json and matches the docker-compose container; devs override
+//      via appsettings.Local.json if they run Postgres natively / on a different port.
+// Throws at startup if neither is set, so a misconfigured env never silently
+// downgrades to an in-memory or fallback DB.
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+string? npgsqlConnectionString;
+if (!string.IsNullOrEmpty(databaseUrl))
+{
+    var uri = new Uri(databaseUrl);
+    var userInfo = uri.UserInfo.Split(new char[] { ':' }, 2);
+    var username = Uri.UnescapeDataString(userInfo[0]);
+    var password = Uri.UnescapeDataString(userInfo[1]);
+    var database = uri.AbsolutePath.TrimStart('/');
+    npgsqlConnectionString = $"Host={uri.Host};Port={uri.Port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+}
+else
+{
+    npgsqlConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+}
+
+if (string.IsNullOrWhiteSpace(npgsqlConnectionString))
+    throw new InvalidOperationException(
+        "No database connection configured. Set DATABASE_URL (prod/Railway) or ConnectionStrings:DefaultConnection (local dev — see API/appsettings.Local.example.json and the docker-compose.yml at repo root).");
+
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    if (!string.IsNullOrEmpty(databaseUrl))
-    {
-        var uri = new Uri(databaseUrl);
-        var userInfo = uri.UserInfo.Split(new char[] { ':' }, 2);
-        var username = Uri.UnescapeDataString(userInfo[0]);
-        var password = Uri.UnescapeDataString(userInfo[1]);
-        var database = uri.AbsolutePath.TrimStart('/');
-        var connStr = $"Host={uri.Host};Port={uri.Port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
-        options.UseNpgsql(connStr);
-        options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
-    }
-    else
-    {
-        options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"));
-    }
+    options.UseNpgsql(npgsqlConnectionString);
+    options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
+
+// Self-heal blocks further down gate on `databaseUrl` being non-empty — that
+// gate originally meant "we're on Postgres in production, run the Postgres
+// self-heals". Now that local dev runs Postgres too (via the root
+// docker-compose.yml), every self-heal must run on every startup. Promote
+// `databaseUrl` to a non-empty sentinel on the local-dev path so the existing
+// gates read as "yes, run the Postgres self-heal". The sentinel value is never
+// used as a connection string — UseNpgsql above already received the resolved
+// connection string. Follow-up cleanup will remove the gating altogether.
+if (string.IsNullOrEmpty(databaseUrl)) databaseUrl = "(local-dev-postgres)";
 
 // Identity
 builder.Services.AddIdentityCore<AppUser>(opt =>
@@ -187,73 +213,10 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-    // SQLite pre-migration: if a column was added manually (self-heal style) before the migration
-    // was recorded, mark it as applied so MigrateAsync() won't try to add it again and crash.
-    if (string.IsNullOrEmpty(databaseUrl)) // SQLite only (no DATABASE_URL = local dev)
-    {
-        try
-        {
-            var conn = db.Database.GetDbConnection();
-            await conn.OpenAsync();
-
-            // AddEmployeePinPlain: Check if PinPlain already exists in Employees
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'PinPlain'";
-                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-                if (count > 0)
-                {
-                    using var ins = conn.CreateCommand();
-                    ins.CommandText = @"
-                        INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
-                        VALUES ('20260414000000_AddEmployeePinPlain', '9.0.0')";
-                    await ins.ExecuteNonQueryAsync();
-                }
-            }
-
-            // AddEmployeeDeclineReason: Check if NotificationsDeclineReason already exists in Employees
-            // (added by self-heal in earlier deploys, before the migration file existed)
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsDeclineReason'";
-                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-                if (count > 0)
-                {
-                    using var ins = conn.CreateCommand();
-                    ins.CommandText = @"
-                        INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
-                        VALUES ('20260427151230_AddEmployeeDeclineReason', '9.0.0')";
-                    await ins.ExecuteNonQueryAsync();
-                }
-            }
-
-            // AddNotifications: Check if NotificationsEnabled column or NotificationConfigs table already exists
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = @"
-                    SELECT
-                        (SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsEnabled') +
-                        (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = 'NotificationConfigs')";
-                var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-                if (count > 0)
-                {
-                    using var ins = conn.CreateCommand();
-                    ins.CommandText = @"
-                        INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
-                        VALUES ('20260426150946_AddNotifications', '9.0.0')";
-                    await ins.ExecuteNonQueryAsync();
-                }
-            }
-
-            await conn.CloseAsync();
-        }
-        catch { /* best-effort — MigrateAsync will surface any real problems */ }
-    }
-
     // PostgreSQL pre-migration: mark AddNotifications as applied if its tables already exist
     // (created by the post-migration self-heal block on a previous deployment, before the
     // migration file was added to the project). Prevents "table already exists" on MigrateAsync.
-    if (!string.IsNullOrEmpty(databaseUrl)) // PostgreSQL only (DATABASE_URL set = prod)
+    if (!string.IsNullOrEmpty(databaseUrl)) // always true post-2026-05-01 (local dev is also Postgres)
     {
         try
         {
@@ -549,148 +512,6 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
-    // Self-heal: ensure Cars + TimeEntries.{CarId,PhotoUrl} schema exists on SQLite (local dev).
-    // The hand-written AddCars / AddCarPhotoUrl / AddTimeEntryPhotoUrl migrations have no
-    // .Designer.cs companion, so EF's MigrateAsync silently skips them. A fresh local DB
-    // therefore has no Cars table and no CarId/PhotoUrl on TimeEntries.
-    // Mirrors the existing PostgreSQL self-heal block above; idempotent (IF NOT EXISTS /
-    // pragma_table_info). Wrapped in try/catch so any unexpected failure doesn't block startup.
-    if (string.IsNullOrEmpty(databaseUrl))
-    {
-        try
-        {
-            // Cars table — column set matches the model + AddCars/AddCarPhotoUrl migrations.
-            await db.Database.ExecuteSqlRawAsync(@"
-                CREATE TABLE IF NOT EXISTS ""Cars"" (
-                    ""Id""           INTEGER NOT NULL CONSTRAINT ""PK_Cars"" PRIMARY KEY AUTOINCREMENT,
-                    ""Name""         TEXT NOT NULL,
-                    ""LicensePlate"" TEXT NULL,
-                    ""PhotoUrl""     TEXT NULL,
-                    ""IsActive""     INTEGER NOT NULL DEFAULT 1,
-                    ""CreatedAt""    TEXT NOT NULL DEFAULT '',
-                    ""UpdatedAt""    TEXT NOT NULL DEFAULT ''
-                );
-            ");
-
-            var carsConn = db.Database.GetDbConnection();
-            var carsConnWasClosed = carsConn.State != System.Data.ConnectionState.Open;
-            if (carsConnWasClosed) await carsConn.OpenAsync();
-            try
-            {
-                async Task<bool> ColExists(string table, string column)
-                {
-                    using var cmd = carsConn.CreateCommand();
-                    cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
-                    return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
-                }
-
-                // Cars.PhotoUrl (defensive — covered by the CREATE TABLE above on a fresh DB,
-                // but ensures the column exists on a DB that was created before AddCarPhotoUrl).
-                if (!await ColExists("Cars", "PhotoUrl"))
-                    await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Cars"" ADD COLUMN ""PhotoUrl"" TEXT NULL;");
-
-                // TimeEntries.CarId + index (was supposed to be added by AddCars).
-                if (!await ColExists("TimeEntries", "CarId"))
-                {
-                    await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""TimeEntries"" ADD COLUMN ""CarId"" INTEGER NULL;");
-                    await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_TimeEntries_CarId"" ON ""TimeEntries"" (""CarId"");");
-                }
-
-                // TimeEntries.PhotoUrl (was supposed to be added by AddTimeEntryPhotoUrl).
-                if (!await ColExists("TimeEntries", "PhotoUrl"))
-                    await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""TimeEntries"" ADD COLUMN ""PhotoUrl"" TEXT NULL;");
-            }
-            finally
-            {
-                if (carsConnWasClosed) await carsConn.CloseAsync();
-            }
-
-            // Mark the corresponding hand-written migrations as applied so EF doesn't ever
-            // try to re-run them if a .Designer.cs is generated later.
-            await db.Database.ExecuteSqlRawAsync(@"
-                INSERT OR IGNORE INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"") VALUES
-                    ('20260328100000_AddCars', '9.0.0'),
-                    ('20260328120000_AddCarPhotoUrl', '9.0.0'),
-                    ('20260411000000_AddTimeEntryPhotoUrl', '9.0.0'),
-                    ('20260413000000_WorkPhotoNullableEmployee', '9.0.0');
-            ");
-        }
-        catch { /* best-effort SQLite self-heal */ }
-    }
-
-    // Self-heal: ensure Materials and MaterialUsages tables exist.
-    // SQLite path — local dev. The CREATE TABLE statements are idempotent (IF NOT EXISTS).
-    if (string.IsNullOrEmpty(databaseUrl))
-    {
-        try
-        {
-            await db.Database.ExecuteSqlRawAsync(@"
-                CREATE TABLE IF NOT EXISTS ""Materials"" (
-                    ""Id""           INTEGER NOT NULL CONSTRAINT ""PK_Materials"" PRIMARY KEY AUTOINCREMENT,
-                    ""Name""         TEXT NOT NULL,
-                    ""Unit""         TEXT NOT NULL,
-                    ""PricePerUnit"" TEXT NOT NULL DEFAULT '0',
-                    ""IsActive""     INTEGER NOT NULL DEFAULT 1,
-                    ""CreatedAt""    TEXT NOT NULL,
-                    ""UpdatedAt""    TEXT NOT NULL
-                );
-            ");
-            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_Materials_Name"" ON ""Materials"" (""Name"");");
-
-            await db.Database.ExecuteSqlRawAsync(@"
-                CREATE TABLE IF NOT EXISTS ""MaterialUsages"" (
-                    ""Id""              INTEGER NOT NULL CONSTRAINT ""PK_MaterialUsages"" PRIMARY KEY AUTOINCREMENT,
-                    ""LocationId""      INTEGER NOT NULL,
-                    ""MaterialId""      INTEGER NOT NULL,
-                    ""EmployeeId""      INTEGER NULL,
-                    ""Quantity""        TEXT NOT NULL,
-                    ""UnitPriceAtTime"" TEXT NOT NULL DEFAULT '0',
-                    ""Date""            TEXT NOT NULL,
-                    ""Note""            TEXT NULL,
-                    ""PhotoUrl""        TEXT NULL,
-                    ""CreatedAt""       TEXT NOT NULL,
-                    ""UpdatedAt""       TEXT NOT NULL,
-                    CONSTRAINT ""FK_MaterialUsages_Locations_LocationId"" FOREIGN KEY (""LocationId"") REFERENCES ""Locations"" (""Id"") ON DELETE CASCADE,
-                    CONSTRAINT ""FK_MaterialUsages_Materials_MaterialId"" FOREIGN KEY (""MaterialId"") REFERENCES ""Materials"" (""Id"") ON DELETE RESTRICT,
-                    CONSTRAINT ""FK_MaterialUsages_Employees_EmployeeId"" FOREIGN KEY (""EmployeeId"") REFERENCES ""Employees"" (""Id"") ON DELETE SET NULL
-                );
-            ");
-            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_LocationId_Date"" ON ""MaterialUsages"" (""LocationId"", ""Date"");");
-            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_LocationId_MaterialId"" ON ""MaterialUsages"" (""LocationId"", ""MaterialId"");");
-            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_MaterialId"" ON ""MaterialUsages"" (""MaterialId"");");
-            await db.Database.ExecuteSqlRawAsync(@"CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_EmployeeId"" ON ""MaterialUsages"" (""EmployeeId"");");
-
-            // V1.1 — add PricePerUnit / UnitPriceAtTime columns to existing rows on
-            // databases that already had the V1 schema. We check pragma_table_info
-            // first so EF's command logger doesn't print a noisy "fail:" line when
-            // the column was already added by the migration on this same startup.
-            {
-                var conn = db.Database.GetDbConnection();
-                var wasClosed = conn.State != System.Data.ConnectionState.Open;
-                if (wasClosed) await conn.OpenAsync();
-                try
-                {
-                    async Task<bool> ColumnExistsAsync(string table, string column)
-                    {
-                        using var cmd = conn.CreateCommand();
-                        cmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
-                        return Convert.ToInt32(await cmd.ExecuteScalarAsync()) > 0;
-                    }
-
-                    if (!await ColumnExistsAsync("Materials", "PricePerUnit"))
-                        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Materials"" ADD COLUMN ""PricePerUnit"" TEXT NOT NULL DEFAULT '0';");
-                    if (!await ColumnExistsAsync("MaterialUsages", "UnitPriceAtTime"))
-                        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""MaterialUsages"" ADD COLUMN ""UnitPriceAtTime"" TEXT NOT NULL DEFAULT '0';");
-                }
-                finally
-                {
-                    if (wasClosed) await conn.CloseAsync();
-                }
-            }
-        }
-        catch { /* best-effort SQLite self-heal */ }
-    }
-
     // Self-heal: ensure Materials + MaterialUsages tables exist on PostgreSQL (production).
     if (!string.IsNullOrEmpty(databaseUrl))
     {
@@ -749,67 +570,6 @@ using (var scope = app.Services.CreateScope())
                 PERFORM setval('""MaterialUsages_Id_seq""', COALESCE((SELECT MAX(""Id"") FROM ""MaterialUsages""), 0) + 1, false);
             END $$;
         ");
-    }
-
-    // Self-heal: add NotificationsEnabled, WhatsAppEnabled, WhatsAppNumber columns to Employees (SQLite)
-    if (string.IsNullOrEmpty(databaseUrl))
-    {
-        var conn = db.Database.GetDbConnection();
-        await conn.OpenAsync();
-
-        // Check for NotificationsEnabled
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsEnabled'";
-            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            if (count == 0)
-            {
-                using var addCmd = conn.CreateCommand();
-                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"NotificationsEnabled\" INTEGER NOT NULL DEFAULT 1";
-                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
-            }
-        }
-
-        // Check for WhatsAppEnabled
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'WhatsAppEnabled'";
-            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            if (count == 0)
-            {
-                using var addCmd = conn.CreateCommand();
-                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"WhatsAppEnabled\" INTEGER NOT NULL DEFAULT 0";
-                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
-            }
-        }
-
-        // Check for WhatsAppNumber
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'WhatsAppNumber'";
-            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            if (count == 0)
-            {
-                using var addCmd = conn.CreateCommand();
-                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"WhatsAppNumber\" TEXT";
-                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
-            }
-        }
-
-        // Check for NotificationsDeclineReason
-        using (var cmd = conn.CreateCommand())
-        {
-            cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Employees') WHERE name = 'NotificationsDeclineReason'";
-            var count = Convert.ToInt32(await cmd.ExecuteScalarAsync());
-            if (count == 0)
-            {
-                using var addCmd = conn.CreateCommand();
-                addCmd.CommandText = "ALTER TABLE \"Employees\" ADD COLUMN \"NotificationsDeclineReason\" TEXT";
-                try { await addCmd.ExecuteNonQueryAsync(); } catch { }
-            }
-        }
-
-        await conn.CloseAsync();
     }
 
     // Self-heal: add notification columns to Employees (PostgreSQL)
@@ -1048,23 +808,6 @@ using (var scope = app.Services.CreateScope())
                 END IF;
             END $$;
         ");
-    }
-
-    // Self-heal: ensure FeatureFlags table exists on SQLite.
-    // Backstop in case the AddFeatureFlags EF migration has not been applied yet.
-    if (string.IsNullOrEmpty(databaseUrl))
-    {
-        try
-        {
-            await db.Database.ExecuteSqlRawAsync(@"
-                CREATE TABLE IF NOT EXISTS ""FeatureFlags"" (
-                    ""Key""       TEXT NOT NULL CONSTRAINT ""PK_FeatureFlags"" PRIMARY KEY,
-                    ""Enabled""   INTEGER NOT NULL DEFAULT 0,
-                    ""UpdatedAt"" TEXT NOT NULL
-                );
-            ");
-        }
-        catch { /* best-effort SQLite self-heal */ }
     }
 
     // Self-heal: ensure FeatureFlags table exists on PostgreSQL (production).

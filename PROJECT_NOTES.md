@@ -22,7 +22,7 @@ not marketing copy. When in doubt, write less.
 |---|---|
 | Backend | ASP.NET Core (C#), Entity Framework Core |
 | Frontend | Angular v20 |
-| Database | SQLite (local dev) / PostgreSQL (production) |
+| Database | PostgreSQL (local dev via docker-compose + production on Railway — same engine end-to-end) |
 | Auth | JWT + ASP.NET Identity (admin users only) |
 | Image storage | Cloudinary |
 | Hosting | Railway (API) + Vercel (frontend) |
@@ -58,6 +58,17 @@ not marketing copy. When in doubt, write less.
 - **No grey/blue tap highlight**: `-webkit-tap-highlight-color: transparent` on `*`. We render our own `:active` / `:hover` states.
 - **`touch-action: manipulation`** on `html` plus `maximum-scale=1` in viewport meta disables double-tap-zoom — important for the kiosk where double taps would be common.
 
+### Android-specific gotchas (the customer's primary device)
+
+The customer's day-to-day device is an Android tablet (Acer Iconia Tab A16, 16" IPS 1920×1200) running Chrome / Edge as a PWA. Treat Android as the **primary** target, not as an afterthought to iOS.
+
+- **Dynamic-toolbar height jitter**: when the Chrome address bar collapses on scroll the viewport height changes. Use `dvh` (dynamic viewport height) — never `100vh` — for any element that should match the visible viewport. The `.h-dvh` / `.min-h-dvh` utilities in `styles.css` handle this. Standardised across all admin pages in the 2026-05-01 tablet pass.
+- **Theme-color follows the runtime toggle, not just `prefers-color-scheme`**: `ThemeService.applyTheme()` writes an unscoped `<meta name="theme-color">` so the Android Chrome toolbar tint follows the user's in-app dark-mode toggle. The light/dark `media=`-scoped tags in `index.html` are a fallback for Android Chrome before the app boots.
+- **PWA install path = Add to Home Screen** in Chrome or Edge. The kiosk install guide PDFs (`Sichtovnica_Android_Sprievodca.pdf`) walk the older / non-tech-savvy worker through this; the iOS guide is parallel but the Android one is what this customer actually uses on their tablet.
+- **Push notifications require Android Chrome with the manifest installed** (or installed PWA). M1 push works the same on both platforms because we use the standard Web Push API + VAPID; no FCM-specific server code is needed.
+- **Touch targets**: Android Material guidance is 48×48 dp; iOS Human Interface is 44×44 px. The `.touch-target` utility (44×44 px floor) clears both. On the customer's tablet at 1920×1200 in landscape, that's plenty; in portrait it's still comfortable for older fingers.
+- **`@media (pointer: coarse)`**: used in `styles.css` to enlarge Leaflet's default 26-px zoom buttons to 44 px on touch devices without bloating desktop.
+
 ### Layout rules
 
 - The admin **navbar is `sticky top-0 z-30`** and uses opaque backgrounds — content scrolls cleanly behind it. Modals/slide-overs use `z-40` (backdrop) and `z-50` (panel) to overlay the navbar.
@@ -66,11 +77,13 @@ not marketing copy. When in doubt, write less.
 
 ### Testing checklist for any UI change
 
-1. Chrome/Firefox desktop — sanity check
-2. iPhone Safari (regular tab) — check URL bar collapse/expand behaviour
-3. iPhone Safari "Add to Home Screen" → standalone — **most important**, check dynamic island clearance and home indicator
-4. iPad Safari (regular + landscape) — landscape notch on Pro models
-5. Android Chrome (regular + installed) — back gesture, theme color in switcher
+1. Chrome / Firefox desktop — sanity check
+2. **Android Chrome on the customer's tablet** (Acer Iconia Tab A16, 16" 1920×1200) — landscape AND portrait. Address-bar collapse/expand, back gesture, theme-color in the task switcher.
+3. **Android Chrome installed PWA** on the same tablet — **most important for this customer**, this is how the app is actually used day-to-day. Check `dvh`-based heights don't oscillate when the Android system bars show / hide.
+4. Android Chrome on a phone (any modern Pixel / Samsung) — narrow portrait, the `md:` / `lg:` breakpoints we ship hardest against.
+5. iPhone Safari (regular tab) — check URL bar collapse/expand behaviour.
+6. iPhone Safari "Add to Home Screen" → standalone — dynamic island clearance, home indicator. Important for any worker who ends up using their personal iPhone alongside the tablet.
+7. iPad Safari (regular + landscape) — landscape notch on Pro models. Lower priority; the customer's fleet doesn't include iPads today.
 
 ---
 
@@ -123,8 +136,10 @@ not marketing copy. When in doubt, write less.
 
 ## Database Notes
 
-- Local dev uses SQLite; production uses PostgreSQL via `DATABASE_URL` env var.
-- `Program.cs` contains extensive **self-healing SQL** that runs at startup — it patches schema gaps caused by a SQLite→PostgreSQL migration (missing sequences, boolean/integer type mismatches, timestamp stored as TEXT, late-added Cars table and CarId FK). This is technical debt that should eventually be replaced with proper migrations.
+- **PostgreSQL everywhere** as of 2026-05-01. Local dev runs Postgres via the `docker-compose.yml` at repo root (`docker compose up -d`). Production runs on Railway's managed Postgres via the `DATABASE_URL` env var. **No more SQLite.** The dual-engine setup was retired because every prod scar (text-typed timestamps, `numeric(p,s)` precision drift, sequence ownership, boolean storage, `DEFAULT '0'` on text columns) was a SQLite-only blind spot that hid bugs until they hit Railway.
+- Connection-string source priority in `Program.cs`: `DATABASE_URL` env var (Railway) → `ConnectionStrings:DefaultConnection` from config (local dev's `appsettings.Local.json`, defaulting to the docker-compose container in `appsettings.json`). Throws at startup if neither is set.
+- `Program.cs` contains extensive **self-healing SQL** that runs at startup — it patches schema gaps from the historical SQLite→PostgreSQL data migration (missing sequences, boolean/integer type mismatches, timestamp stored as TEXT, late-added Cars table and CarId FK). On a fresh local Postgres these blocks are no-ops because the EF migrations create the schema correctly from scratch; on Railway prod they remain the safety net for the existing drifted schema. This is still technical debt and should eventually be replaced with proper migrations once prod is fully reconciled.
+- The `Microsoft.EntityFrameworkCore.Sqlite` package stays in `API.csproj` because the existing migration files reference Sqlite annotations (e.g. `Sqlite:Autoincrement`). Removing the package would force editing migration files, which Migration Safety Rule 1 forbids. The package is dead weight at runtime — Npgsql is the only configured provider.
 - Admin seed: default username `vladosroka`, default password `Nikolasko1` (overridable via config).
 
 ---
@@ -147,14 +162,27 @@ EF migrations hand-written without `dotnet ef migrations add` (i.e., created man
 
 2. **Test locally before pushing.** Restart the API locally and confirm there are no `no such column` / `no such table` errors before committing.
 
-3. **Every new column MUST have a SQLite self-heal block in `Program.cs`.** SQLite's `ALTER TABLE ... ADD COLUMN` is safe — it is idempotent when wrapped in a try/catch. This is the final safety net that keeps local and production in sync even if the EF migration chain drifts:
+3. **Every new column MUST have a PostgreSQL self-heal block in `Program.cs`** (the `DO $$ IF NOT EXISTS ... ALTER TABLE ... END $$` pattern already used throughout). Railway runs `MigrateAsync()` on every deploy, but the self-heal is the backstop. As of 2026-05-01 local dev runs Postgres too (see Database Notes above), so this is now a **single-DB rule** — no more parallel SQLite block. Halve the typing.
    ```csharp
-   // SQLite self-heal
-   if (string.IsNullOrEmpty(databaseUrl))
-       try { await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""TableName"" ADD COLUMN ""ColName"" TYPE"); } catch { }
+   // PostgreSQL self-heal — runs on local dev and on Railway prod alike.
+   if (!string.IsNullOrEmpty(databaseUrl))
+   {
+       await db.Database.ExecuteSqlRawAsync(@"
+           DO $$
+           BEGIN
+               IF NOT EXISTS (
+                   SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'TableName' AND column_name = 'ColName'
+               ) THEN
+                   ALTER TABLE ""TableName"" ADD COLUMN ""ColName"" TYPE;
+               END IF;
+           END $$;
+       ");
+   }
    ```
+   The `if (!string.IsNullOrEmpty(databaseUrl))` gate is historical — `databaseUrl` is promoted to a non-empty sentinel on the local-dev path so the gate always passes. A future cleanup pass will remove the gating entirely.
 
-4. **Every new column that targets PostgreSQL MUST also have a PostgreSQL self-heal block** (the `DO $$ IF NOT EXISTS ... ALTER TABLE ... END $$` pattern already used in `Program.cs`). Railway runs `MigrateAsync()` on every deploy, but the self-heal is the backstop.
+4. *(Reserved — the old "every new column targeting PostgreSQL also needs a Postgres block" rule is now Rule 3. The dual-DB era is over.)*
 
 5. **Never DROP or RENAME a column via a migration without first confirming it is completely unused** — including by old Railway deploys that might still be running. Prefer adding a new column and deprecating the old one.
 

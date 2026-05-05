@@ -148,11 +148,79 @@ export class LocationManagePanelComponent implements OnDestroy {
     this.to.set(this.fmtDate(end));
     this.rangeMode.set('month');
   }
+
+  /**
+   * Shift the period filter by N calendar months (negative = backwards).
+   * Always snaps to a full calendar month so the user can walk through history
+   * one month at a time. Falls back to "this month" if the current "from" is empty.
+   */
+  shiftRangeByMonths(delta: number) {
+    const ref = this.from() ? new Date(this.from()) : new Date();
+    if (isNaN(ref.getTime())) { this.snapToCurrentMonth(); return; }
+    const start = new Date(ref.getFullYear(), ref.getMonth() + delta, 1);
+    const end   = new Date(ref.getFullYear(), ref.getMonth() + delta + 1, 0);
+    this.from.set(this.fmtDate(start));
+    this.to.set(this.fmtDate(end));
+    const now = new Date();
+    const isCurrent = start.getFullYear() === now.getFullYear() && start.getMonth() === now.getMonth();
+    this.rangeMode.set(isCurrent ? 'month' : 'custom');
+  }
+
+  /** Slovak month label for the current "from" date, e.g. "Apríl 2026". Used as the OBDOBIE caption. */
+  rangeMonthLabel = computed(() => {
+    const f = this.from();
+    if (!f) return '';
+    const d = new Date(f);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
+  });
   fmtDate(d: Date) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   onDateInputChange() { this.rangeMode.set('custom'); }
+
+  /**
+   * Range filter "from" change — switch to custom mode and snap "to" forward
+   * if the user picked a date later than the current "to". Stops nonsensical
+   * ranges like 15.5. → 14.3. before they hit the API.
+   */
+  onFromChange(value: string) {
+    this.from.set(value);
+    if (value && this.to() && value > this.to()) {
+      this.to.set(value);
+    }
+    this.rangeMode.set('custom');
+  }
+
+  /** Mirror of onFromChange for the "to" input — pulls "from" back if needed. */
+  onToChange(value: string) {
+    this.to.set(value);
+    if (value && this.from() && value < this.from()) {
+      this.from.set(value);
+    }
+    this.rangeMode.set('custom');
+  }
+
+  /** Step the new-entry date by N days (negative = earlier). */
+  adjustNewDate(deltaDays: number) {
+    this.newEntry.date = this.shiftDate(this.newEntry.date, deltaDays);
+  }
+  setNewDateToday()     { this.newEntry.date = this.todayString(); }
+  setNewDateYesterday() { this.newEntry.date = this.shiftDate(this.todayString(), -1); }
+
+  /** Step the in-place edit date by N days. */
+  adjustEditDate(deltaDays: number) {
+    this.editForm.date = this.shiftDate(this.editForm.date, deltaDays);
+  }
+
+  /** Add `delta` days to a YYYY-MM-DD string. Returns YYYY-MM-DD. */
+  private shiftDate(iso: string, delta: number): string {
+    const base = iso ? new Date(iso) : new Date();
+    if (isNaN(base.getTime())) return this.todayString();
+    base.setDate(base.getDate() + delta);
+    return this.fmtDate(base);
+  }
 
   // ── Add / edit / delete ───────────────────────────────────────
   /**
@@ -202,13 +270,13 @@ export class LocationManagePanelComponent implements OnDestroy {
     }
     this.materialSvc.createUsage(loc.id, { ...this.newEntry }).subscribe({
       next: () => {
-        this.showAddForm.set(false);
-        // Keep the same materialId pre-selected so a worker logging multiple entries doesn't
-        // have to reselect it each time. Reset quantity and re-default the date.
+        // Keep the form open and the date sticky so a worker can rapidly log
+        // several entries by stepping the date with ◀/▶ between saves.
+        // Material stays selected; only quantity + note get cleared.
         this.newEntry = {
           materialId: this.newEntry.materialId,
           quantity: 1,
-          date: this.defaultEntryDate(),
+          date: this.newEntry.date || this.defaultEntryDate(),
           note: ''
         };
         this.load();

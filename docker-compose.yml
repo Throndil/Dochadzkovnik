@@ -1,0 +1,40 @@
+# Local-dev PostgreSQL for the Dochadzkovník API.
+#
+# Runs the same database engine as Railway production so local self-heal
+# blocks, migrations, type quirks, and EF behaviour all match prod 1:1.
+#
+# Usage:
+#   docker compose up -d           # start in background
+#   docker compose logs -f db      # follow logs
+#   docker compose down            # stop (data persists in the named volume)
+#   docker compose down -v         # stop AND wipe the data volume
+#
+# The default connection string in API/appsettings.json matches the values
+# below. To override (different port, different password, etc.), put a
+# ConnectionStrings:DefaultConnection in API/appsettings.Local.json.
+#
+# Note: this file is for LOCAL DEV ONLY. Production runs on Railway's managed
+# PostgreSQL via the DATABASE_URL env var; nothing in here is consulted there.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: dochadzkovnik-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dochadzkovnik
+      POSTGRES_PASSWORD: dochadzkovnik
+      POSTGRES_DB: dochadzkovnik
+    ports:
+      - "5432:5432"
+    volumes:
+      - dochadzkovnik-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dochadzkovnik -d dochadzkovnik"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  dochadzkovnik-pgdata:
+    name: dochadzkovnik-pgdata
