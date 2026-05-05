@@ -53,6 +53,7 @@ no "—" as rhetoric, no exclamation marks, no padding. Bold sparingly.
 | `Commander__BaseUrl` | `Commander:BaseUrl` | Commander REST API base URL | **When the Commander integration ships.** Production value is `https://online.commander-systems.com/api/v1` (per the official spec, `docs/CommanderAPI-REST_API_v1_specification_2024.pdf`). Must start with `https://` — startup throws otherwise. No sandbox URL exists. |
 | `Commander__Username` | `Commander:Username` | Customer's Commander API account | **When the Commander integration ships.** Empty until then. Single shared customer account; HTTP Basic auth on every request. |
 | `Commander__Password` | `Commander:Password` | Customer's Commander API password | Same. **Never** logged at any level; never returned in any DTO. |
+| `OpenRouteService__ApiKey` | `OpenRouteService:ApiKey` | Road-snapping for the Commander ride map | **Optional.** Without a key, ride mode draws the existing dashed straight line — same as before, no errors. With a key, the map snaps the ride to the actual road network as a "best-guess" path (ORS isn't ground truth — it's the routing engine's most-likely route). Sign up at `https://openrouteservice.org` for a free key (2 000 directions/day, 40/min — well above this customer's load with the in-memory cache). Key never logged, never returned in any DTO, header-only auth, exception paths swallow to null so an outage degrades to the dashed line. |
 
 ---
 

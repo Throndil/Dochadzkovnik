@@ -2,16 +2,18 @@
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { LocationService, Location, CreateLocation } from '../../services/location.service';
 import { LocationManagePanelComponent } from '../../components/location-manage-panel/location-manage-panel.component';
 
 @Component({
   selector: 'app-locations',
-  imports: [NavbarComponent, RouterLink, FormsModule, LocationManagePanelComponent],
+  imports: [NavbarComponent, RouterLink, FormsModule, LocationManagePanelComponent, SpinnerComponent],
   templateUrl: './locations.page.html'
 })
 export class LocationsPage implements OnInit {
   locations = signal<Location[]>([]);
+  loading = signal(true);
   showForm = signal(false);
   newLocation: CreateLocation = { name: '', address: '' };
   newLocationPhoto: File | null = null;
@@ -31,7 +33,11 @@ export class LocationsPage implements OnInit {
   }
 
   load() {
-    this.locationService.getAll().subscribe(locs => this.locations.set(locs));
+    this.loading.set(true);
+    this.locationService.getAll().subscribe({
+      next: locs => { this.locations.set(locs); this.loading.set(false); },
+      error: () => this.loading.set(false),
+    });
   }
 
   cancelForm() {

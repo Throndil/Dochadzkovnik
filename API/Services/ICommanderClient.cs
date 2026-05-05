@@ -42,6 +42,15 @@ public interface ICommanderClient
     /// the last 7 days. Cached per-vehicle for 60 seconds.
     /// </summary>
     Task<CommanderResult<List<CommanderRideDetailDto>>> GetRecentRidesAsync(string vehicleId, CancellationToken ct);
+
+    /// <summary>
+    /// Per-vehicle stats batch for the Prehlad table — tachometer + the three
+    /// roll-up buckets (Today / 7 days / This month). Implementation fans out
+    /// to <see cref="GetCurrentTachoAsync"/> and <see cref="GetRideSummaryAsync"/>
+    /// in parallel for every vehicle returned by <see cref="GetVehiclesAsync"/>,
+    /// then stitches the result into one cached payload (60 s).
+    /// </summary>
+    Task<CommanderResult<List<FleetVehicleStatsDto>>> GetFleetStatsAsync(CancellationToken ct);
 }
 
 /// <summary>

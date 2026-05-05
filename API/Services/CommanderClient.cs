@@ -58,12 +58,29 @@ public sealed class CommanderClient : ICommanderClient
 
     private const string CacheKeyVehicles  = "commander:vehicles";
     private const string CacheKeyPositions = "commander:last-positions";
+    private const string CacheKeyFleetStats = "commander:fleet-stats";
+
+    /// <summary>
+    /// /current-tacho/{id} normally has no cache (managers want live odometer
+    /// when they open one car), but the fleet-stats batch reuses it for every
+    /// vehicle, so we add a short side-cache to coalesce. Same TTL as the
+    /// fleet-stats payload itself, so a redrive of a single vehicle's tacho
+    /// hits the live endpoint as before — only the batch path consults this
+    /// cache key.
+    /// </summary>
+    private const string FleetStatsTachoCachePrefix = "commander:fleet-stats:tacho:";
 
     private static string CacheKeyRideSummary(string vehicleId)
         => $"commander:ride-summary:{vehicleId}";
 
     private static string CacheKeyRecentRides(string vehicleId)
         => $"commander:recent-rides:{vehicleId}";
+
+    /// <summary>
+    /// Fleet-stats payload TTL. 60 s matches the underlying ride-summary cache
+    /// so the batch and per-vehicle endpoints stay coherent across views.
+    /// </summary>
+    private static readonly TimeSpan FleetStatsCacheTtl = TimeSpan.FromSeconds(60);
 
     private static readonly TimeZoneInfo BratislavaTz = ResolveBratislavaTz();
 
@@ -246,7 +263,12 @@ public sealed class CommanderClient : ICommanderClient
     {
         var todayStart        = new DateTimeOffset(nowLocal.Year, nowLocal.Month, nowLocal.Day, 0, 0, 0, nowLocal.Offset);
         var yesterdayStart    = todayStart.AddDays(-1);
-        var sevenDaysStart    = todayStart.AddDays(-6); // includes today → 7 days
+        // Current ISO calendar week — Monday is day 0. Was previously a rolling
+        // 7-day window; switched to current week so the customer reads the
+        // "Týždeň" total as "this Mon onward" rather than "back to last week".
+        // Days since Monday = (DayOfWeek - Monday + 7) % 7. Sunday → 6.
+        var daysSinceMonday   = ((int)nowLocal.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        var currentWeekStart  = todayStart.AddDays(-daysSinceMonday);
         var thisMonthStart    = new DateTimeOffset(nowLocal.Year, nowLocal.Month, 1, 0, 0, 0, nowLocal.Offset);
         var lastMonthStart    = thisMonthStart.AddMonths(-1);
         var lastMonthEnd      = thisMonthStart; // exclusive
@@ -269,8 +291,8 @@ public sealed class CommanderClient : ICommanderClient
             if (startLocal >= yesterdayStart && startLocal < todayStart)
                 Add(summary.Yesterday, distance, duration);
 
-            if (startLocal >= sevenDaysStart && startLocal < tomorrowStart)
-                Add(summary.Last7Days, distance, duration);
+            if (startLocal >= currentWeekStart && startLocal < tomorrowStart)
+                Add(summary.CurrentWeek, distance, duration);
 
             if (startLocal >= thisMonthStart && startLocal < tomorrowStart)
                 Add(summary.ThisMonth, distance, duration);
@@ -279,6 +301,14 @@ public sealed class CommanderClient : ICommanderClient
                 Add(summary.LastMonth, distance, duration);
         }
 
+        // Compute avg speeds once at the end. Done after aggregation so a
+        // bucket's avg reflects the actual total distance / total time
+        // rather than a running mean of per-ride averages.
+        FillAvgSpeed(summary.Today);
+        FillAvgSpeed(summary.Yesterday);
+        FillAvgSpeed(summary.CurrentWeek);
+        FillAvgSpeed(summary.ThisMonth);
+        FillAvgSpeed(summary.LastMonth);
         return summary;
     }
 
@@ -287,6 +317,13 @@ public sealed class CommanderClient : ICommanderClient
         bucket.RideCount++;
         bucket.DistanceKm += km;
         bucket.DurationSeconds += durationSec;
+    }
+
+    private static void FillAvgSpeed(CommanderRideBucketDto bucket)
+    {
+        bucket.AvgSpeedKmh = bucket.DurationSeconds > 0
+            ? bucket.DistanceKm / (bucket.DurationSeconds / 3600.0)
+            : 0;
     }
 
     public async Task<CommanderResult<List<CommanderRideDetailDto>>> GetRecentRidesAsync(string vehicleId, CancellationToken ct)
@@ -299,7 +336,7 @@ public sealed class CommanderClient : ICommanderClient
             return CommanderResult<List<CommanderRideDetailDto>>.Ok(cached);
 
         // Last 7 days in Bratislava local time. Re-using the same window
-        // semantics as the summary's "Last7Days" bucket so the count in the
+        // semantics as the summary's "CurrentWeek" bucket so the count in the
         // summary card matches the list length below it.
         var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, BratislavaTz);
         var sevenStartLocal = new DateTimeOffset(nowLocal.Year, nowLocal.Month, nowLocal.Day, 0, 0, 0, nowLocal.Offset)
@@ -345,8 +382,8 @@ public sealed class CommanderClient : ICommanderClient
     private static CommanderRideDetailDto MapToRideDetailDto(CommanderRideRaw r) => new()
     {
         RideId          = r.RideId ?? string.Empty,
-        StartTimeUtc    = UnixSecondsToUtc(r.StartTime),
-        StopTimeUtc     = UnixSecondsToUtc(r.StopTime),
+        StartTime       = UnixSecondsToBratislavaLocal(r.StartTime),
+        StopTime        = UnixSecondsToBratislavaLocal(r.StopTime),
         DurationSeconds = r.Duration,
         DistanceKm      = r.Distance,
         AvgSpeedKmh     = r.AvgSpeed,
@@ -362,6 +399,76 @@ public sealed class CommanderClient : ICommanderClient
         StartAddress    = NullIfEmpty(r.StartAddress),
         StopAddress     = NullIfEmpty(r.StopAddress),
     };
+
+    /// <summary>
+    /// Fleet-stats batch — drives the Tachometer + Štatistiky columns on the
+    /// Prehlad page. Fans out to /current-tacho and (cached) /rides for each
+    /// vehicle in parallel; per-vehicle errors are swallowed (TachoKm becomes
+    /// null, buckets stay zeroed) so one bad reply doesn't tank the whole
+    /// page.
+    ///
+    /// Whole payload cached for <see cref="FleetStatsCacheTtl"/> (60 s).
+    /// </summary>
+    public async Task<CommanderResult<List<FleetVehicleStatsDto>>> GetFleetStatsAsync(CancellationToken ct)
+    {
+        if (_cache.TryGetValue<List<FleetVehicleStatsDto>>(CacheKeyFleetStats, out var cached) && cached != null)
+            return CommanderResult<List<FleetVehicleStatsDto>>.Ok(cached);
+
+        var vehiclesResult = await GetVehiclesAsync(ct);
+        if (!vehiclesResult.Success || vehiclesResult.Data == null)
+        {
+            // Propagate the upstream failure shape so the controller maps to
+            // the same HTTP status as a direct /vehicles call would.
+            return CommanderResult<List<FleetVehicleStatsDto>>.Error(
+                vehiclesResult.ErrorKind, vehiclesResult.UserMessage, vehiclesResult.RetryAfter);
+        }
+
+        var vehicles = vehiclesResult.Data;
+        // Per-vehicle work runs in parallel; we don't care about ordering
+        // (frontend keys by vehicleId), and Commander tolerates concurrent
+        // requests up to the rate limit.
+        var tasks = vehicles.Select(v => BuildOneVehicleStatsAsync(v.VehicleId, ct)).ToArray();
+        var stats = await Task.WhenAll(tasks);
+        var list = stats.Where(s => s != null).Cast<FleetVehicleStatsDto>().ToList();
+
+        _cache.Set(CacheKeyFleetStats, list, FleetStatsCacheTtl);
+        return CommanderResult<List<FleetVehicleStatsDto>>.Ok(list);
+    }
+
+    private async Task<FleetVehicleStatsDto?> BuildOneVehicleStatsAsync(string vehicleId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(vehicleId)) return null;
+
+        // Tacho: short side-cache so multiple Prehlad refreshes inside a 60 s
+        // window don't burn quota; aligned with FleetStatsCacheTtl.
+        var tachoCacheKey = FleetStatsTachoCachePrefix + vehicleId;
+        double? tachoKm;
+        if (_cache.TryGetValue<double?>(tachoCacheKey, out var cachedTacho))
+        {
+            tachoKm = cachedTacho;
+        }
+        else
+        {
+            var tachoResult = await GetCurrentTachoAsync(vehicleId, ct);
+            tachoKm = tachoResult.Success ? tachoResult.Data?.Km : null;
+            _cache.Set(tachoCacheKey, tachoKm, FleetStatsCacheTtl);
+        }
+
+        // Ride summary: GetRideSummaryAsync is already cached per-vehicle 60 s.
+        var summaryResult = await GetRideSummaryAsync(vehicleId, ct);
+        var summary = summaryResult.Success && summaryResult.Data != null
+            ? summaryResult.Data
+            : new CommanderRideSummaryDto();
+
+        return new FleetVehicleStatsDto
+        {
+            VehicleId  = vehicleId,
+            TachoKm    = tachoKm,
+            Today      = summary.Today,
+            CurrentWeek = summary.CurrentWeek,
+            ThisMonth  = summary.ThisMonth,
+        };
+    }
 
     // -----------------------------------------------------------------
     // core
@@ -482,7 +589,7 @@ public sealed class CommanderClient : ICommanderClient
         Name                 = NullIfEmpty(v.VehicleName),
         RegistrationPlate    = NullIfEmpty(v.VehicleRegistrationPlate),
         Vin                  = NullIfEmpty(v.Vin),
-        LastCommunicationUtc = UnixSecondsToUtc(v.LastCommunication)
+        LastCommunication = UnixSecondsToBratislavaLocal(v.LastCommunication)
     };
 
     private static CommanderVehicleDetailDto MapToVehicleDetailDto(CommanderVehicleRaw v) => new()
@@ -491,7 +598,7 @@ public sealed class CommanderClient : ICommanderClient
         Name                 = NullIfEmpty(v.VehicleName),
         RegistrationPlate    = NullIfEmpty(v.VehicleRegistrationPlate),
         Vin                  = NullIfEmpty(v.Vin),
-        LastCommunicationUtc = UnixSecondsToUtc(v.LastCommunication),
+        LastCommunication = UnixSecondsToBratislavaLocal(v.LastCommunication),
         Model                = NullIfEmpty(v.Model),
         ManufactureYear      = NullIfEmpty(v.ManufactureYear),
         CommissioningDate    = NullIfEmpty(v.CommissioningDate),
@@ -502,7 +609,7 @@ public sealed class CommanderClient : ICommanderClient
     private static CommanderPositionDto MapToPositionDto(CommanderPositionRaw p) => new()
     {
         VehicleId    = p.VehicleId ?? string.Empty,
-        GpsTimeUtc   = UnixSecondsToUtc(p.GpsTime),
+        GpsTime      = UnixSecondsToBratislavaLocal(p.GpsTime),
         Latitude     = p.GpsLat,
         Longitude    = p.GpsLon,
         SpeedKmh     = p.GpsSpeed,
@@ -514,17 +621,29 @@ public sealed class CommanderClient : ICommanderClient
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
     /// <summary>
-    /// Converts a Commander Unix-seconds timestamp to UTC DateTime.
-    /// Returns null for missing / zero / out-of-range values; the spec says 0 must
-    /// be treated as a real value for ordinary numerics, but for timestamps a 0
-    /// reliably means "never communicated" rather than 1970-01-01.
+    /// Converts a Commander Unix-seconds timestamp to a Bratislava-local
+    /// <c>DateTime</c> with <c>Kind == Unspecified</c>.
+    ///
+    /// Why not UTC: the project-wide convention (see
+    /// <see cref="API.Converters.UtcDateTimeConverter"/>) is "wire format is
+    /// Bratislava local time, no timezone marker." The converter strips any
+    /// <c>Kind</c> on the way out, so a Kind=Utc DateTime would arrive at the
+    /// browser as the same numeric values, just *re-interpreted* as local —
+    /// effectively shifting times into the past by the local UTC offset
+    /// (2 h in CEST). Convert here to keep that contract intact.
+    ///
+    /// Returns null for missing / zero / out-of-range values; the spec says 0
+    /// must be treated as a real value for ordinary numerics, but for
+    /// timestamps a 0 reliably means "never communicated" rather than
+    /// 1970-01-01.
     /// </summary>
-    private static DateTime? UnixSecondsToUtc(long? unix)
+    private static DateTime? UnixSecondsToBratislavaLocal(long? unix)
     {
         if (!unix.HasValue || unix.Value <= 0) return null;
         try
         {
-            return DateTimeOffset.FromUnixTimeSeconds(unix.Value).UtcDateTime;
+            var utc = DateTimeOffset.FromUnixTimeSeconds(unix.Value).UtcDateTime;
+            return TimeZoneInfo.ConvertTimeFromUtc(utc, BratislavaTz);
         }
         catch (ArgumentOutOfRangeException)
         {

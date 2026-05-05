@@ -289,7 +289,7 @@
 
         <!-- Loading state -->
         @if (overviewLoading()) {
-          <div class="py-10 text-center text-slate-500 dark:text-slate-400 text-sm">Načítavam...</div>
+          <app-spinner />
         }
 
         <!-- ── Stacked card view (below md) — phone-friendly ──────────
@@ -506,7 +506,7 @@
               </button>
             }
           } @else if (!overviewLoading()) {
-            <p class="text-slate-500 col-span-6 text-center py-4">Načítavam zamestnancov...</p>
+            <p class="text-slate-700 dark:text-slate-200 col-span-6 text-center py-4">Žiadni aktívni zamestnanci.</p>
           }
         </div>
       </div>

@@ -3,6 +3,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { LocationService, Location, LocationPhoto } from '../../services/location.service';
 import { normaliseFile, compressImage, cloudinaryThumb } from '../../utils/image-utils';
 import { TimeEntryService } from '../../services/time-entry.service';
@@ -16,7 +17,7 @@ export interface PhotoGroup {
 
 @Component({
   selector: 'app-location-detail',
-  imports: [NavbarComponent, FormsModule, DatePipe],
+  imports: [NavbarComponent, FormsModule, DatePipe, SpinnerComponent],
   templateUrl: './location-detail.page.html'
 })
 export class LocationDetailPage implements OnInit {

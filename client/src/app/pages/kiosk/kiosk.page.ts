@@ -9,6 +9,7 @@ import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 import { PushService } from '../../services/push.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 
 type View = 'main' | 'photo-upload' | 'my-hours';
 type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'photo-reason' | 'result';
@@ -16,7 +17,7 @@ type WuStep = 'pin' | 'location' | 'photo' | 'result';
 
 @Component({
   selector: 'app-kiosk',
-  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe],
+  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe, SpinnerComponent],
   templateUrl: './kiosk.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush
 })

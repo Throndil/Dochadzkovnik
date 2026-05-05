@@ -1,15 +1,17 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { MaterialService, Material, CreateMaterial, UpdateMaterial } from '../../services/material.service';
 
 @Component({
   selector: 'app-materials',
-  imports: [NavbarComponent, FormsModule],
+  imports: [NavbarComponent, FormsModule, SpinnerComponent],
   templateUrl: './materials.page.html'
 })
 export class MaterialsPage implements OnInit {
   materials = signal<Material[]>([]);
+  loading = signal(true);
   showForm  = signal(false);
   newMaterial: CreateMaterial = { name: '', unit: '', pricePerUnit: 0 };
   errorMsg = signal('');
@@ -26,9 +28,10 @@ export class MaterialsPage implements OnInit {
   ngOnInit() { this.load(); }
 
   load() {
+    this.loading.set(true);
     this.materialSvc.getCatalogue().subscribe({
-      next: ms => this.materials.set(ms),
-      error: () => this.errorMsg.set('Nepodarilo sa načítať materiály.')
+      next: ms => { this.materials.set(ms); this.loading.set(false); },
+      error: () => { this.errorMsg.set('Nepodarilo sa načítať materiály.'); this.loading.set(false); }
     });
   }
 

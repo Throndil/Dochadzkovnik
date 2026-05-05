@@ -39,11 +39,16 @@ namespace API.Controllers;
 public class CommanderController : ControllerBase
 {
     private readonly ICommanderClient _commander;
+    private readonly IRouteSnappingService _routes;
     private readonly ILogger<CommanderController> _logger;
 
-    public CommanderController(ICommanderClient commander, ILogger<CommanderController> logger)
+    public CommanderController(
+        ICommanderClient commander,
+        IRouteSnappingService routes,
+        ILogger<CommanderController> logger)
     {
         _commander = commander;
+        _routes = routes;
         _logger = logger;
     }
 
@@ -65,7 +70,7 @@ public class CommanderController : ControllerBase
 
     /// <summary>
     /// GET /api/commander/vehicles/{vehicleId}/ride-summary — five aggregate
-    /// buckets (Dnes / Včera / 7 dní / Tento mesiac / Minulý mesiac) computed
+    /// buckets (Dnes / Včera / Aktuálny týždeň / Tento mesiac / Minulý mesiac) computed
     /// from the underlying /rides/{id} endpoint. Bucketed by ride.startTime in
     /// Europe/Bratislava local time. Cached server-side for 60 seconds.
     /// </summary>
@@ -76,12 +81,90 @@ public class CommanderController : ControllerBase
     /// <summary>
     /// GET /api/commander/vehicles/{vehicleId}/rides — recent rides for one
     /// vehicle (last 7 days, newest first). Matches the semantics of the
-    /// ride-summary's Last7Days bucket so list length equals that count.
+    /// ride-summary's CurrentWeek bucket so list length equals that count.
     /// Cached server-side for 60 seconds.
     /// </summary>
     [HttpGet("vehicles/{vehicleId}/rides")]
     public async Task<ActionResult<List<CommanderRideDetailDto>>> GetRecentRides(string vehicleId, CancellationToken ct)
         => ToActionResult(await _commander.GetRecentRidesAsync(vehicleId, ct));
+
+    /// <summary>
+    /// GET /api/commander/fleet-stats — per-vehicle tacho + Today/7-day/Month
+    /// roll-ups. Drives the Tachometer + Štatistiky columns on the Prehlad
+    /// table. Cached server-side for 60 s; safe to call once per page load.
+    /// </summary>
+    [HttpGet("fleet-stats")]
+    public async Task<ActionResult<List<FleetVehicleStatsDto>>> GetFleetStats(CancellationToken ct)
+        => ToActionResult(await _commander.GetFleetStatsAsync(ct));
+
+    /// <summary>
+    /// GET /api/commander/snap-route?startLat=…&amp;startLon=…&amp;stopLat=…&amp;stopLon=…
+    ///
+    /// Best-guess driven path between two GPS points, snapped to the road
+    /// network by an external routing service (currently OpenRouteService).
+    /// 200 with a <see cref="SnappedRouteDto"/> on success; 204 No Content
+    /// when the service returns null (no API key configured, no route found,
+    /// outage, parse error, etc). The frontend treats 204 as "fall back to
+    /// the dashed straight line", so the map keeps working in every failure
+    /// mode without showing an error panel.
+    ///
+    /// Cached server-side for 7 days per (startLat, startLon, stopLat, stopLon)
+    /// rounded to 5 decimal places — repeated rides on the same route are
+    /// served from memory.
+    /// </summary>
+    [HttpGet("snap-route")]
+    public async Task<IActionResult> SnapRoute(
+        [FromQuery] double startLat,
+        [FromQuery] double startLon,
+        [FromQuery] double stopLat,
+        [FromQuery] double stopLon,
+        CancellationToken ct)
+    {
+        // Sanity: lat in [-90, 90], lon in [-180, 180]. Saves a round-trip
+        // for callers that pass garbage.
+        if (!IsValidLatLon(startLat, startLon) || !IsValidLatLon(stopLat, stopLon))
+            return BadRequest(new { error = "Neplatné súradnice." });
+
+        var snapped = await _routes.SnapAsync(startLat, startLon, stopLat, stopLon, ct);
+        if (snapped == null) return NoContent();
+
+        return Ok(new SnappedRouteDto
+        {
+            Coordinates = snapped.Coordinates,
+            DistanceMeters = snapped.DistanceMeters,
+            DurationSeconds = snapped.DurationSeconds,
+        });
+    }
+
+    /// <summary>
+    /// GET /api/commander/reverse-geocode?lat=…&amp;lon=…
+    ///
+    /// Single-coordinate reverse lookup via OpenRouteService geocoding.
+    /// 200 with <c>{ "label": "Pražská 1, 81106 Bratislava, Slovakia" }</c>
+    /// on success; 204 No Content when the geocoder returns no result, the
+    /// API key isn't configured, or any error path was hit. Frontend treats
+    /// 204 as "fall back to coords".
+    ///
+    /// Cached server-side for 7 days at 3-decimal coord precision (~110 m),
+    /// so a vehicle moving along the same street segment returns the same
+    /// label without burning quota.
+    /// </summary>
+    [HttpGet("reverse-geocode")]
+    public async Task<IActionResult> ReverseGeocode(
+        [FromQuery] double lat,
+        [FromQuery] double lon,
+        CancellationToken ct)
+    {
+        if (!IsValidLatLon(lat, lon))
+            return BadRequest(new { error = "Neplatné súradnice." });
+
+        var label = await _routes.ReverseGeocodeAsync(lat, lon, ct);
+        if (string.IsNullOrEmpty(label)) return NoContent();
+        return Ok(new { label });
+    }
+
+    private static bool IsValidLatLon(double lat, double lon)
+        => lat is >= -90 and <= 90 && lon is >= -180 and <= 180;
 
     private ActionResult<T> ToActionResult<T>(CommanderResult<T> r) where T : class
     {

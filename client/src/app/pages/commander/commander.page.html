@@ -98,11 +98,11 @@
       <div class="flex flex-wrap gap-2 text-xs">
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-900/40 text-green-300">
           <span class="w-2 h-2 rounded-full bg-green-500"></span>
-          Ide: {{ counts.moving }}
+          V pohybe: {{ counts.moving }}
         </span>
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-900/40 text-amber-300">
           <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-          Beží: {{ counts.idle }}
+          Zapnuté zapaľovanie: {{ counts.idle }}
         </span>
         <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-700/60 text-slate-300">
           <span class="w-2 h-2 rounded-full bg-slate-400"></span>
@@ -203,8 +203,8 @@
 
                   <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
                     <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Pozícia</div>
-                    @if (p?.gpsTimeUtc) {
-                      <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ p!.gpsTimeUtc | date:'dd.MM.yyyy HH:mm' }}</div>
+                    @if (p?.gpsTime) {
+                      <div class="text-sm font-semibold text-slate-900 dark:text-white">{{ p!.gpsTime | date:'dd.MM.yyyy HH:mm' }}</div>
                     } @else {
                       <div class="text-slate-400">—</div>
                     }
@@ -275,9 +275,20 @@
                   </div>
 
                   <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-                    <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Adresa</div>
-                    @if (p?.address) {
-                      <div class="text-sm text-slate-900 dark:text-white truncate" [title]="p!.address!">{{ p!.address }}</div>
+                    <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Aktuálna poloha</div>
+                    @if (p?.latitude != null && p?.longitude != null) {
+                      <!-- Resolved place name (from Commander's own address or
+                           ORS reverse-geocoded label) on the primary line;
+                           coords on a smaller secondary line. Falls back to
+                           coords-only when no place name is available. -->
+                      @let resolvedSel = locationLabel(p);
+                      @let coords = formatCoords(p);
+                      @if (resolvedSel !== coords) {
+                        <div class="text-sm text-slate-900 dark:text-white" [title]="resolvedSel">{{ resolvedSel }}</div>
+                        <div class="mt-1 text-xs text-slate-500 dark:text-slate-400 tabular-nums">{{ coords }}</div>
+                      } @else {
+                        <div class="text-sm text-slate-900 dark:text-white tabular-nums">{{ coords }}</div>
+                      }
                     } @else {
                       <div class="text-slate-400">—</div>
                     }
@@ -290,7 +301,13 @@
                   <div class="flex items-center justify-between gap-3 px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex-wrap">
                     <span class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 flex items-center gap-2">
                       @if (activeRide) {
-                        <span>Jazda · {{ activeRide.startTimeUtc | date:'dd.MM.yyyy HH:mm' }}</span>
+                        <span>Jazda · {{ activeRide.startTime | date:'dd.MM.yyyy HH:mm' }}</span>
+                        <!-- "Route along roads (estimate)" — labelled when ORS snapped
+                             the polyline so the manager knows it's the routing engine's
+                             best guess, not the actual driven path. -->
+                        @if (selectedRideSnapped()) {
+                          <span class="normal-case tracking-normal text-slate-500 dark:text-slate-400">· trasa po cestách (odhad)</span>
+                        }
                       } @else {
                         <span>Mapa</span>
                         @if (liveRefresh()) {
@@ -363,6 +380,9 @@
                         <dd class="text-sm text-slate-500 dark:text-slate-400 text-right sm:text-left">{{ rs.today.rideCount }} {{ rs.today.rideCount === 1 ? 'jazda' : (rs.today.rideCount < 5 ? 'jazdy' : 'jázd') }}</dd>
                         <dd class="col-span-2 sm:col-span-1 text-sm font-medium text-slate-900 dark:text-white tabular-nums whitespace-nowrap text-right">
                           {{ rs.today.distanceKm | number:'1.0-1' }} km · {{ formatDuration(rs.today.durationSeconds) }}
+                          @if (rs.today.rideCount > 0) {
+                            <span class="text-slate-500 dark:text-slate-400 font-normal"> · ⌀ {{ rs.today.avgSpeedKmh | number:'1.0-0' }} km/h</span>
+                          }
                         </dd>
                       </div>
                       <div class="grid grid-cols-[1fr_auto] sm:grid-cols-[10rem_1fr_auto] items-baseline gap-x-3 gap-y-0.5 py-2">
@@ -370,13 +390,19 @@
                         <dd class="text-sm text-slate-500 dark:text-slate-400 text-right sm:text-left">{{ rs.yesterday.rideCount }} {{ rs.yesterday.rideCount === 1 ? 'jazda' : (rs.yesterday.rideCount < 5 ? 'jazdy' : 'jázd') }}</dd>
                         <dd class="col-span-2 sm:col-span-1 text-sm font-medium text-slate-900 dark:text-white tabular-nums whitespace-nowrap text-right">
                           {{ rs.yesterday.distanceKm | number:'1.0-1' }} km · {{ formatDuration(rs.yesterday.durationSeconds) }}
+                          @if (rs.yesterday.rideCount > 0) {
+                            <span class="text-slate-500 dark:text-slate-400 font-normal"> · ⌀ {{ rs.yesterday.avgSpeedKmh | number:'1.0-0' }} km/h</span>
+                          }
                         </dd>
                       </div>
                       <div class="grid grid-cols-[1fr_auto] sm:grid-cols-[10rem_1fr_auto] items-baseline gap-x-3 gap-y-0.5 py-2">
-                        <dt class="text-sm text-slate-700 dark:text-slate-300">Posledných 7 dní</dt>
-                        <dd class="text-sm text-slate-500 dark:text-slate-400 text-right sm:text-left">{{ rs.last7Days.rideCount }} {{ rs.last7Days.rideCount === 1 ? 'jazda' : (rs.last7Days.rideCount < 5 ? 'jazdy' : 'jázd') }}</dd>
+                        <dt class="text-sm text-slate-700 dark:text-slate-300">Aktuálny týždeň</dt>
+                        <dd class="text-sm text-slate-500 dark:text-slate-400 text-right sm:text-left">{{ rs.currentWeek.rideCount }} {{ rs.currentWeek.rideCount === 1 ? 'jazda' : (rs.currentWeek.rideCount < 5 ? 'jazdy' : 'jázd') }}</dd>
                         <dd class="col-span-2 sm:col-span-1 text-sm font-medium text-slate-900 dark:text-white tabular-nums whitespace-nowrap text-right">
-                          {{ rs.last7Days.distanceKm | number:'1.0-1' }} km · {{ formatDuration(rs.last7Days.durationSeconds) }}
+                          {{ rs.currentWeek.distanceKm | number:'1.0-1' }} km · {{ formatDuration(rs.currentWeek.durationSeconds) }}
+                          @if (rs.currentWeek.rideCount > 0) {
+                            <span class="text-slate-500 dark:text-slate-400 font-normal"> · ⌀ {{ rs.currentWeek.avgSpeedKmh | number:'1.0-0' }} km/h</span>
+                          }
                         </dd>
                       </div>
                       <div class="grid grid-cols-[1fr_auto] sm:grid-cols-[10rem_1fr_auto] items-baseline gap-x-3 gap-y-0.5 py-2">
@@ -384,6 +410,9 @@
                         <dd class="text-sm text-slate-500 dark:text-slate-400 text-right sm:text-left">{{ rs.thisMonth.rideCount }} {{ rs.thisMonth.rideCount === 1 ? 'jazda' : (rs.thisMonth.rideCount < 5 ? 'jazdy' : 'jázd') }}</dd>
                         <dd class="col-span-2 sm:col-span-1 text-sm font-medium text-slate-900 dark:text-white tabular-nums whitespace-nowrap text-right">
                           {{ rs.thisMonth.distanceKm | number:'1.0-1' }} km · {{ formatDuration(rs.thisMonth.durationSeconds) }}
+                          @if (rs.thisMonth.rideCount > 0) {
+                            <span class="text-slate-500 dark:text-slate-400 font-normal"> · ⌀ {{ rs.thisMonth.avgSpeedKmh | number:'1.0-0' }} km/h</span>
+                          }
                         </dd>
                       </div>
                       <div class="grid grid-cols-[1fr_auto] sm:grid-cols-[10rem_1fr_auto] items-baseline gap-x-3 gap-y-0.5 py-2">
@@ -391,6 +420,9 @@
                         <dd class="text-sm text-slate-500 dark:text-slate-400 text-right sm:text-left">{{ rs.lastMonth.rideCount }} {{ rs.lastMonth.rideCount === 1 ? 'jazda' : (rs.lastMonth.rideCount < 5 ? 'jazdy' : 'jázd') }}</dd>
                         <dd class="col-span-2 sm:col-span-1 text-sm font-medium text-slate-900 dark:text-white tabular-nums whitespace-nowrap text-right">
                           {{ rs.lastMonth.distanceKm | number:'1.0-1' }} km · {{ formatDuration(rs.lastMonth.durationSeconds) }}
+                          @if (rs.lastMonth.rideCount > 0) {
+                            <span class="text-slate-500 dark:text-slate-400 font-normal"> · ⌀ {{ rs.lastMonth.avgSpeedKmh | number:'1.0-0' }} km/h</span>
+                          }
                         </dd>
                       </div>
                     </dl>
@@ -431,7 +463,7 @@
                             <div class="flex items-baseline justify-between gap-x-3 gap-y-1 flex-wrap min-w-0">
                               <div class="flex items-baseline gap-x-2 gap-y-1 flex-wrap min-w-0">
                                 <span class="text-sm font-medium text-slate-900 dark:text-white tabular-nums whitespace-nowrap">
-                                  {{ r.startTimeUtc | date:'dd.MM.yyyy HH:mm' }}
+                                  {{ r.startTime | date:'dd.MM.yyyy HH:mm' }}
                                 </span>
                                 @if (isPrivate) {
                                   <span class="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded whitespace-nowrap">súkromná</span>
@@ -475,12 +507,13 @@
         <div class="grid grid-cols-1 xl:grid-cols-[1fr_24rem] gap-4">
 
           <!-- Stacked card list (shown below md). Each card is a single tap target
-               with the same data the table carries; "Adresa" gets its own line so
-               long Slovak addresses wrap cleanly without horizontal scroll. -->
+               with the same data the wide table carries; the "Aktuálna poloha"
+               line gets its own row so long Slovak addresses wrap cleanly. -->
           <div class="md:hidden space-y-2">
             @for (v of vehicles(); track v.vehicleId) {
               @let s = status(v.vehicleId);
               @let p = position(v.vehicleId);
+              @let stats = fleetStatsFor(v.vehicleId);
               @let isSelected = selectedVehicleId() === v.vehicleId;
               <button type="button" (click)="select(v.vehicleId)"
                       class="w-full text-left bg-white dark:bg-slate-800 rounded-xl border p-3 transition-colors active:scale-[0.99]"
@@ -504,7 +537,7 @@
                 <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
                   <div>
                     <span class="text-slate-400 dark:text-slate-500">Pozícia: </span>
-                    {{ p?.gpsTimeUtc ? (p!.gpsTimeUtc | date:'dd.MM. HH:mm') : '—' }}
+                    {{ p?.gpsTime ? (p!.gpsTime | date:'dd.MM. HH:mm') : '—' }}
                   </div>
                   <div class="text-right">
                     <span class="text-slate-400 dark:text-slate-500">Rýchlosť: </span>
@@ -514,69 +547,146 @@
                       —
                     }
                   </div>
+                  @if (stats?.tachoKm != null) {
+                    <div class="col-span-2">
+                      <span class="text-slate-400 dark:text-slate-500">Tachometer: </span>
+                      <span class="tabular-nums text-slate-900 dark:text-white font-medium">{{ stats!.tachoKm | number:'1.0-0' }} km</span>
+                    </div>
+                  }
                 </div>
-                @if (p?.address) {
+                @if (p) {
                   <div class="mt-1 text-xs text-slate-700 dark:text-slate-300 line-clamp-2">
-                    <span class="text-slate-400 dark:text-slate-500">Adresa: </span>{{ p!.address }}
+                    <span class="text-slate-400 dark:text-slate-500">Poloha: </span>{{ locationLabel(p) }}
+                  </div>
+                }
+                @if (stats) {
+                  <!-- Distance + duration + avg speed grouped per period.
+                       Avg gets its own column on the wide table; on phones
+                       we squeeze it onto the same line so the card stays
+                       compact. -->
+                  <div class="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700/60 space-y-0.5 text-xs leading-tight">
+                    <div class="flex justify-between gap-2">
+                      <span class="text-slate-400 dark:text-slate-500">Dnes:</span>
+                      <span class="tabular-nums text-slate-900 dark:text-white text-right">{{ formatBucket(stats.today) }} · ⌀ {{ formatBucketAvg(stats.today) }}</span>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                      <span class="text-slate-400 dark:text-slate-500">Týždeň:</span>
+                      <span class="tabular-nums text-slate-900 dark:text-white text-right">{{ formatBucket(stats.currentWeek) }} · ⌀ {{ formatBucketAvg(stats.currentWeek) }}</span>
+                    </div>
+                    <div class="flex justify-between gap-2">
+                      <span class="text-slate-400 dark:text-slate-500">Mesiac:</span>
+                      <span class="tabular-nums text-slate-900 dark:text-white text-right">{{ formatBucket(stats.thisMonth) }} · ⌀ {{ formatBucketAvg(stats.thisMonth) }}</span>
+                    </div>
                   </div>
                 }
               </button>
             }
           </div>
 
-          <!-- Table (md+). The narrow tablet portrait at 1024 wide still hits this
-               branch, but we hide low-priority columns below xl so 5 columns
-               don't overflow. -->
-          <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto">
+          <!-- Table (md+). Natural column sizing — no table-fixed. The only
+               cell that can grow unbounded is Poloha (a long ORS address), so
+               we cap that one with max-w on the address line. Everything else
+               either has whitespace-nowrap content of bounded length or wraps
+               by design. The browser fits remaining columns proportionally,
+               so the Štatistiky / Priem. rýchlosť overlap from the previous
+               table-fixed layout is gone. -->
+          <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
             <table class="w-full text-sm">
               <thead class="bg-slate-100 dark:bg-slate-700/50">
                 <tr>
-                  <th class="text-left px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">Vozidlo</th>
-                  <th class="text-left px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">Stav</th>
-                  <th class="text-left px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Pozícia (čas)</th>
-                  <!-- Adresa is the widest column; hide on tablet portrait (lg-and-below)
-                       so the table doesn't horizontal-scroll. The full address is still
-                       in the row's title attribute and on the Detail tab card. -->
-                  <th class="hidden xl:table-cell text-left px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">Adresa</th>
-                  <th class="text-right px-3 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Rýchlosť</th>
+                  <th class="text-left px-2 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Vozidlo</th>
+                  <th class="text-left px-2 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Stav</th>
+                  <th class="hidden lg:table-cell text-left px-2 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Poloha</th>
+                  <th class="hidden lg:table-cell text-right px-2 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Tachometer</th>
+                  <th class="hidden lg:table-cell text-left px-2 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Štatistiky</th>
+                  <th class="hidden lg:table-cell text-right px-2 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">⌀ rýchlosť</th>
+                  <th class="text-right px-2 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide whitespace-nowrap">Rýchlosť</th>
                 </tr>
               </thead>
               <tbody>
                 @for (v of vehicles(); track v.vehicleId) {
                   @let s = status(v.vehicleId);
                   @let p = position(v.vehicleId);
+                  @let stats = fleetStatsFor(v.vehicleId);
+                  @let resolved = resolvedAddressFor(v.vehicleId);
                   @let isSelected = selectedVehicleId() === v.vehicleId;
                   <tr (click)="select(v.vehicleId)"
-                      [title]="p?.address || ''"
+                      [title]="locationTooltip(p)"
                       class="border-t border-slate-200 dark:border-slate-700 cursor-pointer transition-colors"
                       [class.bg-amber-50]="isSelected"
                       [class.dark:bg-amber-900/20]="isSelected"
                       [class.hover:bg-slate-100]="!isSelected"
                       [class.dark:hover:bg-slate-700/50]="!isSelected">
-                    <td class="px-3 py-3 align-top">
-                      <div class="text-slate-900 dark:text-white">{{ v.name || '—' }}</div>
+                    <td class="px-2 py-3 align-top">
+                      <div class="text-slate-900 dark:text-white truncate">{{ v.name || '—' }}</div>
                       @if (v.registrationPlate) {
                         <div class="text-xs text-slate-500 dark:text-slate-400 font-mono">{{ v.registrationPlate }}</div>
                       }
-                      <!-- Inline Adresa for tablet portrait (lg-and-below) where the
-                           dedicated Adresa column is hidden. -->
-                      @if (p?.address) {
-                        <div class="xl:hidden mt-1 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{{ p!.address }}</div>
-                      }
+                      <!-- Inline location for md (the Poloha column hides below lg). -->
+                      <div class="lg:hidden mt-1 text-xs text-slate-500 dark:text-slate-400 truncate">{{ locationLabel(p) }}</div>
                     </td>
-                    <td class="px-3 py-3 align-top whitespace-nowrap">
-                      <span class="inline-flex items-center gap-1.5">
-                        <span class="w-2.5 h-2.5 rounded-full" [class]="s.dotClass"></span>
-                        <span class="text-xs sm:text-sm text-slate-600 dark:text-slate-300">{{ s.label }}</span>
+                    <td class="px-2 py-3 align-top">
+                      <span class="inline-flex items-baseline gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1" [class]="s.dotClass"></span>
+                        <span class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-tight">{{ s.label }}</span>
                       </span>
                     </td>
-                    <td class="px-3 py-3 align-top whitespace-nowrap text-slate-700 dark:text-slate-300">
-                      {{ p?.gpsTimeUtc ? (p!.gpsTimeUtc | date:'dd.MM.yyyy HH:mm') : '—' }}
+                    <td class="hidden lg:table-cell px-2 py-3 align-top text-slate-900 dark:text-white max-w-[12rem]">
+                      @if (resolved) {
+                        <!-- max-w on the td plus line-clamp-2 here keeps a long
+                             ORS label like "Pražská 1, 81106 Bratislava, Slovakia"
+                             from forcing the column wide and crowding out
+                             Štatistiky / Priem. rýchlosť. -->
+                        <div class="text-xs leading-tight line-clamp-2" [title]="resolved">{{ resolved }}</div>
+                        <div class="mt-0.5 text-xs text-slate-500 dark:text-slate-400 tabular-nums">{{ formatCoords(p) }}</div>
+                      } @else {
+                        <div class="text-xs tabular-nums">{{ formatCoords(p) }}</div>
+                      }
+                      @if (p?.gpsTime) {
+                        <div class="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">{{ p!.gpsTime | date:'dd.MM. HH:mm' }}</div>
+                      }
                     </td>
-                    <td class="hidden xl:table-cell px-3 py-3 align-top text-slate-700 dark:text-slate-300 max-w-xs truncate">
-                      {{ p?.address || '—' }}
+                    <td class="hidden lg:table-cell px-2 py-3 align-top text-right whitespace-nowrap tabular-nums text-slate-900 dark:text-white">
+                      @if (stats?.tachoKm != null) {
+                        {{ stats!.tachoKm | number:'1.0-0' }} <span class="text-xs text-slate-500">km</span>
+                      } @else {
+                        <span class="text-slate-400">—</span>
+                      }
                     </td>
-                    <td class="px-3 py-3 align-top text-right whitespace-nowrap text-slate-700 dark:text-slate-300">
+                    <td class="hidden lg:table-cell px-2 py-3 align-top text-xs text-slate-700 dark:text-slate-300">
+                      @if (stats) {
+                        <div class="space-y-0.5 leading-tight">
+                          <div class="flex justify-between gap-2">
+                            <span class="text-slate-500 dark:text-slate-400">Dnes:</span>
+                            <span class="tabular-nums whitespace-nowrap">{{ formatBucket(stats.today) }}</span>
+                          </div>
+                          <div class="flex justify-between gap-2">
+                            <span class="text-slate-500 dark:text-slate-400">Týždeň:</span>
+                            <span class="tabular-nums whitespace-nowrap">{{ formatBucket(stats.currentWeek) }}</span>
+                          </div>
+                          <div class="flex justify-between gap-2">
+                            <span class="text-slate-500 dark:text-slate-400">Mesiac:</span>
+                            <span class="tabular-nums whitespace-nowrap">{{ formatBucket(stats.thisMonth) }}</span>
+                          </div>
+                        </div>
+                      } @else {
+                        <span class="text-slate-400">—</span>
+                      }
+                    </td>
+                    <td class="hidden lg:table-cell px-2 py-3 align-top text-right text-xs text-slate-700 dark:text-slate-300">
+                      @if (stats) {
+                        <!-- Same row order as the Štatistiky cell so the eye
+                             can scan across — Dnes, Týždeň, Mesiac. -->
+                        <div class="space-y-0.5 leading-tight">
+                          <div class="tabular-nums whitespace-nowrap">{{ formatBucketAvg(stats.today) }}</div>
+                          <div class="tabular-nums whitespace-nowrap">{{ formatBucketAvg(stats.currentWeek) }}</div>
+                          <div class="tabular-nums whitespace-nowrap">{{ formatBucketAvg(stats.thisMonth) }}</div>
+                        </div>
+                      } @else {
+                        <span class="text-slate-400">—</span>
+                      }
+                    </td>
+                    <td class="px-2 py-3 align-top text-right whitespace-nowrap text-slate-700 dark:text-slate-300">
                       @if (p?.speedKmh != null) {
                         {{ p!.speedKmh | number:'1.0-1' }} <span class="text-xs text-slate-500">km/h</span>
                       } @else {

@@ -158,6 +158,15 @@ builder.Services.AddHttpClient<ICommanderClient, CommanderClient>(c =>
     c.Timeout = TimeSpan.FromSeconds(15);
 });
 
+// OpenRouteService — road-snapping for the Commander ride map. Optional;
+// without an API key the client returns null and the frontend keeps the
+// existing dashed straight line. Free tier is 2 000 directions/day,
+// 40/min — more than enough with the in-memory cache. See SECRETS.md.
+builder.Services.AddHttpClient<IRouteSnappingService, OpenRouteServiceClient>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(10);
+});
+
 // CORS
 // Base origins come from appsettings / Railway config section.
 // ALLOWED_ORIGINS env var adds extra comma-separated origins at runtime.

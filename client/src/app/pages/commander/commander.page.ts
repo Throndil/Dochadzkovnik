@@ -18,10 +18,13 @@ import { AuthService } from '../../services/auth.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import {
   CommanderError,
+  CommanderFleetVehicleStats,
   CommanderPosition,
+  CommanderRideBucket,
   CommanderRideDetail,
   CommanderRideSummary,
   CommanderService,
+  CommanderSnappedRoute,
   CommanderTacho,
   CommanderVehicle,
 } from '../../services/commander.service';
@@ -83,6 +86,29 @@ export class CommanderPage implements OnInit, OnDestroy {
 
   vehicles = signal<CommanderVehicle[]>([]);
   positionsById = signal<Record<string, CommanderPosition>>({});
+  /**
+   * Per-vehicle stats batch keyed by vehicleId. Populated by load() and on
+   * each Obnoviť, NOT on the 10s live-position polling tick (the underlying
+   * /rides + /current-tacho calls are quota-heavier than /last-positions
+   * and the daily totals don't change second-to-second).
+   */
+  fleetStatsById = signal<Record<string, CommanderFleetVehicleStats>>({});
+  /**
+   * Resolved street/place labels per vehicleId, fetched lazily via the
+   * /api/commander/reverse-geocode proxy (OpenRouteService Pelias geocoder).
+   * Used in the Prehlad / Detail "Poloha" cells and the live-position map
+   * tooltip when Commander itself didn't return an address.
+   *
+   * Deduped client-side by rounded coords (3 decimals ≈ 110 m) — a vehicle
+   * moving 5 m doesn't trigger a new HTTP call. The backend caches at the
+   * same precision for 7 days, so a hit on either side is cheap.
+   */
+  addressesByVehicleId = signal<Record<string, string>>({});
+  /**
+   * Coord rounding state: vehicleId → "lat3,lon3" of the last call we made,
+   * so positions that round to the same cell don't refire. Reset by load().
+   */
+  private lastResolvedCoordKeyByVehicleId = new Map<string, string>();
 
   selectedVehicleId = signal<string | null>(null);
   selectedTacho = signal<CommanderTacho | null>(null);
@@ -105,6 +131,16 @@ export class CommanderPage implements OnInit, OnDestroy {
     if (!id) return null;
     return this.selectedRecentRides().find(r => r.rideId === id) ?? null;
   });
+
+  /**
+   * Road-snapped polyline for the currently-selected ride, fetched lazily
+   * via the backend /api/commander/snap-route endpoint. null while the
+   * fetch is in flight, while no ride is selected, or whenever snapping
+   * isn't available (no API key, ORS outage, "no route found"). The map
+   * draws a dashed straight line in those cases — same as before snapping
+   * was added.
+   */
+  selectedRideSnapped = signal<CommanderSnappedRoute | null>(null);
 
   // Live position polling. When `liveRefresh` is on we re-fetch /last-positions
   // every 10 s, matching the backend's cache TTL so we burn zero extra
@@ -165,6 +201,13 @@ export class CommanderPage implements OnInit, OnDestroy {
   private lastRenderedRideId: string | null = null;
   private lastRenderedLat: number | null = null;
   private lastRenderedLon: number | null = null;
+  /**
+   * Remember whether the last ride render used a snapped polyline. When the
+   * snap response arrives mid-ride we want to refit the bounds to the full
+   * real path; without this flag we'd compare current-vs-last by ride id
+   * only and miss the upgrade.
+   */
+  private lastRenderedSnapped: CommanderSnappedRoute | null = null;
 
   constructor() {
     // Single effect handles map lifecycle: which container to mount onto,
@@ -177,7 +220,10 @@ export class CommanderPage implements OnInit, OnDestroy {
         : this.mapPrehladContainer()?.nativeElement;
       const ride = this.selectedRide();
       const livePos = this.selectedPosition();
-      this.syncMap(el, ride, livePos);
+      // Read selectedRideSnapped() so the effect re-runs (and the polyline
+      // upgrades from dashed to solid) the moment the snap response arrives.
+      const snapped = this.selectedRideSnapped();
+      this.syncMap(el, ride, livePos, snapped);
     });
   }
 
@@ -229,11 +275,42 @@ export class CommanderPage implements OnInit, OnDestroy {
         }
         this.positionsById.set(map);
         this.lastRefreshAt.set(new Date());
+        this.resolveAddressesIfNeeded(positions);
       },
       error: () => {
         // Skip this tick. Don't tear down — give the next interval a chance.
       },
     });
+  }
+
+  /**
+   * For each position, if its rounded coords differ from the last cell we
+   * resolved for that vehicle, fire a reverseGeocode and store the result
+   * in addressesByVehicleId. Deduped by 3-decimal coord cell so a moving
+   * vehicle doesn't burn a fresh API call every 11 m.
+   *
+   * Resolution failures are silent — the address simply stays at the last
+   * good value (or absent), and the UI falls back to coords as it does
+   * when no key is configured.
+   */
+  private resolveAddressesIfNeeded(positions: CommanderPosition[]) {
+    for (const p of positions) {
+      if (!p.vehicleId || p.latitude == null || p.longitude == null) continue;
+      const key = `${p.latitude.toFixed(3)},${p.longitude.toFixed(3)}`;
+      if (this.lastResolvedCoordKeyByVehicleId.get(p.vehicleId) === key) continue;
+      this.lastResolvedCoordKeyByVehicleId.set(p.vehicleId, key);
+      const vehicleId = p.vehicleId;
+      this.commander.reverseGeocode(p.latitude, p.longitude).subscribe(label => {
+        if (!label) return;
+        this.addressesByVehicleId.update(curr => ({ ...curr, [vehicleId]: label }));
+      });
+    }
+  }
+
+  /** Look up the latest resolved address for a vehicle, or null. */
+  resolvedAddressFor(vehicleId: string | null | undefined): string | null {
+    if (!vehicleId) return null;
+    return this.addressesByVehicleId()[vehicleId] ?? null;
   }
 
   load() {
@@ -242,16 +319,25 @@ export class CommanderPage implements OnInit, OnDestroy {
     this.error.set(null);
     this.vehicles.set([]);
     this.positionsById.set({});
+    this.fleetStatsById.set({});
+    this.addressesByVehicleId.set({});
+    this.lastResolvedCoordKeyByVehicleId.clear();
     this.selectedVehicleId.set(null);
     this.selectedTacho.set(null);
 
+    // Fleet stats failure is non-fatal — the rest of the page should still
+    // load if /fleet-stats happens to be slow or returns an error. The
+    // Prehlad columns just stay blank for that load.
     forkJoin({
       vehicles: this.commander.getVehicles(),
       positions: this.commander
         .getLastPositions()
         .pipe(catchError(() => of([] as CommanderPosition[]))),
+      fleetStats: this.commander
+        .getFleetStats()
+        .pipe(catchError(() => of([] as CommanderFleetVehicleStats[]))),
     }).subscribe({
-      next: ({ vehicles, positions }) => {
+      next: ({ vehicles, positions, fleetStats }) => {
         const sorted = [...vehicles].sort((a, b) =>
           (a.name ?? '').localeCompare(b.name ?? '', 'sk'),
         );
@@ -261,7 +347,16 @@ export class CommanderPage implements OnInit, OnDestroy {
           if (p.vehicleId) map[p.vehicleId] = p;
         }
         this.positionsById.set(map);
+        const stats: Record<string, CommanderFleetVehicleStats> = {};
+        for (const s of fleetStats) {
+          if (s.vehicleId) stats[s.vehicleId] = s;
+        }
+        this.fleetStatsById.set(stats);
         this.loading.set(false);
+
+        // Kick off reverse-geocoding for every vehicle's current position.
+        // Deduped by 3-decimal coord cell so this stays cheap on quota.
+        this.resolveAddressesIfNeeded(positions);
 
         if (sorted.length > 0) this.select(sorted[0].vehicleId);
       },
@@ -270,6 +365,84 @@ export class CommanderPage implements OnInit, OnDestroy {
         this.error.set(err);
       },
     });
+  }
+
+  /** Look up the cached fleet-stats row for a vehicleId (or null). */
+  fleetStatsFor(vehicleId: string): CommanderFleetVehicleStats | null {
+    return this.fleetStatsById()[vehicleId] ?? null;
+  }
+
+  /**
+   * Lat/lon coordinates as the table-row "Aktuálna poloha" cell. 4 decimal
+   * places ≈ 11 m. Always coords (not address) — the address goes onto the
+   * live-position map marker tooltip instead, where the manager can see the
+   * full street name without making the table column wider. Returns
+   * em-dash when no GPS at all.
+   */
+  formatCoords(p: CommanderPosition | null | undefined): string {
+    if (!p || p.latitude == null || p.longitude == null) return '—';
+    return `${p.latitude.toFixed(4)}, ${p.longitude.toFixed(4)}`;
+  }
+
+  /**
+   * Best human-readable label for a position, in priority order:
+   *   1. Commander's own <c>address</c> field (when the customer's account
+   *      has address resolution enabled — this customer's currently does not).
+   *   2. The OpenRouteService reverse-geocoded label cached in
+   *      addressesByVehicleId (resolved client-side via /reverse-geocode).
+   *   3. Coords as the final fallback so the cell is never empty.
+   */
+  locationLabel(p: CommanderPosition | null | undefined): string {
+    if (!p) return '—';
+    if (p.address && p.address.trim().length > 0) return p.address;
+    const resolved = this.resolvedAddressFor(p.vehicleId);
+    if (resolved) return resolved;
+    return this.formatCoords(p);
+  }
+
+  /**
+   * Map-marker tooltip text. Same priority order as locationLabel(); empty
+   * string when no GPS at all so Leaflet can omit the tooltip cleanly.
+   */
+  locationTooltip(p: CommanderPosition | null | undefined): string {
+    if (!p) return '';
+    return this.locationLabel(p);
+  }
+
+  /**
+   * Compact distance + duration line for the Prehlad Štatistiky cell.
+   * Avg speed lives in its own Priemerná rýchlosť column now, so this
+   * is just "22,6 km · 1h 59m". Em-dash for empty buckets.
+   */
+  formatBucket(b: CommanderRideBucket | null | undefined): string {
+    if (!b || b.rideCount === 0) return '—';
+    const km = (b.distanceKm ?? 0).toLocaleString('sk-SK', { maximumFractionDigits: 1 });
+    const dur = this.formatDurationCompact(b.durationSeconds ?? 0);
+    return `${km} km · ${dur}`;
+  }
+
+  /**
+   * Avg speed as a standalone "11 km/h" / "32 km/h" string for the
+   * Priemerná rýchlosť column. Em-dash for empty buckets so the column
+   * doesn't show "0 km/h" for vehicles that didn't drive in the period.
+   */
+  formatBucketAvg(b: CommanderRideBucket | null | undefined): string {
+    if (!b || b.rideCount === 0) return '—';
+    const avg = (b.avgSpeedKmh ?? 0).toLocaleString('sk-SK', { maximumFractionDigits: 0 });
+    return `${avg} km/h`;
+  }
+
+  /**
+   * Tight duration formatting for table cells: "1h 59m" / "59m" / "0m".
+   * formatDuration() uses the longer "h"/" min" wording — fine for the
+   * Detail-tab card, too wide for the Prehlad Štatistiky column.
+   */
+  private formatDurationCompact(seconds: number): string {
+    if (seconds <= 0) return '0m';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    return `${m}m`;
   }
 
   select(vehicleId: string) {
@@ -322,12 +495,26 @@ export class CommanderPage implements OnInit, OnDestroy {
     const ride = this.selectedRecentRides().find(r => r.rideId === rideId);
     // Don't enter ride mode for private rides — Commander returns null coords
     // for them, so there's nothing to plot.
-    if (!ride || ride.latStart == null || ride.latStop == null) return;
+    if (!ride || ride.latStart == null || ride.latStop == null ||
+        ride.lonStart == null || ride.lonStop == null) return;
     this.selectedRideId.set(rideId);
+    // Clear any stale snapped route from the previously-selected ride so the
+    // map immediately falls back to the dashed straight line while the new
+    // snap call is in flight (which is also the correct end state if the
+    // call returns null). Then fetch the new one and let the effect redraw.
+    this.selectedRideSnapped.set(null);
+    this.commander
+      .snapRoute(ride.latStart, ride.lonStart, ride.latStop, ride.lonStop)
+      .subscribe(snap => {
+        // Only apply if the user hasn't navigated away to a different ride
+        // in the meantime — otherwise we'd flash the wrong polyline.
+        if (this.selectedRideId() === rideId) this.selectedRideSnapped.set(snap);
+      });
   }
 
   clearRide() {
     this.selectedRideId.set(null);
+    this.selectedRideSnapped.set(null);
   }
 
   /** True when the selected ride has plottable coords. */
@@ -361,14 +548,17 @@ export class CommanderPage implements OnInit, OnDestroy {
 
   statusFor(p: CommanderPosition | null | undefined): VehicleStatus {
     if (!p) return { kind: 'unknown', label: 'Bez údajov', dotClass: 'bg-slate-400' };
-    const ageMs = p.gpsTimeUtc
-      ? Date.now() - new Date(p.gpsTimeUtc).getTime()
+    const ageMs = p.gpsTime
+      ? Date.now() - new Date(p.gpsTime).getTime()
       : Number.MAX_SAFE_INTEGER;
     const stale = ageMs > 7 * 24 * 60 * 60 * 1000;
     if (stale) return { kind: 'stale', label: 'Bez signálu', dotClass: 'bg-red-500' };
     const speed = p.speedKmh ?? 0;
-    if (p.ignitionOn && speed > 0) return { kind: 'moving', label: 'Ide', dotClass: 'bg-green-500' };
-    if (p.ignitionOn) return { kind: 'idle', label: 'Beží', dotClass: 'bg-amber-500' };
+    // Customer feedback: "Ide" / "Beží" was confusing. Renamed to
+    // "V pohybe" (in motion) and "Zapnuté zapaľovanie" (engine on but
+    // stationary, e.g. idling at a job site).
+    if (p.ignitionOn && speed > 0) return { kind: 'moving', label: 'V pohybe', dotClass: 'bg-green-500' };
+    if (p.ignitionOn) return { kind: 'idle', label: 'Zapnuté zapaľovanie', dotClass: 'bg-amber-500' };
     return { kind: 'parked', label: 'Stojí', dotClass: 'bg-slate-400' };
   }
 
@@ -395,6 +585,7 @@ export class CommanderPage implements OnInit, OnDestroy {
     el: HTMLElement | undefined,
     ride: CommanderRideDetail | null,
     livePos: CommanderPosition | null,
+    snapped: CommanderSnappedRoute | null,
   ) {
     // Decide which mode to render. Ride mode wins when a ride is selected
     // and has plottable coords (private rides have nulls — they fall back).
@@ -446,9 +637,15 @@ export class CommanderPage implements OnInit, OnDestroy {
         this.leafletMarker.remove();
         this.leafletMarker = undefined;
       }
-      // fitBounds when the ride id has actually changed (or first render).
-      const recenter = currentRideId !== this.lastRenderedRideId;
-      this.renderRideMarkers(ride!, recenter);
+      // fitBounds when the ride id has actually changed (or first render),
+      // OR when a snapped polyline just arrived for the same ride (so the
+      // map zooms to the full real path, not just the start/stop straight
+      // line). The latter is tracked via lastRenderedSnapped.
+      const snapJustArrived = snapped != null && this.lastRenderedSnapped == null
+        && currentRideId === this.lastRenderedRideId;
+      const recenter = currentRideId !== this.lastRenderedRideId || snapJustArrived;
+      this.renderRideMarkers(ride!, snapped, recenter);
+      this.lastRenderedSnapped = snapped;
     } else {
       // Switching INTO live mode: drop ride markers and the connecting line.
       if (this.leafletRideMarkers) {
@@ -485,8 +682,22 @@ export class CommanderPage implements OnInit, OnDestroy {
     if (!this.leafletMap) return;
     const lat = p.latitude!;
     const lon = p.longitude!;
+    // Tooltip text = full address (when Commander has it) or coords as a
+    // fallback. Updated on every render so a moving vehicle's tooltip
+    // tracks its current address.
+    const tooltipText = this.locationTooltip(p);
     if (this.leafletMarker) {
       this.leafletMarker.setLatLng([lat, lon]);
+      const existing = this.leafletMarker.getTooltip();
+      if (existing) {
+        existing.setContent(tooltipText);
+      } else if (tooltipText) {
+        this.leafletMarker.bindTooltip(tooltipText, {
+          direction: 'top',
+          offset: [0, -10],
+          className: 'commander-ride-tooltip',
+        });
+      }
     } else {
       const icon = L.divIcon({
         className: 'commander-marker',
@@ -495,6 +706,16 @@ export class CommanderPage implements OnInit, OnDestroy {
         iconAnchor: [11, 11],
       });
       this.leafletMarker = L.marker([lat, lon], { icon }).addTo(this.leafletMap);
+      if (tooltipText) {
+        // Hover-only tooltip on desktop; on touch the tooltip flashes when
+        // the marker is tapped, which is the closest Leaflet equivalent of
+        // a popup-on-tap without adding an explicit popup layer.
+        this.leafletMarker.bindTooltip(tooltipText, {
+          direction: 'top',
+          offset: [0, -10],
+          className: 'commander-ride-tooltip',
+        });
+      }
     }
     if (recenter) {
       // Hard snap on vehicle change / ride exit — also resets zoom to 14.
@@ -505,12 +726,16 @@ export class CommanderPage implements OnInit, OnDestroy {
     }
   }
 
-  private renderRideMarkers(ride: CommanderRideDetail, fitBoundsNow: boolean) {
+  private renderRideMarkers(
+    ride: CommanderRideDetail,
+    snapped: CommanderSnappedRoute | null,
+    fitBoundsNow: boolean,
+  ) {
     if (!this.leafletMap) return;
     const start: L.LatLngTuple = [ride.latStart!, ride.lonStart!];
     const stop: L.LatLngTuple = [ride.latStop!, ride.lonStop!];
 
-    // Markers
+    // Markers (start + stop pills) — same regardless of snapping mode.
     if (this.leafletRideMarkers) {
       this.leafletRideMarkers[0].setLatLng(start);
       this.leafletRideMarkers[1].setLatLng(stop);
@@ -547,22 +772,48 @@ export class CommanderPage implements OnInit, OnDestroy {
       this.leafletRideMarkers = [startMarker, stopMarker];
     }
 
-    // Connecting line. Dashed so it reads as "approximate / not the real route"
-    // — the Commander v1 API doesn't expose per-second GPS samples, only the
-    // ride's start and stop coordinates.
-    if (this.leafletRidePolyline) {
-      this.leafletRidePolyline.setLatLngs([start, stop]);
+    // Build the polyline points and style:
+    //   - If we have a snapped route from ORS, draw the full road path
+    //     as a solid amber line (best-guess driven path, not ground truth).
+    //   - Otherwise fall back to the dashed straight line — same look as
+    //     before snapping was added, so an outage / no-key environment is
+    //     visually identical to the pre-snapping behaviour.
+    // ORS coords are [lon, lat] (GeoJSON); Leaflet wants [lat, lon].
+    let linePoints: L.LatLngTuple[];
+    let lineOpts: L.PolylineOptions;
+    if (snapped && snapped.coordinates.length >= 2) {
+      linePoints = snapped.coordinates.map(
+        ([lon, lat]) => [lat, lon] as L.LatLngTuple,
+      );
+      lineOpts = {
+        color: '#f59e0b',  // amber-500
+        weight: 4,
+        opacity: 0.9,
+      };
     } else {
-      this.leafletRidePolyline = L.polyline([start, stop], {
-        color: '#f59e0b',          // amber-500
+      linePoints = [start, stop];
+      lineOpts = {
+        color: '#f59e0b',
         weight: 3,
         opacity: 0.75,
         dashArray: '8, 8',
-      }).addTo(this.leafletMap);
+      };
+    }
+
+    if (this.leafletRidePolyline) {
+      this.leafletRidePolyline.setLatLngs(linePoints);
+      this.leafletRidePolyline.setStyle(lineOpts);
+    } else {
+      this.leafletRidePolyline = L.polyline(linePoints, lineOpts).addTo(this.leafletMap);
     }
 
     if (fitBoundsNow) {
-      this.leafletMap.fitBounds(L.latLngBounds(start, stop), { padding: [40, 40], maxZoom: 14 });
+      // Bounds: include every polyline point so a long detour fits, not
+      // just the start/stop endpoints.
+      this.leafletMap.fitBounds(
+        L.latLngBounds(linePoints),
+        { padding: [40, 40], maxZoom: 15 },
+      );
     }
   }
 
@@ -589,5 +840,6 @@ export class CommanderPage implements OnInit, OnDestroy {
     this.lastRenderedRideId = null;
     this.lastRenderedLat = null;
     this.lastRenderedLon = null;
+    this.lastRenderedSnapped = null;
   }
 }

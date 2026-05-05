@@ -90,6 +90,13 @@
       </div>
     }
 
+    @if (loading()) {
+      <app-spinner />
+    } @else if (employees().length === 0) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500 dark:text-slate-400">
+        Žiadni zamestnanci. Pridajte prvého pomocou tlačidla vyššie.
+      </div>
+    } @else {
     <!-- Desktop table -->
     <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
       <table class="w-full">
@@ -191,6 +198,7 @@
         </div>
       }
     </div>
+    }
 
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-6 mt-6">
       <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Prehľad hodín</h2>
@@ -233,7 +241,10 @@
           }
         </tbody>
       </table>
-      @if (hoursSummary().length === 0) {
+      @if (summaryLoading()) {
+        <app-spinner size="sm" [inline]="true" />
+        <div class="h-4"></div>
+      } @else if (hoursSummary().length === 0) {
         <div class="p-6 text-center text-slate-500">Žiadne záznamy za toto obdobie.</div>
       }
     </div>

@@ -2,6 +2,7 @@
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { ReportService } from '../../services/report.service';
 import { TimeEntry } from '../../services/time-entry.service';
 import { EmployeeService, Employee } from '../../services/employee.service';
@@ -11,11 +12,12 @@ import { HmPipe } from '../../pipes/hm.pipe';
 
 @Component({
   selector: 'app-reports',
-  imports: [NavbarComponent, FormsModule, DatePipe, HmPipe, DatepickerDirective],
+  imports: [NavbarComponent, FormsModule, DatePipe, HmPipe, DatepickerDirective, SpinnerComponent],
   templateUrl: './reports.page.html'
 })
 export class ReportsPage implements OnInit {
   entries = signal<TimeEntry[]>([]);
+  loading = signal(true);
   employees = signal<Employee[]>([]);
   locations = signal<Location[]>([]);
   totalHours = signal(0);
@@ -51,11 +53,16 @@ export class ReportsPage implements OnInit {
   }
 
   load() {
-    this.reportService.getSummary(this.getFilters()).subscribe(entries => {
-      this.entries.set(entries);
-      this.totalHours.set(
-        entries.reduce((sum, e) => sum + (e.hoursWorked ?? 0), 0)
-      );
+    this.loading.set(true);
+    this.reportService.getSummary(this.getFilters()).subscribe({
+      next: entries => {
+        this.entries.set(entries);
+        this.totalHours.set(
+          entries.reduce((sum, e) => sum + (e.hoursWorked ?? 0), 0)
+        );
+        this.loading.set(false);
+      },
+      error: () => this.loading.set(false),
     });
   }
 
