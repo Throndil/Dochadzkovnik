@@ -91,17 +91,20 @@ public class CommanderController : ControllerBase
     /// Cached server-side for 60 seconds.
     ///
     /// Each ride is enriched with local attribution: which Employee was
-    /// clocked in on which Location while this ride happened. Pairing logic:
+    /// booked onto this car on which Location for the calendar day the
+    /// ride happened. Pairing logic:
     ///   1. Find the local Car whose normalised license plate equals the
     ///      Commander vehicleRegistrationPlate (alphanumeric-only, case
     ///      insensitive). If no match → no attribution for any ride.
-    ///   2. For each ride, find the TimeEntry with that CarId whose
-    ///      [ClockIn, ClockOut] window contained the ride's StartTime.
-    ///      Open shifts (ClockOut == null) match anything from ClockIn
-    ///      onward.
-    /// Null fields on the response = "no booked time entry covers this
-    /// ride", which the frontend renders as no employee/location pill on
-    /// that row.
+    ///   2. For each ride, find the TimeEntry whose CarId matches AND whose
+    ///      ClockIn falls on the same calendar day (Bratislava local) as
+    ///      the ride's StartTime. Whole-day rule, NOT clock-window: a
+    ///      worker who logged 10 hours on this car for this day owns every
+    ///      ride that happened on it that day, regardless of the kiosk's
+    ///      back-calculated 17:00 ClockOut anchor.
+    /// Null fields on the response = "no booking on this car for this
+    /// calendar day", which the frontend renders as no employee/location
+    /// pill on that row.
     /// </summary>
     [HttpGet("vehicles/{vehicleId}/rides")]
     public async Task<ActionResult<List<CommanderRideDetailDto>>> GetRecentRides(string vehicleId, CancellationToken ct)
@@ -170,45 +173,46 @@ public class CommanderController : ControllerBase
             c => NormalisePlate(c.LicensePlate) == normalisedCommanderPlate);
         if (matchedCar == null) return;
 
-        // 2. Pull the time entries that *might* overlap any ride in the
-        //    response. Bound the query by the response's overall date span
-        //    so we don't scan the whole TimeEntries table.
-        var earliestStart = rides
+        // 2. Pull the time entries booked onto this car on any of the
+        //    calendar days covered by the ride list. Bound the query by
+        //    the response's overall date span so we don't scan the whole
+        //    TimeEntries table; the per-row matching below uses .Date.
+        var rideDates = rides
             .Where(r => r.StartTime.HasValue)
-            .Select(r => r.StartTime!.Value)
-            .DefaultIfEmpty(DateTime.MinValue)
-            .Min();
-        var latestStop = rides
-            .Where(r => r.StopTime.HasValue || r.StartTime.HasValue)
-            .Select(r => r.StopTime ?? r.StartTime!.Value)
-            .DefaultIfEmpty(DateTime.MaxValue)
-            .Max();
-        if (earliestStart == DateTime.MinValue) return;
+            .Select(r => r.StartTime!.Value.Date)
+            .Distinct()
+            .ToList();
+        if (rideDates.Count == 0) return;
+
+        var fromDate          = rideDates.Min();
+        var toDateExclusive   = rideDates.Max().AddDays(1);
 
         // ClockIn / ClockOut are stored in Bratislava local time per the
-        // project-wide UtcDateTimeConverter convention; ride.StartTime /
-        // StopTime are also Bratislava local (post 2026-05 timezone fix),
-        // so direct DateTime comparisons are correct.
+        // project-wide UtcDateTimeConverter convention; ride.StartTime is
+        // also Bratislava local (post 2026-05 timezone fix), so direct
+        // DateTime / .Date comparisons are correct.
         var carId = matchedCar.Id;
         var timeEntries = await _db.TimeEntries
             .Where(te => te.CarId == carId)
-            .Where(te => te.ClockIn <= latestStop)
-            .Where(te => te.ClockOut == null || te.ClockOut >= earliestStart)
+            .Where(te => te.ClockIn >= fromDate && te.ClockIn < toDateExclusive)
             .Include(te => te.Employee)
             .Include(te => te.Location)
             .ToListAsync(ct);
         if (timeEntries.Count == 0) return;
 
-        // 3. Pair each ride with the time entry whose [ClockIn, ClockOut]
-        //    window contains the ride's StartTime. Open-ended shifts (no
-        //    ClockOut yet) are treated as ongoing.
+        // 3. Pair each ride with the time entry booked on the SAME calendar
+        //    day. Whole-day rule, not clock-window: a worker who logged
+        //    10 hours on this car for May 5 owns every ride on the car
+        //    that day, including ones outside the back-calculated
+        //    [ClockIn..17:00] window the kiosk produces for past dates.
+        //    First match wins if multiple workers booked the same car the
+        //    same day (rare; flag for refinement if it ever shows up in
+        //    real usage).
         foreach (var ride in rides)
         {
             if (!ride.StartTime.HasValue) continue;
-            var rideStart = ride.StartTime.Value;
-            var match = timeEntries.FirstOrDefault(te =>
-                te.ClockIn <= rideStart &&
-                (te.ClockOut == null || te.ClockOut >= rideStart));
+            var rideDate = ride.StartTime.Value.Date;
+            var match = timeEntries.FirstOrDefault(te => te.ClockIn.Date == rideDate);
             if (match == null) continue;
 
             ride.AttributedEmployeeId = match.EmployeeId;

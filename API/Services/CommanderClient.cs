@@ -439,35 +439,43 @@ public sealed class CommanderClient : ICommanderClient
     {
         if (string.IsNullOrWhiteSpace(vehicleId)) return null;
 
-        // Tacho: short side-cache so multiple Prehlad refreshes inside a 60 s
-        // window don't burn quota; aligned with FleetStatsCacheTtl.
-        var tachoCacheKey = FleetStatsTachoCachePrefix + vehicleId;
-        double? tachoKm;
-        if (_cache.TryGetValue<double?>(tachoCacheKey, out var cachedTacho))
-        {
-            tachoKm = cachedTacho;
-        }
-        else
-        {
-            var tachoResult = await GetCurrentTachoAsync(vehicleId, ct);
-            tachoKm = tachoResult.Success ? tachoResult.Data?.Km : null;
-            _cache.Set(tachoCacheKey, tachoKm, FleetStatsCacheTtl);
-        }
+        // Run tacho + ride-summary in parallel for this vehicle. The two
+        // endpoints don't depend on each other, so sequencing them was wasting
+        // ~30% of per-vehicle wall time on a cold cache. Outer Task.WhenAll
+        // already runs all N vehicles in parallel; this nests one more level.
+        var tachoTask   = GetTachoForFleetStatsAsync(vehicleId, ct);
+        var summaryTask = GetRideSummaryAsync(vehicleId, ct);
+        await Task.WhenAll(tachoTask, summaryTask);
 
-        // Ride summary: GetRideSummaryAsync is already cached per-vehicle 60 s.
-        var summaryResult = await GetRideSummaryAsync(vehicleId, ct);
-        var summary = summaryResult.Success && summaryResult.Data != null
-            ? summaryResult.Data
+        var summary = summaryTask.Result.Success && summaryTask.Result.Data != null
+            ? summaryTask.Result.Data
             : new CommanderRideSummaryDto();
 
         return new FleetVehicleStatsDto
         {
-            VehicleId  = vehicleId,
-            TachoKm    = tachoKm,
-            Today      = summary.Today,
+            VehicleId   = vehicleId,
+            TachoKm     = tachoTask.Result,
+            Today       = summary.Today,
             CurrentWeek = summary.CurrentWeek,
-            ThisMonth  = summary.ThisMonth,
+            ThisMonth   = summary.ThisMonth,
         };
+    }
+
+    /// <summary>
+    /// Tacho lookup for the fleet-stats batch path, with a short side-cache
+    /// (aligned with FleetStatsCacheTtl) so multiple Prehlad refreshes inside
+    /// a 60 s window don't burn quota. Live single-vehicle tacho calls go
+    /// through GetCurrentTachoAsync directly and bypass this cache.
+    /// </summary>
+    private async Task<double?> GetTachoForFleetStatsAsync(string vehicleId, CancellationToken ct)
+    {
+        var tachoCacheKey = FleetStatsTachoCachePrefix + vehicleId;
+        if (_cache.TryGetValue<double?>(tachoCacheKey, out var cachedTacho))
+            return cachedTacho;
+        var result = await GetCurrentTachoAsync(vehicleId, ct);
+        var km = result.Success ? result.Data?.Km : null;
+        _cache.Set(tachoCacheKey, km, FleetStatsCacheTtl);
+        return km;
     }
 
     // -----------------------------------------------------------------
