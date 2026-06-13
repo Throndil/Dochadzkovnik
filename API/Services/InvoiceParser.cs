@@ -310,8 +310,16 @@ public sealed class InvoiceParser : IInvoiceParser
         decimal? totalExclVat = SlovakNumberHelper.TryParse(FindEntity(entities, "net_amount")?.MentionText)
                                 ?? SlovakNumberHelper.TryParse(TotalExclVatRx.Match(text).Groups[1].Value);
         decimal? totalVat     = SlovakNumberHelper.TryParse(FindEntity(entities, "total_tax_amount")?.MentionText);
-        decimal? totalInclVat = SlovakNumberHelper.TryParse(FindEntity(entities, "total_amount")?.MentionText)
-                                ?? SlovakNumberHelper.TryParse(TotalInclVatRx.Match(text).Groups[1].Value);
+
+        // Grand total (incl. VAT): prefer the explicitly-labelled text total
+        // ("celkom k úhrade … EUR" / "suma na úhradu …" / DEK's zaokrúhlenie
+        // pattern). It is money-denominated and anchored to the amount-due
+        // line, so — unlike Document AI's bare total_amount entity — it can't
+        // be hijacked by a stray "TOTAL 1.65 t" printed on an extra page such
+        // as a weighbridge ticket scanned together with the invoice. The
+        // entity is only a fallback when no labelled total is found in the text.
+        decimal? totalInclVat = SlovakNumberHelper.TryParse(TotalInclVatRx.Match(text).Groups[1].Value)
+                                ?? SlovakNumberHelper.TryParse(FindEntity(entities, "total_amount")?.MentionText);
 
         // If VAT total is missing but excl + incl are present, derive it.
         if (totalVat == null && totalExclVat.HasValue && totalInclVat.HasValue)

@@ -38,6 +38,11 @@
         } @else {
           <div class="bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 text-red-800 dark:text-red-300 p-3 rounded-lg text-sm">
             <strong>Nesedí.</strong> {{ reconcileNote() }}
+            @if (isReview()) {
+              <div class="mt-1 text-xs text-red-700/80 dark:text-red-300/80">
+                Opravte pole „Vytlačené spolu" alebo ceny v riadkoch tak, aby sa súčty zhodovali. Ak je faktúra v poriadku, môžete ju uložiť aj napriek nezhode.
+              </div>
+            }
           </div>
         }
 
@@ -52,7 +57,18 @@
           </div>
           <div>
             <div class="text-xs text-slate-500">Vytlačené spolu</div>
-            <div class="text-base font-bold text-slate-900 dark:text-white tabular-nums">{{ formatMoney(inv.totalInclVat) }} €</div>
+            @if (isReview()) {
+              <div class="flex items-baseline gap-1">
+                <input type="text" inputmode="decimal"
+                       [value]="formatMoney(inv.totalInclVat)"
+                       (blur)="onPrintedTotalBlur($any($event.target).value)"
+                       title="Opravte sumu podľa faktúry, ak ju systém nesprávne načítal"
+                       class="w-24 text-base font-bold tabular-nums bg-transparent border-b border-dashed border-slate-400 dark:border-slate-500 focus:border-amber-500 focus:outline-none text-slate-900 dark:text-white" />
+                <span class="text-base font-bold text-slate-900 dark:text-white">€</span>
+              </div>
+            } @else {
+              <div class="text-base font-bold text-slate-900 dark:text-white tabular-nums">{{ formatMoney(inv.totalInclVat) }} €</div>
+            }
           </div>
           <div>
             <div class="text-xs text-slate-500">Naše súčty</div>
@@ -215,7 +231,7 @@
               @if (reconcileOk()) {
                 <span class="text-green-700 dark:text-green-300 font-semibold">✓ Súčty sedia</span>
               } @else {
-                <span class="text-red-700 dark:text-red-300 font-semibold">✗ Súčty nesedia — upravte riadky pred uložením</span>
+                <span class="text-red-700 dark:text-red-300 font-semibold">✗ Súčty nesedia — opravte sumy alebo uložte napriek tomu</span>
               }
             } @else if (isCommitted()) {
               <span class="text-slate-700 dark:text-slate-300">Uložená — odstránenie je trvalé.</span>
@@ -229,9 +245,11 @@
               {{ discarding() ? 'Mažem...' : (isCommitted() ? 'Odstrániť' : 'Zahodiť') }}
             </button>
             @if (isReview()) {
-              <button (click)="onCommit()" [disabled]="!reconcileOk() || committing() || discarding()"
-                      class="touch-target px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
-                {{ committing() ? 'Ukladám...' : 'Uložiť všetko' }}
+              <button (click)="onCommit()" [disabled]="committing() || discarding()"
+                      [class.bg-green-600]="reconcileOk()" [class.hover:bg-green-700]="reconcileOk()"
+                      [class.bg-amber-500]="!reconcileOk()" [class.hover:bg-amber-600]="!reconcileOk()"
+                      class="touch-target px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                {{ committing() ? 'Ukladám...' : (reconcileOk() ? 'Uložiť všetko' : 'Uložiť aj tak') }}
               </button>
             }
           </div>
@@ -254,13 +272,16 @@
       </div>
     }
 
-    <!-- Commit confirm modal -->
+    <!-- Commit confirm modal. When the invoice doesn't reconcile, it becomes a
+         warning the manager must explicitly acknowledge (override). -->
     <app-modal
       [open]="showCommitConfirm()"
-      variant="confirm"
-      title="Uložiť faktúru?"
-      message="Po uložení sa riadky zafixujú a materiál sa premietne do spotreby priradených pracovísk. Pracovisko každého dodacieho listu môžete neskôr ešte zmeniť."
-      confirmLabel="Áno, uložiť"
+      [variant]="reconcileOk() ? 'confirm' : 'danger'"
+      [title]="reconcileOk() ? 'Uložiť faktúru?' : 'Uložiť napriek nezhode súčtov?'"
+      [message]="reconcileOk()
+        ? 'Po uložení sa riadky zafixujú a materiál sa premietne do spotreby priradených pracovísk. Pracovisko každého dodacieho listu môžete neskôr ešte zmeniť.'
+        : 'Súčty riadkov sa nezhodujú s vytlačenou sumou. Skontrolujte, či sú sumy na faktúre správne. Ak je faktúra v poriadku, môžete ju uložiť — nezhoda sa zaznamená.'"
+      [confirmLabel]="reconcileOk() ? 'Áno, uložiť' : 'Uložiť aj tak'"
       busyLabel="Ukladám..."
       [busy]="committing()"
       (confirm)="onCommitConfirmed()"

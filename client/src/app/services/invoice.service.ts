@@ -157,9 +157,21 @@ export class InvoiceService {
    * Server-authoritative reconciliation check + status flip. Returns the
    * committed invoice on success; throws (400) when reconciliation fails.
    */
-  commit(invoiceId: number): Promise<InvoiceDocument> {
+  /**
+   * Commit the invoice. `force` overrides a failed reconciliation (the manager
+   * confirmed the figures despite a mismatch); the server records the override.
+   */
+  commit(invoiceId: number, force = false): Promise<InvoiceDocument> {
+    const params = force ? new HttpParams().set('force', 'true') : undefined;
     return firstValueFrom(
-      this.http.post<InvoiceDocument>(`${this.url}/${invoiceId}/commit`, {})
+      this.http.post<InvoiceDocument>(`${this.url}/${invoiceId}/commit`, {}, { params })
+    );
+  }
+
+  /** Correct the printed grand total (incl. VAT) when the parser misread it. */
+  updatePrintedTotal(invoiceId: number, totalInclVat: number): Promise<InvoiceDocument> {
+    return firstValueFrom(
+      this.http.put<InvoiceDocument>(`${this.url}/${invoiceId}/printed-total`, { totalInclVat })
     );
   }
 

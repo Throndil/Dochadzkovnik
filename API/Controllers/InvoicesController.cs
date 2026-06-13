@@ -928,31 +928,58 @@ public class InvoicesController : ControllerBase
         return await BuildDtoAsync(id);
     }
 
+    /// <summary>
+    /// PUT /api/invoices/{id}/printed-total
+    /// Lets the manager correct the invoice's printed grand total (incl. VAT)
+    /// when the parser misread it — e.g. it grabbed a weighbridge "TOTAL n t"
+    /// from an extra scanned page. Re-runs reconciliation so the review screen
+    /// reflects the fix immediately.
+    /// </summary>
+    [HttpPut("{id}/printed-total")]
+    public async Task<ActionResult<InvoiceDocumentDto>> UpdatePrintedTotal(int id, [FromBody] UpdatePrintedTotalDto dto)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(id);
+        if (doc == null) return NotFound();
+        if (doc.Status != "review") return BadRequest("Faktúru nemožno upravovať po uložení / zahodení.");
+        if (dto.TotalInclVat < 0) return BadRequest("Suma musí byť kladná.");
+
+        doc.TotalInclVat = Round2(dto.TotalInclVat);
+        await _db.SaveChangesAsync();
+        await RecomputeReconciliationAsync(id);
+        return await BuildDtoAsync(id);
+    }
+
+    public sealed class UpdatePrintedTotalDto
+    {
+        public decimal TotalInclVat { get; set; }
+    }
+
     // ────────────────────────────────────────────────────────────────
     //  Commit / discard
     // ────────────────────────────────────────────────────────────────
 
     [HttpPost("{id}/commit")]
-    public async Task<ActionResult<InvoiceDocumentDto>> Commit(int id)
+    public async Task<ActionResult<InvoiceDocumentDto>> Commit(int id, [FromQuery] bool force = false)
     {
         var doc = await _db.InvoiceDocuments.FindAsync(id);
         if (doc == null) return NotFound();
         if (doc.Status == "committed") return Conflict("Faktúra je už uložená.");
         if (doc.Status != "review") return BadRequest("Faktúru nemožno uložiť v aktuálnom stave.");
 
-        // Server-authoritative reconciliation. The UI gate is a hint; this is
-        // the binding check.
+        // Server-authoritative reconciliation. Normally this is a binding gate;
+        // but the manager can explicitly override it (force=true) after reading
+        // the warning — e.g. when an odd supplier layout legitimately won't
+        // reconcile. The override is recorded in the note for audit.
         var ok = await RecomputeReconciliationAsync(id);
-        if (!ok)
+        if (!ok && !force)
             return BadRequest($"Súčet riadkov sa nezhoduje s vytlačenou sumou. {doc.ReconciliationNote}");
-
-        // Sanity: every delivery list either has a LocationId or is explicitly
-        // null (= Sklad). We don't force NOT-null here because the schema
-        // allows null. The reconciliation check above is the binding gate.
 
         doc.Status      = "committed";
         doc.CommittedBy = User.Identity?.Name ?? "unknown";
         doc.CommittedAt = DateTime.UtcNow;
+        if (!ok)
+            doc.ReconciliationNote = Clip(
+                $"{doc.ReconciliationNote} Uložené napriek nezhode používateľom {doc.CommittedBy}.", 500);
         await _db.SaveChangesAsync();
 
         // Option A: promote each line to the Material catalogue (find-or-create

@@ -129,7 +129,10 @@ export class InvoiceReviewPage implements OnInit {
     this.committing.set(true);
     this.error.set(null);
     try {
-      const committed = await this.svc.commit(this.id);
+      // When the invoice doesn't reconcile, the confirm modal has already
+      // warned the manager — commit with force so the server allows it and
+      // records the override.
+      const committed = await this.svc.commit(this.id, !this.reconcileOk());
       this.invoice.set(committed);
       this.showCommitConfirm.set(false);
       this.showCommitSuccess.set(true);
@@ -138,6 +141,18 @@ export class InvoiceReviewPage implements OnInit {
       this.showCommitConfirm.set(false);
     } finally {
       this.committing.set(false);
+    }
+  }
+
+  /** Manager corrected the printed grand total (incl. VAT). Re-reconciles. */
+  async onPrintedTotalBlur(val: string) {
+    const n = this.parseNum(val);
+    const inv = this.invoice();
+    if (n == null || n < 0 || !inv || n === inv.totalInclVat) return;
+    try {
+      this.invoice.set(await this.svc.updatePrintedTotal(this.id, n));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Úprava vytlačenej sumy zlyhala.');
     }
   }
 
