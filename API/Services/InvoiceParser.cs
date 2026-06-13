@@ -98,6 +98,16 @@ public sealed class InvoiceParser : IInvoiceParser
     // or the 0,00 rounding line, so they were replaced by this anchor.
     private static readonly Regex TotalInclVatRx = new(@"(?:suma\s+na\s+úhradu|celkom\s+k\s+úhrade|zaokrúhlenie[\s\S]*?\d[\d\s.,]*(?:EUR|€))\s*:?\s*(\d[\d\s.,]*?)\s*(?:EUR|€)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // ─── Supplier-specific dispatch ────────────────────────────────
+    // IČO of suppliers whose invoice layout has a dedicated parser.
+    private const string IcoBauArticel = "35919175";   // SunSoft.EcoSun layout
+
+    // A "quantity unit" token, e.g. "6,30 t" / "1 234,5 kg". Comma decimals
+    // only, so a weighbridge "1.65 t" (dot) on an extra page is ignored.
+    private static readonly Regex QtyUnitRx = new(
+        @"(\d{1,3}(?:[\s ]\d{3})*,\d+)\s*(t|kg|ks|m3|m²|m2|m|l|bal|hod|km|bm|pal)\b",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public ParsedInvoice Parse(DocumentAiResult ocr)
     {
         var text = ocr.FullText ?? string.Empty;
@@ -106,11 +116,17 @@ public sealed class InvoiceParser : IInvoiceParser
         var header = ParseHeader(text, ocr.Entities);
 
         // ── Delivery-list segmentation ──────────────────────────────
-        // We segment the text by "za dodací list" occurrences, then for
-        // each segment extract metadata + match Document AI line_item
-        // entities by their textAnchor offsets when available, or by
-        // text proximity otherwise.
-        var deliveryLists = ParseDeliveryLists(text, ocr.Entities);
+        // Supplier-specific layouts where Document AI's generic extraction is
+        // poor (missing quantities / unit prices, phantom total rows) get a
+        // dedicated text parser keyed by IČO. Everything else uses the general
+        // parser. Additive — unknown suppliers are completely unaffected.
+        //
+        // Otherwise: we segment the text by "za dodací list" occurrences, then
+        // for each segment extract metadata + match Document AI line_item
+        // entities by their textAnchor offsets when available, or by text
+        // proximity otherwise.
+        var deliveryLists = TryParseBySupplier(header.SupplierIco, text, ocr.Entities, header)
+                            ?? ParseDeliveryLists(text, ocr.Entities);
 
         // ── Post-correction ──────────────────────────────────────────
         // Document AI sometimes returns the same amount for visually-
@@ -140,6 +156,97 @@ public sealed class InvoiceParser : IInvoiceParser
         }
 
         return new ParsedInvoice(header, deliveryLists);
+    }
+
+    /// <summary>
+    /// Route to a supplier-specific line parser by IČO, or null to fall back to
+    /// the general parser. Digits-only comparison so "SK..."/spaces don't matter.
+    /// </summary>
+    private IReadOnlyList<ParsedDeliveryList>? TryParseBySupplier(
+        string? ico, string text, IReadOnlyList<DocumentAiEntity> entities, ParsedInvoiceHeader header)
+    {
+        var digits = new string((ico ?? "").Where(char.IsDigit).ToArray());
+        return digits switch
+        {
+            IcoBauArticel => ParseSunSoftDeliveryLists(text, entities, header),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// SunSoft.EcoSun invoice layout (e.g. BAU-ARTICEL, IČO 35919175). Document
+    /// AI reliably gives each line's description + total (Celkom bez DPH) but
+    /// not the quantity or unit price, and emits phantom line_items for the
+    /// repeated grand total. So: keep only line_items that have a description,
+    /// read the "qty unit" tokens from the text in order, pair them by index,
+    /// and derive the unit price as total ÷ qty. One delivery list (no
+    /// per-delivery-note grouping on these invoices). Falls back to the general
+    /// parser when nothing usable is found.
+    /// </summary>
+    private IReadOnlyList<ParsedDeliveryList> ParseSunSoftDeliveryLists(
+        string text, IReadOnlyList<DocumentAiEntity> entities, ParsedInvoiceHeader header)
+    {
+        var items = entities
+            .Where(e => string.Equals(e.Type, "line_item", StringComparison.OrdinalIgnoreCase))
+            .Select(e => new
+            {
+                Desc = e.Properties.FirstOrDefault(p => p.Type.EndsWith("description", StringComparison.OrdinalIgnoreCase))?.MentionText?.Trim(),
+                Total = SlovakNumberHelper.TryParse(e.Properties.FirstOrDefault(p => p.Type.EndsWith("amount", StringComparison.OrdinalIgnoreCase))?.MentionText)
+            })
+            // Drop the phantom grand-total rows (no description).
+            .Where(x => !string.IsNullOrWhiteSpace(x.Desc) && x.Total is { } t && t != 0m)
+            .ToList();
+
+        if (items.Count == 0)
+            return ParseDeliveryLists(text, entities);   // nothing usable → general parser
+
+        // "qty unit" tokens in document order, e.g. ("6,30","t"), ("1,65","t").
+        var qtys = QtyUnitRx.Matches(text)
+            .Select(m => new { Qty = SlovakNumberHelper.TryParse(m.Groups[1].Value), Unit = m.Groups[2].Value.Trim().ToLowerInvariant() })
+            .Where(x => x.Qty.HasValue)
+            .ToList();
+
+        var lines = new List<ParsedLine>(items.Count);
+        for (var i = 0; i < items.Count; i++)
+        {
+            var total = items[i].Total!.Value;
+            var qty   = i < qtys.Count ? qtys[i].Qty : null;
+            var unit  = i < qtys.Count ? qtys[i].Unit : null;
+            decimal? unitPrice = qty is { } q && q != 0m
+                ? Math.Round(total / q, 4, MidpointRounding.AwayFromZero)
+                : null;
+
+            lines.Add(new ParsedLine(
+                SupplierItemCode: null,
+                Description: items[i].Desc!,
+                Quantity: qty,
+                Unit: string.IsNullOrEmpty(unit) ? "ks" : unit,
+                ListPriceExclVat: unitPrice,
+                DiscountPercent: null,
+                UnitPriceExclVat: unitPrice,
+                UnitPriceInclVat: null,
+                LineTotalExclVat: total,
+                VatRate: 23m,
+                IsReverseCharge: false,
+                IsService: false,
+                Confidence: 0.5f));
+        }
+
+        var subtotalExcl = lines.Sum(l => l.LineTotalExclVat ?? 0m);
+        var subtotalVat  = Math.Round(subtotalExcl * 0.23m, 2, MidpointRounding.AwayFromZero);
+
+        return new List<ParsedDeliveryList>
+        {
+            new ParsedDeliveryList(
+                DeliveryNoteRef: null,
+                AkciaName: null,
+                PickedUpBy: null,
+                Note: null,
+                DeliveryDate: header.DeliveryDate,
+                SubtotalExclVat: subtotalExcl,
+                SubtotalVat: subtotalVat,
+                Lines: lines)
+        };
     }
 
     /// <summary>
