@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build:dev",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then npm run build; else npm run build:dev; fi",
   "outputDirectory": "dist/browser",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
