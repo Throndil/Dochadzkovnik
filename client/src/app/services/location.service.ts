@@ -29,6 +29,34 @@ export interface LocationPhoto {
   photoUrl: string;
 }
 
+// ─── Náklady a zisk (P&L) — mirrors API/DTOs/Dtos.cs ───
+
+export interface PnlLabourRow {
+  employeeId: number;
+  employeeName: string;
+  hours: number;
+  avgWage: number | null;
+  cost: number;
+}
+
+export interface PnlMaterialRow {
+  materialId: number;
+  materialName: string;
+  unit: string;
+  quantity: number;
+  avgUnitPrice: number | null;
+  cost: number;
+}
+
+export interface LocationPnl {
+  location: { id: number; name: string; contractValue: number | null };
+  labour: { hoursWorked: number; cost: number; breakdownByEmployee: PnlLabourRow[] };
+  /** Null when the MaterialPurchases flag is off for the caller. */
+  material: { cost: number; breakdownByMaterial: PnlMaterialRow[] } | null;
+  revenue: number | null;
+  profit: number | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class LocationService {
   private url = `${environment.apiUrl}/locations`;
@@ -105,5 +133,34 @@ export class LocationService {
 
   deleteWorkPhoto(workPhotoId: number) {
     return this.http.delete(`${environment.apiUrl}/work-photos/${workPhotoId}`);
+  }
+
+  // ─── Náklady a zisk (P&L) — PayrollAndPnL flag ───
+
+  getPnl(id: number, from: string, to: string) {
+    return this.http.get<LocationPnl>(`${this.url}/${id}/pnl?from=${from}&to=${to}`);
+  }
+
+  updateContractValue(id: number, contractValue: number | null) {
+    return this.http.put(`${this.url}/${id}/contract-value`, { contractValue });
+  }
+
+  /** Downloads the Náklady a zisk XLSX via an authenticated request and triggers a browser save-as. */
+  downloadPnlExcel(id: number, from: string, to: string, locationName: string): void {
+    this.http.get(`${this.url}/${id}/pnl/export?from=${from}&to=${to}`, {
+      responseType: 'blob',
+      observe: 'response'
+    }).subscribe({
+      next: res => {
+        const blob = res.body!;
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `Naklady_a_zisk_${locationName.replace(/\s+/g, '_')}_${from}_${to}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => alert('Sťahovanie Excel súboru zlyhalo. Skúste znova.')
+    });
   }
 }

@@ -10,6 +10,7 @@ import {
   UpdateMaterialUsage
 } from '../../services/material.service';
 import { Location as Pracovisko } from '../../services/location.service';
+import { DatepickerDirective } from '../../directives/datepicker.directive';
 
 /**
  * Slide-over right-hand panel for managing material consumption on a single Lokácia.
@@ -17,7 +18,7 @@ import { Location as Pracovisko } from '../../services/location.service';
  */
 @Component({
   selector: 'app-location-manage-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, DatepickerDirective],
   templateUrl: './location-manage-panel.component.html'
 })
 export class LocationManagePanelComponent implements OnDestroy {

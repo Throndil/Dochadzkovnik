@@ -1,7 +1,7 @@
 <app-navbar />
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
   <div class="max-w-xl mx-auto px-4 py-4 sm:p-6 space-y-6">
-    <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Nastavenia účtu</h1>
+    <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Nastavenia účtu</h1>
 
     <!-- Login info -->
     @if (adminUsername()) {
@@ -54,6 +54,66 @@
                  [checked]="flags.commanderIntegration()"
                  [disabled]="flagSaving()"
                  (change)="onToggleFlag('commanderIntegration', $any($event.target).checked)"
+                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
+        </label>
+
+        <label class="flex items-center justify-between gap-4 py-2">
+          <span class="flex flex-col">
+            <span class="text-slate-900 dark:text-white font-medium">Nákup materiálu</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Kioskový tile + zachytenie nákupu pri šichte na pracovisku „Nákup materiálu". Admin záložka Nákupy + Neidentifikované.</span>
+          </span>
+          <input type="checkbox"
+                 [checked]="flags.materialPurchases()"
+                 [disabled]="flagSaving()"
+                 (change)="onToggleFlag('materialPurchases', $any($event.target).checked)"
+                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
+        </label>
+
+        <label class="flex items-center justify-between gap-4 py-2">
+          <span class="flex flex-col">
+            <span class="text-slate-900 dark:text-white font-medium">Denník a voľba dôkazu</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Po zadaní hodín si môže pracovník vybrať: nahrať fotku, zapísať do denníka, alebo bez dôkazu.</span>
+          </span>
+          <input type="checkbox"
+                 [checked]="flags.proofOfWorkChoices()"
+                 [disabled]="flagSaving()"
+                 (change)="onToggleFlag('proofOfWorkChoices', $any($event.target).checked)"
+                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
+        </label>
+
+        <label class="flex items-center justify-between gap-4 py-2">
+          <span class="flex flex-col">
+            <span class="text-slate-900 dark:text-white font-medium">Skenovanie faktúr</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Nahrať PDF faktúry od dodávateľa. Google Document AI rozpozná dodacie listy, položky a DPH; manažér ich skontroluje a uloží. Vyžaduje nastavený Google Document AI v Railway / appsettings.Local.json — viď SECRETS.md.</span>
+          </span>
+          <input type="checkbox"
+                 [checked]="flags.invoiceScanning()"
+                 [disabled]="flagSaving()"
+                 (change)="onToggleFlag('invoiceScanning', $any($event.target).checked)"
+                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
+        </label>
+
+        <label class="flex items-center justify-between gap-4 py-2 pl-6 border-l-2 border-slate-200 dark:border-slate-700">
+          <span class="flex flex-col">
+            <span class="text-slate-900 dark:text-white font-medium">Skenovanie faktúr — kamerou</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Sprístupní tlačidlo „Naskenovať mobilom" na /admin/faktúry. Manažér odfotí každú stranu faktúry priamo v aplikácii, server zostaví PDF a prejde rovnakou OCR cestou ako bežný upload. Vyžaduje zapnuté „Skenovanie faktúr".</span>
+          </span>
+          <input type="checkbox"
+                 [checked]="flags.invoiceCameraScan()"
+                 [disabled]="flagSaving() || !flags.invoiceScanning()"
+                 (change)="onToggleFlag('invoiceCameraScan', $any($event.target).checked)"
+                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
+        </label>
+
+        <label class="flex items-center justify-between gap-4 py-2">
+          <span class="flex flex-col">
+            <span class="text-slate-900 dark:text-white font-medium">Mzdy</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Mesačná Mzdy stránka so sadzbami, zálohami a výplatou. Excel exporty: mesačný prehľad + mzdový list pre každého zamestnanca (s pracoviskami, fotkami, vozidlami a zálohami). Hodinová sadzba sa zaznamenáva pri každom zázname dochádzky — neskoršie zmeny už neprepisujú historické mzdy.</span>
+          </span>
+          <input type="checkbox"
+                 [checked]="flags.payrollAndPnL()"
+                 [disabled]="flagSaving()"
+                 (change)="onToggleFlag('payrollAndPnL', $any($event.target).checked)"
                  class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
         </label>
       </div>

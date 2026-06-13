@@ -1,0 +1,1 @@
+(image-only scan SCAN0000 has no text layer; Document AI OCR output must be captured from the live pipeline to fixture-test it)

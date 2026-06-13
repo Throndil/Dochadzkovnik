@@ -40,6 +40,23 @@ export interface MaterialUsage {
   employeeName?: string;
   note?: string;
   photoUrl?: string;
+  /**
+   * True when this row is a read-side synthesis from a MaterialPurchase line
+   * (admin saved a Nákup with this Location as the target). Edit / delete are
+   * disabled in the slide-over for these rows — the admin manages them via
+   * the Nákupy admin tab. The id on synthetic rows is the negated purchase-line
+   * id; UI should branch on `fromPurchase`, not on the sign of `id`.
+   */
+  fromPurchase?: boolean;
+  /** Source MaterialPurchase id when fromPurchase=true. Useful for deep-links. */
+  purchaseId?: number;
+  /**
+   * True when this usage was minted from an invoice line tagged IsService
+   * (typically `Prenájom` rentals). Drives the purple "Faktúra (služba)"
+   * badge in the Pracovisko Spotreba materiálu table. Always false on
+   * material lines and on manual kiosk-nákup pseudo-rows.
+   */
+  isService?: boolean;
 }
 
 export interface CreateMaterialUsage {
@@ -137,9 +154,32 @@ export class MaterialService {
         // Try to use the server-supplied filename from Content-Disposition; fall back to a sensible default.
         const cd = res.headers.get('Content-Disposition') || '';
         const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/.exec(cd);
-        const safe = locationName.replace(/\s+/g, '_').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const safe = locationName.replace(/\s+/g, '_').normalize('NFD').replace(/[̀-ͯ]/g, '');
         a.download = match?.[1] ?? `Spotreba_${safe}.xlsx`;
 
+        a.click();
+        URL.revokeObjectURL(objectUrl);
+      },
+      error: () => alert('Sťahovanie Excel súboru zlyhalo. Skúste znova.')
+    });
+  }
+
+  /**
+   * Cross-Pracoviská Excel — every location, every entry, costs at the price
+   * the material was used at (UnitPriceAtTime / line.UnitPrice snapshot).
+   * Server endpoint: GET /api/locations/materials/export-all.
+   */
+  downloadAllLocationsExcel(from?: string, to?: string): void {
+    const url = `${this.locUrl}/materials/export-all${this.dateRange(from, to)}`;
+    this.http.get(url, { responseType: 'blob', observe: 'response' }).subscribe({
+      next: res => {
+        const blob = res.body!;
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        const cd = res.headers.get('Content-Disposition') || '';
+        const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/.exec(cd);
+        a.download = match?.[1] ?? 'Spotreba_vsetky_pracoviska.xlsx';
         a.click();
         URL.revokeObjectURL(objectUrl);
       },

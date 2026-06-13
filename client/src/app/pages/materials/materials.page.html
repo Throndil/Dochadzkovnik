@@ -1,224 +1,966 @@
 <app-navbar />
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
   <div class="max-w-5xl mx-auto px-4 py-4 sm:p-6">
+    <!-- ── Header (title + tab-specific primary action) ─────────────── -->
     <div class="flex justify-between items-center gap-3 mb-4 sm:mb-6 flex-wrap">
-      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Katalóg materiálu</h1>
-      <button (click)="toggleForm()"
-              class="touch-target bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-lg transition-colors active:scale-[0.98] text-sm sm:text-base">
-        @if (showForm()) {
-          Zrušiť
-        } @else {
-          <span class="sm:hidden">+ Pridať</span>
-          <span class="hidden sm:inline">+ Pridať materiál</span>
-        }
-      </button>
-    </div>
-
-    @if (errorMsg()) {
-      <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
-        {{ errorMsg() }}
-      </div>
-    }
-
-    @if (showForm()) {
-      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6">
-        <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-4">Nový materiál</h2>
-        <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Názov</label>
-            <input type="text" [(ngModel)]="newMaterial.name" name="name" required maxlength="200"
-                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Jednotka</label>
-            <input type="text" [(ngModel)]="newMaterial.unit" name="unit" required maxlength="50"
-                   placeholder="napr. vrece, kg, m²"
-                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
-            <div class="mt-2 flex flex-wrap gap-1">
-              @for (u of unitPresets; track u) {
-                <button type="button" (click)="pickUnit(u)"
-                        class="px-2 py-1 text-xs rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-amber-200 dark:hover:bg-amber-700 text-slate-700 dark:text-slate-200">
-                  {{ u }}
-                </button>
-              }
-            </div>
-          </div>
-          <div class="md:col-span-2">
-            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Cena za jednotku (€)</label>
-            <input type="number" min="0" step="0.01" [(ngModel)]="newMaterial.pricePerUnit" name="pricePerUnit"
-                   class="w-full md:w-60 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
-            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Cenu môžete kedykoľvek zmeniť. Existujúce záznamy si zachovajú pôvodnú cenu (ochrana pred infláciou).
-            </p>
-          </div>
-          <div class="md:col-span-2">
-            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors">
-              Vytvoriť
-            </button>
-          </div>
-        </form>
-      </div>
-    }
-
-    @if (loading()) {
-      <app-spinner />
-    } @else {
-    <!-- ────────────────────────────────────────────────────────────── -->
-    <!-- Stacked card list — shown below md (phones + narrow tablets).   -->
-    <!-- Each card carries the full row of info plus action buttons in   -->
-    <!-- a row that wraps to a second line on tiny screens.              -->
-    <!-- ────────────────────────────────────────────────────────────── -->
-    <div class="md:hidden space-y-2">
-      @for (m of materials(); track m.id) {
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3"
-             [class.opacity-70]="!m.isActive">
-          @if (editingId() === m.id) {
-            <div class="space-y-3">
-              <div>
-                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Názov</label>
-                <input type="text" [(ngModel)]="editForm.name"
-                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Jednotka</label>
-                <input type="text" [(ngModel)]="editForm.unit"
-                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Cena za jednotku (€)</label>
-                <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
-                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-right tabular-nums" />
-              </div>
-              <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                <input type="checkbox" [(ngModel)]="editForm.isActive" class="w-4 h-4 rounded" />
-                Aktívny
-              </label>
-              <div class="flex gap-2 pt-1">
-                <button (click)="saveEdit()"
-                        class="touch-target flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
-                  Uložiť
-                </button>
-                <button (click)="cancelEdit()"
-                        class="touch-target flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
-                  Zrušiť
-                </button>
-              </div>
-            </div>
-          } @else {
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <div class="text-base font-semibold text-slate-900 dark:text-white truncate">{{ m.name }}</div>
-                <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ m.unit }}</div>
-              </div>
-              <div class="flex flex-col items-end gap-1 flex-shrink-0">
-                <div class="text-base font-semibold tabular-nums whitespace-nowrap"
-                     [class.text-amber-600]="!m.pricePerUnit"
-                     [class.dark:text-amber-400]="!m.pricePerUnit"
-                     [class.text-slate-900]="m.pricePerUnit"
-                     [class.dark:text-white]="m.pricePerUnit">
-                  {{ formatEur(m.pricePerUnit) }}
-                </div>
-                <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                      [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'">
-                  {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
-                </span>
-              </div>
-            </div>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <button (click)="startEdit(m)"
-                      class="touch-target flex-1 min-w-[5rem] bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
-                Upraviť
-              </button>
-              <button (click)="onToggleActive(m)"
-                      class="touch-target flex-1 min-w-[6rem] px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                      [class]="m.isActive
-                                 ? 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
-                                 : 'bg-green-600 hover:bg-green-700 text-white'">
-                {{ m.isActive ? 'Deaktivovať' : 'Aktivovať' }}
-              </button>
-              <button (click)="onDelete(m)"
-                      class="touch-target px-3 py-2 rounded-lg text-sm font-medium bg-red-600/10 dark:bg-red-900/30 hover:bg-red-600/20 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
-                      title="Odstrániť">
-                Odstrániť
-              </button>
-            </div>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Materiál</h1>
+      @if (tab() === 'katalog') {
+        <button (click)="toggleForm()"
+                class="touch-target bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-lg transition-colors active:scale-[0.98] text-sm sm:text-base">
+          @if (showForm()) { Zrušiť }
+          @else {
+            <span class="sm:hidden">+ Pridať</span>
+            <span class="hidden sm:inline">+ Pridať materiál</span>
           }
-        </div>
-      } @empty {
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
-          Žiadny materiál v katalógu.
-        </div>
+        </button>
+      } @else if (tab() === 'nakupy') {
+        <button (click)="exportPurchasesExcel()"
+                class="touch-target bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg transition-colors text-sm sm:text-base">
+          Stiahnuť Excel
+        </button>
+      } @else if (tab() === 'inventar') {
+        <button (click)="exportInventoryExcel()"
+                class="touch-target bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg transition-colors text-sm sm:text-base">
+          Stiahnuť Excel
+        </button>
       }
     </div>
 
-    <!-- ────────────────────────────────────────────────────────────── -->
-    <!-- Table — shown md+ (tablets in landscape, desktops).            -->
-    <!-- ────────────────────────────────────────────────────────────── -->
-    <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
-          <tr>
-            <th class="text-left px-4 py-3 font-medium">Názov</th>
-            <th class="text-left px-4 py-3 font-medium">Jednotka</th>
-            <th class="text-right px-4 py-3 font-medium">Cena/jednotka</th>
-            <th class="text-left px-4 py-3 font-medium">Stav</th>
-            <th class="text-right px-4 py-3 font-medium">Akcie</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+    <!-- ── Tab bar (only when MaterialPurchases flag is on or superadmin) ── -->
+    @if (purchasesAvailable()) {
+      <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg flex mb-4 overflow-hidden" role="tablist">
+        <button (click)="setTab('katalog')" role="tab"
+                [class]="tab() === 'katalog' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
+                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+          Katalóg
+        </button>
+        <button (click)="setTab('nakupy')" role="tab"
+                [class]="tab() === 'nakupy' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
+                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+          Nákupy
+        </button>
+        <button (click)="setTab('inventar')" role="tab"
+                [class]="tab() === 'inventar' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
+                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+          Inventár
+        </button>
+        <button (click)="setTab('neid')" role="tab"
+                [class]="tab() === 'neid' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
+                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+          Nezaradené
+          @if (unknownGroups().length > 0) {
+            <span class="ml-1.5 inline-block bg-amber-500 text-white text-xs font-bold rounded-full px-2 py-0.5">{{ unknownGroups().length }}</span>
+          }
+        </button>
+      </div>
+    }
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- ══ Tab: Katalóg (existing V1.1 layout, untouched behaviour) ══ -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    @if (tab() === 'katalog') {
+
+      @if (errorMsg()) {
+        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+          {{ errorMsg() }}
+        </div>
+      }
+
+      @if (showForm()) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6">
+          <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-4">Nový materiál</h2>
+          <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Názov</label>
+              <input type="text" [(ngModel)]="newMaterial.name" name="name" required maxlength="200"
+                     class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Jednotka</label>
+              <input type="text" [(ngModel)]="newMaterial.unit" name="unit" required maxlength="50"
+                     placeholder="napr. vrece, kg, m²"
+                     class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+              <div class="mt-2 flex flex-wrap gap-1">
+                @for (u of unitPresets; track u) {
+                  <button type="button" (click)="pickUnit(u)"
+                          class="px-2 py-1 text-xs rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-amber-200 dark:hover:bg-amber-700 text-slate-700 dark:text-slate-200">
+                    {{ u }}
+                  </button>
+                }
+              </div>
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Cena za jednotku (€)</label>
+              <input type="number" min="0" step="0.01" [(ngModel)]="newMaterial.pricePerUnit" name="pricePerUnit"
+                     class="w-full md:w-60 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
+            </div>
+            <div class="md:col-span-2">
+              <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors">
+                Vytvoriť
+              </button>
+            </div>
+          </form>
+        </div>
+      }
+
+      @if (loading()) {
+        <app-spinner />
+      } @else {
+        <!-- Stacked card list — phones + narrow tablets -->
+        <div class="md:hidden space-y-2">
           @for (m of materials(); track m.id) {
-            <tr class="text-slate-800 dark:text-slate-200">
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3"
+                 [class.opacity-70]="!m.isActive">
               @if (editingId() === m.id) {
-                <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.name" class="w-full px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
-                <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.unit" class="w-32 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
-                <td class="px-4 py-2 text-right">
-                  <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
-                         class="w-28 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-right" />
-                </td>
-                <td class="px-4 py-2">
-                  <label class="inline-flex items-center gap-2">
-                    <input type="checkbox" [(ngModel)]="editForm.isActive" class="rounded" />
-                    <span class="text-xs">Aktívny</span>
+                <div class="space-y-3">
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Názov</label>
+                    <input type="text" [(ngModel)]="editForm.name"
+                           class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Jednotka</label>
+                    <input type="text" [(ngModel)]="editForm.unit"
+                           class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Cena za jednotku (€)</label>
+                    <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
+                           class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-right tabular-nums" />
+                  </div>
+                  <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                    <input type="checkbox" [(ngModel)]="editForm.isActive" class="w-4 h-4 rounded" />
+                    Aktívny
                   </label>
-                </td>
-                <td class="px-4 py-2 text-right">
-                  <button (click)="saveEdit()"   class="text-green-600 hover:text-green-700 text-sm font-semibold mr-3">Uložiť</button>
-                  <button (click)="cancelEdit()" class="text-slate-500 hover:text-slate-700 text-sm">Zrušiť</button>
-                </td>
+                  <div class="flex gap-2 pt-1">
+                    <button (click)="saveEdit()"
+                            class="touch-target flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors">
+                      Uložiť
+                    </button>
+                    <button (click)="cancelEdit()"
+                            class="touch-target flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+                      Zrušiť
+                    </button>
+                  </div>
+                </div>
               } @else {
-                <td class="px-4 py-3 font-medium">{{ m.name }}</td>
-                <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ m.unit }}</td>
-                <td class="px-4 py-3 text-right tabular-nums"
-                    [class.text-amber-600]="!m.pricePerUnit"
-                    [class.dark:text-amber-400]="!m.pricePerUnit"
-                    [title]="m.pricePerUnit ? '' : 'Cena nie je nastavená — náklady budú 0 €'">
-                  {{ formatEur(m.pricePerUnit) }}
-                </td>
-                <td class="px-4 py-3">
-                  <span [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
-                        class="px-2 py-1 rounded-full text-xs font-medium">
-                    {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
-                  </span>
-                </td>
-                <td class="px-4 py-3 text-right whitespace-nowrap">
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-base font-semibold text-slate-900 dark:text-white truncate">{{ m.name }}</div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ m.unit }}</div>
+                  </div>
+                  <div class="flex flex-col items-end gap-1 flex-shrink-0">
+                    <div class="text-base font-semibold tabular-nums whitespace-nowrap"
+                         [class.text-amber-600]="!m.pricePerUnit"
+                         [class.dark:text-amber-400]="!m.pricePerUnit"
+                         [class.text-slate-900]="m.pricePerUnit"
+                         [class.dark:text-white]="m.pricePerUnit">
+                      {{ formatEur(m.pricePerUnit) }}
+                    </div>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                          [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'">
+                      {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
+                    </span>
+                  </div>
+                </div>
+                <div class="mt-3 flex flex-wrap gap-2">
                   <button (click)="startEdit(m)"
-                          class="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white text-sm font-medium mr-3">Upraviť</button>
+                          class="touch-target flex-1 min-w-[5rem] bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+                    Upraviť
+                  </button>
                   <button (click)="onToggleActive(m)"
-                          class="text-sm font-medium mr-3"
-                          [class]="m.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
+                          class="touch-target flex-1 min-w-[6rem] px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                          [class]="m.isActive
+                                     ? 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
+                                     : 'bg-green-600 hover:bg-green-700 text-white'">
                     {{ m.isActive ? 'Deaktivovať' : 'Aktivovať' }}
                   </button>
                   <button (click)="onDelete(m)"
-                          class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
-                </td>
+                          class="touch-target px-3 py-2 rounded-lg text-sm font-medium bg-red-600/10 dark:bg-red-900/30 hover:bg-red-600/20 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 transition-colors"
+                          title="Odstrániť">
+                    Odstrániť
+                  </button>
+                </div>
               }
-            </tr>
+            </div>
           } @empty {
-            <tr><td colspan="5" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400 italic">Žiadny materiál v katalógu.</td></tr>
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
+              Žiadny materiál v katalógu.
+            </div>
           }
-        </tbody>
-      </table>
-    </div>
+        </div>
+
+        <!-- Table — md+ -->
+        <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+              <tr>
+                <th class="text-left px-4 py-3 font-medium">Názov</th>
+                <th class="text-left px-4 py-3 font-medium">Jednotka</th>
+                <th class="text-right px-4 py-3 font-medium">Cena/jednotka</th>
+                <th class="text-left px-4 py-3 font-medium">Stav</th>
+                <th class="text-right px-4 py-3 font-medium">Akcie</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+              @for (m of materials(); track m.id) {
+                <tr class="text-slate-800 dark:text-slate-200">
+                  @if (editingId() === m.id) {
+                    <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.name" class="w-full px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
+                    <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.unit" class="w-32 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
+                    <td class="px-4 py-2 text-right">
+                      <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
+                             class="w-28 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-right" />
+                    </td>
+                    <td class="px-4 py-2">
+                      <label class="inline-flex items-center gap-2">
+                        <input type="checkbox" [(ngModel)]="editForm.isActive" class="rounded" />
+                        <span class="text-xs">Aktívny</span>
+                      </label>
+                    </td>
+                    <td class="px-4 py-2 text-right">
+                      <button (click)="saveEdit()"   class="text-green-600 hover:text-green-700 text-sm font-semibold mr-3">Uložiť</button>
+                      <button (click)="cancelEdit()" class="text-slate-500 hover:text-slate-700 text-sm">Zrušiť</button>
+                    </td>
+                  } @else {
+                    <td class="px-4 py-3 font-medium">{{ m.name }}</td>
+                    <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ m.unit }}</td>
+                    <td class="px-4 py-3 text-right tabular-nums"
+                        [class.text-amber-600]="!m.pricePerUnit"
+                        [class.dark:text-amber-400]="!m.pricePerUnit"
+                        [title]="m.pricePerUnit ? '' : 'Cena nie je nastavená — náklady budú 0 €'">
+                      {{ formatEur(m.pricePerUnit) }}
+                    </td>
+                    <td class="px-4 py-3">
+                      <span [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
+                            class="px-2 py-1 rounded-full text-xs font-medium">
+                        {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                      <button (click)="startEdit(m)"
+                              class="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white text-sm font-medium mr-3">Upraviť</button>
+                      <button (click)="onToggleActive(m)"
+                              class="text-sm font-medium mr-3"
+                              [class]="m.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
+                        {{ m.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+                      </button>
+                      <button (click)="onDelete(m)"
+                              class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
+                    </td>
+                  }
+                </tr>
+              } @empty {
+                <tr><td colspan="5" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400 italic">Žiadny materiál v katalógu.</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
     }
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- ══ Tab: Nákupy ══════════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    @if (tab() === 'nakupy') {
+
+      <!-- Filters card -->
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Od</label>
+            <input type="date" appDate [(ngModel)]="filterFrom" name="filterFrom" [fpMaxDate]="filterTo"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Do</label>
+            <input type="date" appDate [(ngModel)]="filterTo" name="filterTo" [fpMinDate]="filterFrom"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Pracovisko</label>
+            <select [(ngModel)]="filterLocationId"
+                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+              <option [ngValue]="null">— všetky —</option>
+              @for (l of locations(); track l.id) {
+                <option [ngValue]="l.id">{{ l.name }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Zamestnanec</label>
+            <select [(ngModel)]="filterEmployeeId"
+                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+              <option [ngValue]="null">— všetci —</option>
+              @for (e of employees(); track e.id) {
+                <option [ngValue]="e.id">{{ e.firstName }} {{ e.lastName }}</option>
+              }
+            </select>
+          </div>
+          <div class="sm:col-span-2 md:col-span-2">
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Dodávateľ obsahuje</label>
+            <input type="text" [(ngModel)]="filterSupplier" placeholder="napr. Bauhaus"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+          <div class="sm:col-span-2 md:col-span-2 flex gap-2 items-end">
+            <button (click)="applyFilters()"
+                    class="touch-target flex-1 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+              Použiť filter
+            </button>
+            <button (click)="resetFilters()"
+                    class="touch-target flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg text-sm font-medium">
+              Vynulovať
+            </button>
+          </div>
+        </div>
+      </div>
+
+      @if (purchasesError()) {
+        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+          {{ purchasesError() }}
+        </div>
+      }
+
+      @if (purchasesLoading()) {
+        <app-spinner />
+      } @else {
+        <!-- Grand total above the list -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 mb-4 flex items-center justify-between">
+          <span class="text-sm text-slate-500 dark:text-slate-400">Spolu (filtrované)</span>
+          <span class="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">{{ formatEur(filteredGrandTotal()) }}</span>
+        </div>
+
+        <div class="space-y-2">
+          @for (p of purchases(); track p.id) {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <button (click)="togglePurchaseRow(p.id)"
+                      class="w-full text-left p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline gap-2 flex-wrap">
+                    <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
+                    <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
+                    @if (p.supplierName) {
+                      <span class="text-xs text-slate-500 dark:text-slate-400">· {{ p.supplierName }}</span>
+                    }
+                    @if (p.timeEntryId) {
+                      <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300" title="Spojené so šichtou">šichta</span>
+                    }
+                  </div>
+                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    @if (p.locationName) {
+                      Pre: <span class="text-slate-700 dark:text-slate-200">{{ p.locationName }}</span>
+                    } @else {
+                      Pre: <span class="italic">Inventár</span>
+                    }
+                    · {{ p.lines.length }} {{ p.lines.length === 1 ? 'položka' : 'položky' }}
+                  </div>
+                </div>
+                <div class="flex flex-col items-end gap-1 shrink-0">
+                  <span class="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">{{ formatEur(p.totalCost) }}</span>
+                  @if (p.receiptPhotoUrl) {
+                    <span class="text-xs text-blue-600 dark:text-blue-400">📎 účtenka</span>
+                  }
+                </div>
+                <span class="text-slate-400 text-lg ml-2">{{ expandedPurchaseId() === p.id ? '▾' : '▸' }}</span>
+              </button>
+
+              @if (expandedPurchaseId() === p.id) {
+                <div class="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-900/40">
+                  <div class="overflow-x-auto -mx-4 px-4 mb-3">
+                  <table class="w-full text-sm min-w-[20rem]">
+                    <thead class="text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th class="text-left font-medium pb-1">Materiál</th>
+                        <th class="text-right font-medium pb-1">Množstvo</th>
+                        <th class="text-right font-medium pb-1">Cena/j.</th>
+                        <th class="text-right font-medium pb-1">Spolu</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                      @for (l of p.lines; track l.id) {
+                        <tr class="text-slate-800 dark:text-slate-200">
+                          <td class="py-2">
+                            {{ l.materialName ?? l.materialNameRaw }}
+                            @if (!l.materialId) {
+                              <span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400" title="Nie je v katalógu">neid.</span>
+                            }
+                            <span class="text-xs text-slate-500 dark:text-slate-400 ml-1">{{ l.unit }}</span>
+                          </td>
+                          <td class="py-2 text-right tabular-nums">{{ l.quantity }}</td>
+                          <td class="py-2 text-right tabular-nums">{{ formatEur(l.unitPrice) }}</td>
+                          <td class="py-2 text-right tabular-nums font-semibold">{{ formatEur(l.lineTotal) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                  </div>
+
+                  @if (p.receiptPhotoUrl) {
+                    <div class="mt-2">
+                      <a [href]="p.receiptPhotoUrl" target="_blank" rel="noopener"
+                         class="inline-block">
+                        <img [src]="p.receiptPhotoUrl" alt="Účtenka"
+                             class="max-h-48 rounded-lg border border-slate-200 dark:border-slate-700" />
+                      </a>
+                    </div>
+                  }
+
+                  @if (p.note) {
+                    <div class="mt-2 text-sm text-slate-600 dark:text-slate-300 italic">{{ p.note }}</div>
+                  }
+
+                  <div class="mt-3 flex justify-end gap-3">
+                    <button (click)="startEditPurchase(p)"
+                            class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
+                      Upraviť
+                    </button>
+                    <button (click)="onDeletePurchase(p)"
+                            class="text-red-600 dark:text-red-400 hover:text-red-700 text-sm font-medium">
+                      Vymazať nákup
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          } @empty {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
+              Pre zvolené filtre nie sú žiadne nákupy.
+            </div>
+          }
+        </div>
+      }
+    }
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- ══ Tab: Inventár ════════════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    @if (tab() === 'inventar') {
+
+      <!-- Filters: just date range — Inventár is always "no target Location". -->
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Od</label>
+            <input type="date" appDate [(ngModel)]="inventoryFilterFrom" name="invFrom" [fpMaxDate]="inventoryFilterTo"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Do</label>
+            <input type="date" appDate [(ngModel)]="inventoryFilterTo" name="invTo" [fpMinDate]="inventoryFilterFrom"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+          <div class="flex items-end">
+            <button (click)="applyInventoryFilters()"
+                    class="touch-target w-full bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+              Použiť filter
+            </button>
+          </div>
+        </div>
+      </div>
+
+      @if (inventoryError()) {
+        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+          {{ inventoryError() }}
+        </div>
+      }
+
+      @if (inventoryLoading()) {
+        <app-spinner />
+      } @else {
+        <!-- Per-material aggregate -->
+        @if (inventorySummary().length > 0) {
+          <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto mb-4">
+            <table class="w-full text-sm min-w-[28rem]">
+              <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
+                <tr>
+                  <th class="text-left px-4 py-3 font-medium">Materiál</th>
+                  <th class="text-left px-4 py-3 font-medium">Jednotka</th>
+                  <th class="text-right px-4 py-3 font-medium">Spolu nakúpené</th>
+                  <th class="text-right px-4 py-3 font-medium">Spolu náklady</th>
+                  <th class="text-right px-4 py-3 font-medium hidden sm:table-cell">Posledný nákup</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                @for (s of inventorySummary(); track s.name + '|' + s.unit) {
+                  <tr class="text-slate-800 dark:text-slate-200">
+                    <td class="px-4 py-2 font-medium">{{ s.name }}</td>
+                    <td class="px-4 py-2 text-slate-500 dark:text-slate-400">{{ s.unit }}</td>
+                    <td class="px-4 py-2 text-right tabular-nums">{{ s.qty }}</td>
+                    <td class="px-4 py-2 text-right tabular-nums font-semibold text-green-600 dark:text-green-400">{{ formatEur(s.cost) }}</td>
+                    <td class="px-4 py-2 text-right text-slate-500 dark:text-slate-400 hidden sm:table-cell">{{ fmtDate(s.lastSeen) }}</td>
+                  </tr>
+                }
+                <tr class="bg-slate-50 dark:bg-slate-900/40 text-slate-800 dark:text-slate-200 font-bold">
+                  <td class="px-4 py-2">Spolu</td>
+                  <td></td>
+                  <td></td>
+                  <td class="px-4 py-2 text-right tabular-nums text-green-600 dark:text-green-400">{{ formatEur(inventoryGrandTotal()) }}</td>
+                  <td class="hidden sm:table-cell"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        }
+
+        <!-- Per-Nákup list -->
+        <div class="space-y-2">
+          @for (p of inventoryPurchases(); track p.id) {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <button (click)="toggleInventoryRow(p.id)"
+                      class="w-full text-left p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline gap-2 flex-wrap">
+                    <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
+                    <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
+                    @if (p.supplierName) {
+                      <span class="text-xs text-slate-500 dark:text-slate-400">· {{ p.supplierName }}</span>
+                    }
+                    @if (p.timeEntryId) {
+                      <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">šichta</span>
+                    }
+                  </div>
+                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    {{ p.lines.length }} {{ p.lines.length === 1 ? 'položka' : 'položky' }}
+                  </div>
+                </div>
+                <div class="flex flex-col items-end gap-1 shrink-0">
+                  <span class="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">{{ formatEur(p.totalCost) }}</span>
+                  @if (p.receiptPhotoUrl) {
+                    <span class="text-xs text-blue-600 dark:text-blue-400">📎 účtenka</span>
+                  }
+                </div>
+                <span class="text-slate-400 text-lg ml-2">{{ expandedInventoryId() === p.id ? '▾' : '▸' }}</span>
+              </button>
+
+              @if (expandedInventoryId() === p.id) {
+                <div class="border-t border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-900/40">
+                  <div class="overflow-x-auto -mx-4 px-4 mb-3">
+                  <table class="w-full text-sm min-w-[20rem]">
+                    <thead class="text-slate-500 dark:text-slate-400">
+                      <tr>
+                        <th class="text-left font-medium pb-1">Materiál</th>
+                        <th class="text-right font-medium pb-1">Množstvo</th>
+                        <th class="text-right font-medium pb-1">Cena/j.</th>
+                        <th class="text-right font-medium pb-1">Spolu</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                      @for (l of p.lines; track l.id) {
+                        <tr class="text-slate-800 dark:text-slate-200">
+                          <td class="py-2">
+                            {{ l.materialName ?? l.materialNameRaw }}
+                            @if (!l.materialId) {
+                              <span class="ml-1 text-xs px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">neid.</span>
+                            }
+                            <span class="text-xs text-slate-500 dark:text-slate-400 ml-1">{{ l.unit }}</span>
+                          </td>
+                          <td class="py-2 text-right tabular-nums">{{ l.quantity }}</td>
+                          <td class="py-2 text-right tabular-nums">{{ formatEur(l.unitPrice) }}</td>
+                          <td class="py-2 text-right tabular-nums font-semibold">{{ formatEur(l.lineTotal) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                  </div>
+
+                  @if (p.receiptPhotoUrl) {
+                    <div class="mt-2">
+                      <a [href]="p.receiptPhotoUrl" target="_blank" rel="noopener" class="inline-block">
+                        <img [src]="p.receiptPhotoUrl" alt="Účtenka"
+                             class="max-h-48 rounded-lg border border-slate-200 dark:border-slate-700" />
+                      </a>
+                    </div>
+                  }
+
+                  @if (p.note) {
+                    <div class="mt-2 text-sm text-slate-600 dark:text-slate-300 italic">{{ p.note }}</div>
+                  }
+
+                  <div class="mt-3 flex justify-end gap-3">
+                    <button (click)="startEditPurchase(p)"
+                            class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
+                      Upraviť
+                    </button>
+                    <button (click)="onDeleteInventoryPurchase(p)"
+                            class="text-red-600 dark:text-red-400 hover:text-red-700 text-sm font-medium">
+                      Vymazať nákup
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          } @empty {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
+              V inventári nie sú žiadne položky.
+            </div>
+          }
+        </div>
+      }
+    }
+
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    <!-- ══ Tab: Neidentifikované ════════════════════════════════════ -->
+    <!-- ══════════════════════════════════════════════════════════════ -->
+    @if (tab() === 'neid') {
+
+      @if (unknownError()) {
+        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+          {{ unknownError() }}
+        </div>
+      }
+
+      @if (unknownLoading()) {
+        <app-spinner />
+      } @else {
+        <div class="space-y-2">
+          @for (g of unknownGroups(); track g.materialNameRaw + '|' + g.unit) {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div class="min-w-0 flex-1">
+                  <div class="font-semibold text-slate-900 dark:text-white">
+                    {{ g.materialNameRaw }} <span class="text-xs text-slate-500 dark:text-slate-400 font-normal">({{ g.unit }})</span>
+                  </div>
+                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {{ g.lineCount }} {{ g.lineCount === 1 ? 'výskyt' : 'výskytov' }} ·
+                    od {{ fmtDate(g.firstSeenAt) }} do {{ fmtDate(g.lastSeenAt) }} ·
+                    zadal: {{ g.enteredByEmployeeNames.join(', ') }}
+                  </div>
+                </div>
+                <div class="flex flex-col items-end gap-1">
+                  <span class="text-lg font-bold tabular-nums text-slate-900 dark:text-white">{{ formatEur(g.totalSpend) }}</span>
+                  <span class="text-xs text-slate-500 dark:text-slate-400">priem. {{ formatEur(g.averageUnitPrice) }} / {{ g.unit }}</span>
+                </div>
+              </div>
+              <div class="mt-3 flex justify-end">
+                <button (click)="openPromote(g)"
+                        class="touch-target bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+                  Promovať do katalógu
+                </button>
+              </div>
+            </div>
+          } @empty {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
+              Žiadne nezaradené položky.
+            </div>
+          }
+        </div>
+      }
+    }
+
   </div>
 </div>
+
+<!-- ══ Promote modal ═══════════════════════════════════════════════ -->
+@if (promoteTarget(); as g) {
+  <div class="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4" (click)="closePromote()">
+    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-auto" (click)="$event.stopPropagation()">
+      <div class="p-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <h3 class="text-lg font-bold text-slate-900 dark:text-white">Promovať „{{ g.materialNameRaw }}"</h3>
+        <button (click)="closePromote()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl">×</button>
+      </div>
+
+      <div class="p-5">
+        @if (promoteResultMessage()) {
+          <div class="mb-3 rounded-lg bg-green-100 dark:bg-green-900/40 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 text-sm px-3 py-2">
+            {{ promoteResultMessage() }}
+          </div>
+        }
+
+        @if (promoteError()) {
+          <div class="mb-3 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+            {{ promoteError() }}
+          </div>
+        }
+
+        <!-- Mode picker -->
+        <div class="flex gap-2 mb-4">
+          <button (click)="promoteMode.set('new')"
+                  [class]="promoteMode() === 'new' ? 'bg-amber-500 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'"
+                  class="flex-1 px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+            Vytvoriť nový
+          </button>
+          <button (click)="promoteMode.set('merge')"
+                  [class]="promoteMode() === 'merge' ? 'bg-amber-500 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'"
+                  class="flex-1 px-4 py-2 rounded-lg text-sm font-semibold transition-colors">
+            Zlúčiť s existujúcim
+          </button>
+        </div>
+
+        @if (promoteMode() === 'new') {
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Názov v katalógu</label>
+              <input type="text" [(ngModel)]="promoteName" maxlength="200"
+                     class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Jednotka</label>
+              <input type="text" [(ngModel)]="promoteUnit" maxlength="50"
+                     class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Začiatočná katalógová cena (€/{{ promoteUnit || g.unit }})</label>
+              <input type="number" min="0" step="0.0001" [(ngModel)]="promotePrice"
+                     class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-right tabular-nums" />
+            </div>
+          </div>
+        }
+
+        @if (promoteMode() === 'merge') {
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Vyber existujúci materiál</label>
+            <input type="search" [(ngModel)]="promoteCatalogueSearch" placeholder="Hľadaj v katalógu..."
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg mb-2" />
+            <div class="max-h-64 overflow-auto space-y-1 border border-slate-200 dark:border-slate-700 rounded-lg p-1">
+              @for (m of filteredPromoteCatalogue(); track m.id) {
+                <button type="button" (click)="promoteCatalogueId = m.id"
+                        [class]="promoteCatalogueId === m.id ? 'bg-amber-100 dark:bg-amber-900/40 border-amber-400 dark:border-amber-500' : 'hover:bg-slate-100 dark:hover:bg-slate-700 border-transparent'"
+                        class="w-full text-left p-2 rounded-md border-2 transition-colors">
+                  <div class="flex justify-between items-baseline">
+                    <span class="font-medium text-slate-900 dark:text-white">{{ m.name }}</span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400">{{ m.unit }}</span>
+                  </div>
+                  @if (m.pricePerUnit > 0) {
+                    <div class="text-xs text-slate-500 dark:text-slate-400">{{ formatEur(m.pricePerUnit) }} / {{ m.unit }}</div>
+                  }
+                </button>
+              } @empty {
+                <div class="p-3 text-center text-sm text-slate-500 dark:text-slate-400 italic">
+                  Žiadny materiál v katalógu vyhovujúci hľadaniu.
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        <label class="flex items-center gap-2 mt-4 text-sm text-slate-700 dark:text-slate-200">
+          <input type="checkbox" [(ngModel)]="promoteApplyAll" class="w-4 h-4 rounded" />
+          Premapovať aj všetky ostatné výskyty s tým istým názvom + jednotkou ({{ g.lineCount }})
+        </label>
+      </div>
+
+      <div class="p-5 border-t border-slate-200 dark:border-slate-700 flex gap-2 justify-end">
+        <button (click)="closePromote()" [disabled]="promoteSaving()"
+                class="px-4 py-2 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-50">
+          Zrušiť
+        </button>
+        <button (click)="runPromote()" [disabled]="promoteSaving()"
+                class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold">
+          {{ promoteSaving() ? 'Ukladám...' : 'Promovať' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ══ Edit purchase modal ════════════════════════════════════════ -->
+@if (editPurchaseTarget(); as p) {
+  <div class="fixed inset-0 bg-black/50 z-40 flex items-center justify-center p-4" (click)="cancelEditPurchase()">
+    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[92vh] overflow-auto" (click)="$event.stopPropagation()">
+      <div class="p-5 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <h3 class="text-lg font-bold text-slate-900 dark:text-white">Upraviť nákup</h3>
+        <button (click)="cancelEditPurchase()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl">×</button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        @if (editPurchaseError()) {
+          <div class="rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 text-sm px-3 py-2">
+            {{ editPurchaseError() }}
+          </div>
+        }
+
+        <!-- Header fields -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Dátum</label>
+            <input type="date" appDate [(ngModel)]="editPurchaseDate" name="editPurchaseDate"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Pre pracovisko</label>
+            <select [(ngModel)]="editPurchaseLocationId"
+                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+              <option [ngValue]="null">— Inventár —</option>
+              @for (l of locations(); track l.id) {
+                <option [ngValue]="l.id">{{ l.name }}</option>
+              }
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Dodávateľ</label>
+            <input type="text" [(ngModel)]="editPurchaseSupplier" maxlength="200"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Poznámka</label>
+            <input type="text" [(ngModel)]="editPurchaseNote" maxlength="500"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+          </div>
+        </div>
+
+        <!-- Lines -->
+        <div>
+          <h4 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Položky</h4>
+          @if (editPurchaseLines().length === 0) {
+            <div class="text-sm text-slate-500 dark:text-slate-400 italic">Žiadne položky.</div>
+          }
+          <div class="space-y-2">
+            @for (l of editPurchaseLines(); track $index) {
+              <div class="bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+                <div class="flex items-baseline justify-between mb-2">
+                  <div>
+                    <span class="font-medium text-slate-900 dark:text-white">{{ l.materialNameRaw }}</span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400 ml-2">{{ l.unit }}</span>
+                    @if (!l.materialId) {
+                      <span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">neid.</span>
+                    }
+                  </div>
+                  <button (click)="removeEditLine($index)"
+                          class="text-red-600 dark:text-red-400 hover:text-red-700 text-xs font-medium">
+                    Vymazať
+                  </button>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Množstvo</label>
+                    <input type="number" min="0" step="0.001"
+                           [ngModel]="l.quantity"
+                           (ngModelChange)="setEditLineQty($index, $event)"
+                           class="w-full px-3 py-1.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-right tabular-nums" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">Cena za {{ l.unit }} (€)</label>
+                    <input type="number" min="0" step="0.01"
+                           [ngModel]="l.unitPrice"
+                           (ngModelChange)="setEditLineUnitPrice($index, $event)"
+                           class="w-full px-3 py-1.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-right tabular-nums" />
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+          <!-- Add line — catalogue picker or "+ Nový materiál" mirroring the kiosk Lines step. -->
+          @if (!editAddingLine()) {
+            <button (click)="openEditAddLine()"
+                    class="touch-target w-full mt-2 py-3 rounded-lg border-2 border-dashed border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400 font-semibold text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20">
+              + Pridať položku
+            </button>
+          } @else {
+            <div class="mt-2 bg-white dark:bg-slate-800 rounded-lg border-2 border-amber-400 dark:border-amber-500 p-3">
+              <div class="flex items-center justify-between mb-2">
+                <h5 class="font-semibold text-slate-900 dark:text-white text-sm">Vyber materiál</h5>
+                <button (click)="cancelEditAddLine()" class="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-xs">Zrušiť</button>
+              </div>
+
+              @if (!editNewMaterialOpen()) {
+                <input type="search" [(ngModel)]="editPickerSearch" placeholder="Hľadaj v katalógu..."
+                       class="w-full px-3 py-2 mb-2 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-sm" />
+                <div class="max-h-56 overflow-auto space-y-1 mb-2">
+                  @for (m of filteredEditCatalogue(); track m.id) {
+                    <button (click)="addEditCatalogueLine(m)"
+                            class="w-full text-left p-2 rounded-md bg-slate-50 dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-amber-100 dark:active:bg-amber-900/30 text-sm">
+                      <div class="flex justify-between items-baseline">
+                        <span class="font-medium text-slate-900 dark:text-white">{{ m.name }}</span>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">{{ m.unit }}</span>
+                      </div>
+                      @if (m.pricePerUnit > 0) {
+                        <div class="text-xs text-slate-500 dark:text-slate-400">{{ formatEur(m.pricePerUnit) }} / {{ m.unit }}</div>
+                      }
+                    </button>
+                  } @empty {
+                    <div class="p-2 text-center text-xs text-slate-500 dark:text-slate-400 italic">Žiadny materiál nevyhovuje hľadaniu.</div>
+                  }
+                </div>
+                <button (click)="editNewMaterialOpen.set(true)"
+                        class="touch-target w-full py-2 rounded-md border border-dashed border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400 font-medium text-xs hover:bg-amber-50 dark:hover:bg-amber-900/20">
+                  + Nový materiál (nie je v katalógu)
+                </button>
+              } @else {
+                <div class="space-y-2">
+                  <div>
+                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Názov</label>
+                    <input type="text" [(ngModel)]="editNewMaterialName" placeholder="napr. Skrutky 6×80"
+                           class="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-sm" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Jednotka</label>
+                    <input type="text" [(ngModel)]="editNewMaterialUnit" placeholder="ks / kg / m²"
+                           class="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-sm" />
+                  </div>
+                  <div>
+                    <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Cena za jednotku (€)</label>
+                    <input type="number" min="0" step="0.01" [(ngModel)]="editNewMaterialPrice"
+                           class="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-sm tabular-nums text-right" />
+                  </div>
+                  <div class="flex gap-2">
+                    <button (click)="editNewMaterialOpen.set(false)" class="flex-1 py-2 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium">
+                      Späť
+                    </button>
+                    <button (click)="addEditCustomLine()" [disabled]="!editNewMaterialName.trim() || !editNewMaterialUnit.trim()"
+                            class="flex-1 py-2 rounded-md bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-bold">
+                      Pridať
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
+          <div class="mt-2 flex justify-between items-baseline">
+            <span class="text-sm text-slate-500 dark:text-slate-400">Spolu</span>
+            <span class="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">{{ formatEur(editTotalCost()) }}</span>
+          </div>
+        </div>
+
+        <!-- Receipt management -->
+        <div>
+          <h4 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Účtenka</h4>
+          @if (p.receiptPhotoUrl && !editReceiptPreview()) {
+            <div class="flex flex-col gap-2">
+              <a [href]="p.receiptPhotoUrl" target="_blank" rel="noopener" class="inline-block">
+                <img [src]="p.receiptPhotoUrl" alt="Účtenka" class="max-h-48 rounded-lg border border-slate-200 dark:border-slate-700" />
+              </a>
+              <div class="flex gap-2">
+                <label class="cursor-pointer text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-medium">
+                  Nahradiť
+                  <input type="file" accept="image/*" (change)="onEditReceiptSelected($event)" class="hidden" />
+                </label>
+                <button (click)="deleteSavedReceipt()" class="text-red-600 dark:text-red-400 hover:text-red-700 text-sm font-medium">
+                  Vymazať
+                </button>
+              </div>
+            </div>
+          } @else if (editReceiptPreview()) {
+            <div class="flex flex-col gap-2">
+              <img [src]="editReceiptPreview()" alt="Nová účtenka" class="max-h-48 rounded-lg border-2 border-amber-400 dark:border-amber-500" />
+              <p class="text-xs text-amber-600 dark:text-amber-400">Nahrá sa po uložení.</p>
+              <button (click)="removeEditReceipt()" class="text-slate-500 dark:text-slate-400 hover:text-slate-700 text-sm w-fit">
+                Zrušiť výber
+              </button>
+            </div>
+          } @else {
+            <label class="cursor-pointer flex items-center justify-center gap-2 py-3 rounded-lg border-2 border-dashed border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400 font-medium text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20">
+              + Nahrať účtenku
+              <input type="file" accept="image/*" (change)="onEditReceiptSelected($event)" class="hidden" />
+            </label>
+          }
+        </div>
+      </div>
+
+      <div class="p-5 border-t border-slate-200 dark:border-slate-700 flex gap-2 justify-end">
+        <button (click)="cancelEditPurchase()" [disabled]="editPurchaseSaving()"
+                class="px-4 py-2 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-50">
+          Zrušiť
+        </button>
+        <button (click)="savePurchaseEdit()" [disabled]="editPurchaseSaving() || editPurchaseLines().length === 0"
+                class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold">
+          @if (editPurchaseSaving()) {
+            {{ editReceiptUploading() ? 'Nahrávam účtenku...' : 'Ukladám...' }}
+          } @else {
+            Uložiť zmeny
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}

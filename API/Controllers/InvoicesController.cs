@@ -1,0 +1,1376 @@
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using API.Data;
+using API.DTOs;
+using API.Filters;
+using API.Models;
+using API.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using PdfSharpCore.Drawing;
+using PdfSharpCore.Pdf;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
+
+namespace API.Controllers;
+
+/// <summary>
+/// Admin invoice scanning controller — see INVOICE_SCANNING_PLAN.md.
+/// Manager scans / uploads a supplier invoice; Document AI parses it; the
+/// manager reviews + edits the result; commit creates N MaterialPurchases.
+///
+/// Finance-grade: the commit endpoint re-runs reconciliation server-side
+/// even if the client UI already passed it. Any cent-level mismatch
+/// blocks the commit.
+/// </summary>
+[ApiController]
+[Route("api/invoices")]
+[Authorize]
+[RequireFeatureOrSuperAdmin("InvoiceScanning")]
+public class InvoicesController : ControllerBase
+{
+    private readonly AppDbContext _db;
+    private readonly IBlobStorageService? _blob;
+    private readonly IDocumentAiClient? _ocr;
+    private readonly IInvoiceParser _parser;
+    private readonly ILogger<InvoicesController> _log;
+
+    private const string PdfFolderRoot = "invoices";
+
+    public InvoicesController(
+        AppDbContext db,
+        IInvoiceParser parser,
+        ILogger<InvoicesController> log,
+        IBlobStorageService? blob = null,
+        IDocumentAiClient? ocr = null)
+    {
+        _db = db;
+        _parser = parser;
+        _log = log;
+        _blob = blob;
+        _ocr = ocr;
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Upload + parse
+    // ────────────────────────────────────────────────────────────────
+
+    [HttpPost("upload")]
+    [RequestSizeLimit(20 * 1024 * 1024)]   // 20 MB cap
+    public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file)
+    {
+        if (_ocr == null)
+            return StatusCode(503, "OCR nie je nakonfigurované. Skontrolujte Google Document AI nastavenia.");
+        if (_blob == null)
+            return StatusCode(503, "Úložisko súborov nie je nakonfigurované.");
+        if (file == null || file.Length == 0)
+            return BadRequest("Súbor je prázdny.");
+        if (file.Length > 20 * 1024 * 1024)
+            return BadRequest("Súbor je príliš veľký (limit 20 MB).");
+
+        var mime = (file.ContentType ?? "").ToLowerInvariant();
+        if (mime != "application/pdf"
+            && !mime.StartsWith("image/", StringComparison.Ordinal))
+            return BadRequest("Povolené sú iba PDF alebo obrázky.");
+
+        // Buffer the file once — we need it both for Cloudinary upload and for
+        // Document AI (no second stream from the same IFormFile).
+        byte[] bytes;
+        await using (var ms = new MemoryStream())
+        {
+            await file.CopyToAsync(ms);
+            bytes = ms.ToArray();
+        }
+
+        // 1) Run OCR first. If it fails, no PDF is uploaded — the manager
+        // retries with the same file. Avoids orphan blobs on transient errors.
+        DocumentAiResult ocr;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            ocr = await _ocr.ProcessAsync(bytes, mime, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Document AI failed for upload");
+            return StatusCode(502, "Skenovanie zlyhalo. Skúste znova, alebo skontrolujte Google Document AI.");
+        }
+
+        // Diagnostic log: what entity types did Document AI return? This is
+        // what tells us whether the parser is reading the right fields. Visible
+        // in the dotnet watch console. Safe to log — entity TYPE names are
+        // metadata (e.g. "line_item", "supplier_name"), no PII.
+        var typeCounts = ocr.Entities
+            .GroupBy(e => e.Type)
+            .Select(g => $"{g.Key}({g.Count()})")
+            .OrderBy(s => s);
+        _log.LogInformation("[InvoiceScanning] Document AI returned {Count} entities, types: {Types}",
+            ocr.Entities.Count, string.Join(", ", typeCounts));
+
+        // If any line_item entities exist, log the property types of the FIRST
+        // one so we can see what nested field names Document AI uses.
+        var firstLine = ocr.Entities.FirstOrDefault(e => e.Type.Contains("line", StringComparison.OrdinalIgnoreCase));
+        if (firstLine != null)
+        {
+            _log.LogInformation("[InvoiceScanning] First line-like entity '{Type}' mention='{Mention}' properties: {Props}",
+                firstLine.Type,
+                Truncate(firstLine.MentionText, 80),
+                string.Join(", ", firstLine.Properties.Select(p => $"{p.Type}='{Truncate(p.MentionText, 30)}'")));
+        }
+        else
+        {
+            _log.LogWarning("[InvoiceScanning] Document AI returned ZERO line-item-like entities. Parser will produce empty lines.");
+        }
+
+        var parsed = _parser.Parse(ocr);
+
+        // Per-line diagnostic: dump what the parser produced for every row.
+        // Lets us spot when text-based extraction failed (list/discount null)
+        // or grabbed wrong values (e.g. list=0 on a non-credit row).
+        foreach (var dl in parsed.DeliveryLists)
+        {
+            _log.LogInformation("[InvoiceScanning] DL={Ref} akcia={Akcia} sub={SubExcl}/{SubVat} lines={N}",
+                dl.DeliveryNoteRef, dl.AkciaName, dl.SubtotalExclVat, dl.SubtotalVat, dl.Lines.Count);
+            foreach (var l in dl.Lines)
+            {
+                _log.LogInformation("[InvoiceScanning]   line code={Code} desc='{Desc}' qty={Qty}{Unit} list={List} disc={Disc}% postExcl={PE} total={Tot}",
+                    l.SupplierItemCode,
+                    Truncate(l.Description, 50),
+                    l.Quantity, l.Unit,
+                    l.ListPriceExclVat, l.DiscountPercent, l.UnitPriceExclVat, l.LineTotalExclVat);
+            }
+        }
+
+        // Hard requirements before we even bother uploading the PDF — the
+        // manager needs to see something coherent on review.
+        if (string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber))
+            return BadRequest("Faktúra nemá rozpoznané číslo. Skontrolujte kvalitu skenu.");
+        if (parsed.Header.TotalInclVat == null)
+            return BadRequest("Faktúra nemá rozpoznanú celkovú sumu. Skontrolujte kvalitu skenu.");
+
+        // 2) Dedup check — same invoice number + supplier IČO is a hard error.
+        var dupExists = await _db.InvoiceDocuments.AnyAsync(d =>
+            d.InvoiceNumber == parsed.Header.InvoiceNumber
+            && d.SupplierIco == parsed.Header.SupplierIco);
+        if (dupExists)
+            return Conflict($"Faktúra {parsed.Header.InvoiceNumber} už bola nahraná pre tohto dodávateľa.");
+
+        // 3) Upload original to Cloudinary, partitioned by year-month.
+        // PDFs go through the raw-upload path (byte-identical, no image
+        // normalisation). Photo uploads (when a manager scans with their
+        // phone instead of a PDF) go through the normal image path so
+        // HEIC/PNG/WebP/BMP get JPEG-normalised like work photos.
+        var ym = (parsed.Header.IssueDate ?? DateTime.UtcNow).ToString("yyyy-MM");
+        var folder = $"{PdfFolderRoot}/{ym}";
+        var isPdf = mime == "application/pdf";
+        var ext = isPdf ? ".pdf" : Path.GetExtension(file.FileName ?? "") ?? "";
+        if (string.IsNullOrEmpty(ext) && !isPdf) ext = ".jpg";
+        var fileName = $"{parsed.Header.InvoiceNumber}-{Guid.NewGuid():N}{ext}";
+        string pdfUrl;
+        await using (var blobStream = new MemoryStream(bytes))
+        {
+            pdfUrl = isPdf
+                ? await _blob.UploadRawAsync(blobStream, fileName, folder)
+                : await _blob.UploadAsync(blobStream, fileName, folder);
+        }
+
+        // 4) Persist InvoiceDocument + draft MaterialPurchases + lines.
+        // Defensive clipping: Document AI can return surprisingly long strings
+        // (extra context glued to a field, OCR noise, etc.). Every string
+        // below is clipped to its schema's varchar limit so a fluke OCR doesn't
+        // crash the save with "value too long for type character varying(N)".
+        var uploader = User.Identity?.Name ?? "unknown";
+        var doc = new InvoiceDocument
+        {
+            InvoiceNumber       = Clip(parsed.Header.InvoiceNumber!, 100),
+            SupplierName        = Clip(parsed.Header.SupplierName ?? "(neznámy dodávateľ)", 200),
+            SupplierIco         = Clip(parsed.Header.SupplierIco, 50),
+            SupplierIcDph       = Clip(parsed.Header.SupplierIcDph, 50),
+            SupplierIban        = Clip(parsed.Header.SupplierIban, 50),
+            IssueDate           = parsed.Header.IssueDate ?? DateTime.UtcNow.Date,
+            DeliveryDate        = parsed.Header.DeliveryDate,
+            DueDate             = parsed.Header.DueDate,
+            PeriodFrom          = parsed.Header.PeriodFrom,
+            PeriodTo            = parsed.Header.PeriodTo,
+            Currency            = parsed.Header.Currency,
+            TotalExclVat        = Round2(parsed.Header.TotalExclVat ?? 0m),
+            TotalVat            = Round2(parsed.Header.TotalVat ?? 0m),
+            TotalInclVat        = Round2(parsed.Header.TotalInclVat!.Value),
+            PdfUrl              = pdfUrl,
+            RawOcrJson          = ocr.RawJson,
+            Status              = "review",
+            UploadedBy          = uploader,
+            UploadedAt          = DateTime.UtcNow
+        };
+        _db.InvoiceDocuments.Add(doc);
+        await _db.SaveChangesAsync();   // get the doc.Id
+
+        // The "buyer" for these draft purchases is the uploading manager. We
+        // don't know which Employee that is without a JWT→Employee mapping;
+        // for V1 we attach to the first active admin Employee, or fail loudly
+        // if none. Practical: there's always one in this customer's DB.
+        var firstActiveEmp = await _db.Employees.FirstOrDefaultAsync(e => e.IsActive);
+        if (firstActiveEmp == null)
+            return BadRequest("V databáze nie je žiadny aktívny zamestnanec, ku ktorému by sa dali priradiť nákupy.");
+
+        // Build draft MaterialPurchase + MaterialPurchaseLine rows.
+        var locationsByNormName = await _db.Locations
+            .Where(l => l.IsActive)
+            .ToDictionaryAsync(l => NormalizeForMatch(l.Name), l => l.Id);
+
+        // Index active employees by normalised last name so we can map the
+        // invoice's prevzal text (e.g. "p. Sroka") onto a real Employee.
+        // Falling back to last-name avoids the "p." / "Mgr." prefix noise.
+        var activeEmployees = await _db.Employees.Where(e => e.IsActive).ToListAsync();
+
+        foreach (var dl in parsed.DeliveryLists)
+        {
+            // ── Match prevzal → Employee ────────────────────────────
+            // Strip honorifics ("p.", "pán", "ing.", "mgr.") and split into
+            // tokens, then look for an Employee whose normalised last name
+            // appears in the candidate set. Unique match wins.
+            var pickedUpEmpId = MatchEmployeeFromPickedUpBy(dl.PickedUpBy, activeEmployees);
+            // Auto-map → Location by normalised name match against akcia first,
+            // then prevzal / Pozn.DL as fallback. Some DEK delivery-note layouts
+            // omit the "akcia:" label and crash the site name into the prevzal
+            // continuation, so we have to scan all three candidates.
+            int? autoLocationId = null;
+            string[] rawCandidates = { dl.AkciaName ?? "", dl.PickedUpBy ?? "", dl.Note ?? "" };
+            foreach (var raw in rawCandidates)
+            {
+                var n = NormalizeForMatch(raw);
+                if (string.IsNullOrEmpty(n)) continue;
+                if (locationsByNormName.TryGetValue(n, out var exact))
+                {
+                    autoLocationId = exact;
+                    break;
+                }
+                var hits = locationsByNormName
+                    .Where(kv => n.Contains(kv.Key))
+                    .Select(kv => (int?)kv.Value)
+                    .ToList();
+                if (hits.Count == 1) { autoLocationId = hits[0]; break; }
+            }
+
+            var purchase = new MaterialPurchase
+            {
+                PurchaseDate        = dl.DeliveryDate ?? doc.IssueDate,
+                EmployeeId          = pickedUpEmpId ?? firstActiveEmp.Id,
+                LocationId          = autoLocationId,
+                InvoiceDocumentId   = doc.Id,
+                DeliveryNoteRef     = Clip(dl.DeliveryNoteRef, 100),
+                PickedUpBy          = Clip(dl.PickedUpBy, 200),
+                DeliveryNote        = Clip(dl.Note, 2000),
+                AkciaName           = Clip(dl.AkciaName, 200),
+                SupplierName        = doc.SupplierName,
+                SubtotalExclVat     = dl.SubtotalExclVat.HasValue ? Round2(dl.SubtotalExclVat.Value) : (decimal?)null,
+                SubtotalVat         = dl.SubtotalVat.HasValue     ? Round2(dl.SubtotalVat.Value)     : (decimal?)null
+            };
+            foreach (var l in dl.Lines)
+            {
+                var qty   = l.Quantity ?? 0m;
+                var unit  = l.UnitPriceExclVat ?? 0m;
+                var total = l.LineTotalExclVat ?? Round2(qty * unit);
+                purchase.Lines.Add(new MaterialPurchaseLine
+                {
+                    MaterialNameRaw   = Clip(l.Description, 200) ?? "(bez popisu)",
+                    Unit              = Clip(l.Unit, 50) ?? "ks",
+                    Quantity          = qty,
+                    UnitPrice         = unit,
+                    LineTotal         = total,
+                    SupplierItemCode  = Clip(l.SupplierItemCode, 50),
+                    ListPriceExclVat  = l.ListPriceExclVat,
+                    DiscountPercent   = l.DiscountPercent,
+                    UnitPriceInclVat  = l.UnitPriceInclVat,
+                    VatRate           = l.VatRate,
+                    IsReverseCharge   = l.IsReverseCharge,
+                    IsService         = l.IsService
+                });
+            }
+            purchase.TotalCost = purchase.Lines.Sum(l => l.LineTotal);
+            _db.MaterialPurchases.Add(purchase);
+        }
+
+        await _db.SaveChangesAsync();
+
+        // Reconciliation: run it once now so the manager sees the result.
+        await RecomputeReconciliationAsync(doc.Id);
+
+        return await BuildDtoAsync(doc.Id);
+    }
+
+    /// <summary>
+    /// Camera-scan upload: accepts N image files (one per page of a paper
+    /// invoice), normalises them via ImageSharp (EXIF auto-rotate + downscale
+    /// long edge to 2200 px + JPEG q=82), assembles into a single PDF with
+    /// PdfSharpCore (one image per page, page sized to image aspect), then
+    /// delegates to the existing <see cref="Upload"/> path so the downstream
+    /// OCR / parser / persistence is identical. After the upload returns,
+    /// stamps the resulting <c>InvoiceDocument</c> with
+    /// <c>ScanSource = "camera"</c> and <c>ScanPageCount = files.Count</c>.
+    ///
+    /// Stage 1 of INVOICE_SCANNING_CAMERA_STAGES.md. The new endpoint is
+    /// what every later stage's frontend code ultimately posts to.
+    /// </summary>
+    [HttpPost("upload-photos")]
+    [RequestSizeLimit(40 * 1024 * 1024)]   // 40 MB cap across all photos
+    public async Task<ActionResult<InvoiceDocumentDto>> UploadPhotos(List<IFormFile> files)
+    {
+        if (_ocr == null)
+            return StatusCode(503, "OCR nie je nakonfigurované. Skontrolujte Google Document AI nastavenia.");
+        if (_blob == null)
+            return StatusCode(503, "Úložisko súborov nie je nakonfigurované.");
+        if (files == null || files.Count == 0)
+            return BadRequest("Nahrajte aspoň jednu fotku.");
+        if (files.Count > 10)
+            return BadRequest("Maximálne 10 fotiek na jednu faktúru.");
+
+        foreach (var f in files)
+        {
+            var imgMime = (f.ContentType ?? "").ToLowerInvariant();
+            if (!imgMime.StartsWith("image/", StringComparison.Ordinal))
+                return BadRequest("Povolené sú iba obrázky (image/*).");
+            if (f.Length == 0)
+                return BadRequest("Niektorá fotka je prázdna.");
+            if (f.Length > 10 * 1024 * 1024)
+                return BadRequest("Fotka je príliš veľká (limit 10 MB na fotku).");
+        }
+
+        // 1) Build the PDF on the server. CombineImagesToPdfAsync handles
+        //    EXIF rotation, downscaling, and JPEG re-encoding per image.
+        byte[] pdfBytes;
+        try
+        {
+            pdfBytes = await CombineImagesToPdfAsync(files);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[InvoiceCameraScan] Failed to combine {N} photos into PDF", files.Count);
+            return StatusCode(500, "Nepodarilo sa zostaviť PDF z fotiek. Skúste znova.");
+        }
+
+        _log.LogInformation("[InvoiceCameraScan] Combined {N} photos into a {Bytes}-byte PDF",
+            files.Count, pdfBytes.Length);
+
+        // 2) Wrap the assembled PDF as an IFormFile and reuse the existing
+        //    Upload path verbatim. Anything that worked for PDF-picker
+        //    uploads — Document AI call, dedup, Cloudinary upload, draft
+        //    MaterialPurchase creation, reconciliation — works here too.
+        await using var pdfStream = new MemoryStream(pdfBytes);
+        var pdfFormFile = new FormFile(pdfStream, 0, pdfBytes.Length,
+            name: "file",
+            fileName: $"camera-scan-{DateTime.UtcNow:yyyyMMdd-HHmmss}.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+        var result = await Upload(pdfFormFile);
+
+        // 3) Stamp scan provenance on the newly-created InvoiceDocument so
+        //    the list page can render a different icon for camera-scanned
+        //    invoices and so analytics can correlate parse quality with
+        //    page count down the line.
+        if (result.Result is OkObjectResult ok && ok.Value is InvoiceDocumentDto okDto)
+        {
+            await StampScanProvenanceAsync(okDto.Id, files.Count);
+            return await BuildDtoAsync(okDto.Id);
+        }
+        if (result.Value is InvoiceDocumentDto dto)
+        {
+            await StampScanProvenanceAsync(dto.Id, files.Count);
+            return await BuildDtoAsync(dto.Id);
+        }
+        // Pass through any non-success result from Upload (validation,
+        // 502 from Document AI, 409 dedup, etc.) — same wire shape as the
+        // file-picker path.
+        return result;
+    }
+
+    private async Task StampScanProvenanceAsync(int invoiceDocumentId, int pageCount)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(invoiceDocumentId);
+        if (doc == null) return;
+        doc.ScanSource = "camera";
+        doc.ScanPageCount = pageCount;
+        await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Normalises each uploaded image (EXIF auto-rotate, downscale long
+    /// edge to 2200 px if larger, JPEG re-encode at quality 82) and
+    /// embeds the result one-per-page into a PDF. Page size matches each
+    /// image's aspect ratio so Document AI gets the cleanest possible
+    /// rasterisation. Returns the PDF bytes.
+    /// </summary>
+    private static async Task<byte[]> CombineImagesToPdfAsync(IReadOnlyList<IFormFile> files)
+    {
+        const int maxLongEdge = 2200;
+        const int jpegQuality = 82;
+
+        using var pdf = new PdfDocument();
+
+        foreach (var file in files)
+        {
+            // ImageSharp loads almost anything (JPEG/PNG/WebP/BMP/HEIC via plugins,
+            // but we keep just the built-in formats; client-side normaliseFile
+            // converts HEIC → PNG before sending).
+            await using var inStream = file.OpenReadStream();
+            using var image = await Image.LoadAsync(inStream);
+
+            // ImageSharp's LoadAsync already honours EXIF orientation by default
+            // (it autoRotate's during decode), so the pixels we have are upright.
+            // Downscale only if the long edge exceeds the cap.
+            var longEdge = Math.Max(image.Width, image.Height);
+            if (longEdge > maxLongEdge)
+            {
+                var scale = (double)maxLongEdge / longEdge;
+                image.Mutate(x => x.Resize(
+                    (int)Math.Round(image.Width  * scale),
+                    (int)Math.Round(image.Height * scale)));
+            }
+
+            // Re-encode as JPEG into a memory stream — PdfSharpCore embeds
+            // JPEGs directly without re-encoding, which keeps file size down.
+            using var jpegStream = new MemoryStream();
+            await image.SaveAsJpegAsync(jpegStream, new JpegEncoder { Quality = jpegQuality });
+            jpegStream.Position = 0;
+
+            // Add a PDF page sized to the image (in points; 1 pt = 1/72 inch,
+            // but PdfSharp will scale a raster image to fill whatever size we
+            // set, so the absolute scale doesn't matter to Document AI — only
+            // the aspect ratio does).
+            var page = pdf.AddPage();
+            page.Width  = image.Width;
+            page.Height = image.Height;
+
+            using var xImage = XImage.FromStream(() => new MemoryStream(jpegStream.ToArray()));
+            using var gfx = XGraphics.FromPdfPage(page);
+            gfx.DrawImage(xImage, 0, 0, page.Width, page.Height);
+        }
+
+        using var outStream = new MemoryStream();
+        pdf.Save(outStream, closeStream: false);
+        return outStream.ToArray();
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Read
+    // ────────────────────────────────────────────────────────────────
+
+    [HttpGet]
+    public async Task<ActionResult<List<InvoiceDocumentDto>>> List(
+        [FromQuery] string? status,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] string? supplier)
+    {
+        var q = _db.InvoiceDocuments.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(status)) q = q.Where(d => d.Status == status);
+        if (from.HasValue) q = q.Where(d => d.IssueDate >= from.Value.Date);
+        if (to.HasValue)   q = q.Where(d => d.IssueDate <  to.Value.Date.AddDays(1));
+        if (!string.IsNullOrWhiteSpace(supplier))
+        {
+            var sLower = supplier.Trim().ToLower();
+            q = q.Where(d => d.SupplierName.ToLower().Contains(sLower));
+        }
+
+        var rows = await q
+            .OrderByDescending(d => d.UploadedAt)
+            .ToListAsync();
+        return rows.Select(BuildSummaryDto).ToList();
+    }
+
+    [HttpGet("{id}")]
+    public async Task<ActionResult<InvoiceDocumentDto>> Get(int id)
+    {
+        var exists = await _db.InvoiceDocuments.AnyAsync(d => d.Id == id);
+        if (!exists) return NotFound();
+        // First-time visit after the AkciaName column was added: backfill the
+        // akcia text from the stored OCR JSON so the auto-matcher below has
+        // something to work with on invoices that were uploaded before the
+        // column existed. No-op once every purchase has AkciaName populated.
+        await BackfillAkciaNamesIfNeededAsync(id);
+        // Opportunistic auto-match: any delivery list whose Location is still
+        // null gets re-checked against the current Pracovisko list. Useful
+        // when the manager created the matching Pracovisko AFTER uploading
+        // the invoice — they shouldn't have to manually assign each one.
+        // Never touches a delivery list that already has a LocationId — the
+        // manager's explicit choice is preserved.
+        await AutoMatchLocationsAsync(id);
+        return await BuildDtoAsync(id);
+    }
+
+    /// <summary>
+    /// Re-derive AkciaName for delivery lists where it's NULL by re-running
+    /// the parser's text-extraction pass against the stored RawOcrJson.
+    /// Cheap (regex over a stored string) and idempotent — once a row has
+    /// AkciaName the work is skipped on subsequent calls.
+    /// </summary>
+    private async Task BackfillAkciaNamesIfNeededAsync(int invoiceId)
+    {
+        var doc = await _db.InvoiceDocuments
+            .Include(d => d.Purchases)
+            .FirstOrDefaultAsync(d => d.Id == invoiceId);
+        if (doc == null) return;
+
+        var needsBackfill = doc.Purchases
+            .Where(p => string.IsNullOrEmpty(p.AkciaName) && !string.IsNullOrEmpty(p.DeliveryNoteRef))
+            .ToList();
+        _log.LogInformation("[InvoiceScanning] Backfill: invoice {Id}, {Total} purchases, {Need} need backfill.",
+            invoiceId, doc.Purchases.Count, needsBackfill.Count);
+        if (needsBackfill.Count == 0) return;
+        if (string.IsNullOrEmpty(doc.RawOcrJson))
+        {
+            _log.LogWarning("[InvoiceScanning] Backfill needed but RawOcrJson is empty.");
+            return;
+        }
+
+        string text;
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(doc.RawOcrJson);
+            text = json.RootElement.TryGetProperty("text", out var t) ? t.GetString() ?? "" : "";
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "[InvoiceScanning] Failed to parse RawOcrJson.");
+            return;
+        }
+        if (text.Length == 0)
+        {
+            _log.LogWarning("[InvoiceScanning] RawOcrJson has empty 'text' property.");
+            return;
+        }
+
+        var dummy = new DocumentAiResult("", Array.Empty<DocumentAiEntity>(), text);
+        var reparsed = _parser.Parse(dummy);
+
+        var akciaByRef = reparsed.DeliveryLists
+            .Where(dl => !string.IsNullOrEmpty(dl.DeliveryNoteRef) && !string.IsNullOrEmpty(dl.AkciaName))
+            .ToDictionary(dl => dl.DeliveryNoteRef!, dl => dl.AkciaName!);
+        _log.LogInformation("[InvoiceScanning] Backfill: extracted {N} ref→akcia mappings: {Map}",
+            akciaByRef.Count, string.Join(", ", akciaByRef.Select(kv => $"{kv.Key}={kv.Value}")));
+
+        var changed = 0;
+        foreach (var p in needsBackfill)
+        {
+            if (akciaByRef.TryGetValue(p.DeliveryNoteRef!, out var akcia))
+            {
+                p.AkciaName = Clip(akcia, 200);
+                _log.LogInformation("[InvoiceScanning]   DL={Ref} → akcia '{Akcia}'", p.DeliveryNoteRef, p.AkciaName);
+                changed++;
+            }
+            else
+            {
+                _log.LogWarning("[InvoiceScanning]   DL={Ref} → no akcia found in text", p.DeliveryNoteRef);
+            }
+        }
+        if (changed > 0)
+        {
+            await _db.SaveChangesAsync();
+            _log.LogInformation("[InvoiceScanning] Backfill saved {N} rows.", changed);
+        }
+    }
+
+    /// <summary>
+    /// Fill in any null LocationId on this invoice's delivery lists by
+    /// matching the stored akcia text against active Pracovisko names
+    /// (case-insensitive, diacritics-stripped, both directions). No-op
+    /// when no nulls exist or no matches are found.
+    /// </summary>
+    private async Task AutoMatchLocationsAsync(int invoiceId)
+    {
+        // Include rows where AkciaName is null but PickedUpBy/DeliveryNote
+        // could still carry the site name. DEK's "26DN..." delivery-note
+        // layout sometimes drops the "akcia:" label and crams the site name
+        // into the prevzal continuation (e.g. "p. Sroka - stavba Bratislava
+        // - p. Sorka 0902 099 999"). The fallback below scans those fields.
+        var purchases = await _db.MaterialPurchases
+            .Where(p => p.InvoiceDocumentId == invoiceId
+                     && p.LocationId == null)
+            .ToListAsync();
+        _log.LogInformation("[InvoiceScanning] AutoMatch: invoice {Id}, {N} purchases need matching.",
+            invoiceId, purchases.Count);
+        if (purchases.Count == 0) return;
+
+        var locations = await _db.Locations.Where(l => l.IsActive).ToListAsync();
+        // GroupBy + ToDictionary (taking first) is safer than ToDictionary
+        // directly — two Pracoviská with the same diacritics-stripped name
+        // would otherwise crash with "An item with the same key has been added".
+        var locationsByNormName = locations
+            .GroupBy(l => NormalizeForMatch(l.Name))
+            .ToDictionary(g => g.Key, g => g.First().Id);
+        _log.LogInformation("[InvoiceScanning] AutoMatch: {N} active Pracoviská: [{Names}]",
+            locations.Count, string.Join(", ", locations.Select(l => $"'{l.Name}'→'{NormalizeForMatch(l.Name)}'")));
+        if (locationsByNormName.Count == 0) return;
+
+        var changed = 0;
+        foreach (var p in purchases)
+        {
+            // Candidates in priority order: akcia (cleanest), then prevzal +
+            // delivery-note as a fallback when akcia is missing. Stop at the
+            // first one that yields a unique location.
+            var candidates = new[]
+            {
+                ("akcia",        p.AkciaName),
+                ("prevzal",      p.PickedUpBy),
+                ("deliveryNote", p.DeliveryNote)
+            };
+
+            int? matchedId = null;
+            string matchedSource = "";
+            string matchedNorm = "";
+            string matchedHow = "";
+
+            foreach (var (label, raw) in candidates)
+            {
+                var n = NormalizeForMatch(raw);
+                if (string.IsNullOrEmpty(n)) continue;
+
+                if (locationsByNormName.TryGetValue(n, out var exactId))
+                {
+                    matchedId = exactId;
+                    matchedSource = label;
+                    matchedNorm = n;
+                    matchedHow = "exact";
+                    break;
+                }
+
+                // Substring match — but only when the Pracovisko name appears
+                // INSIDE the candidate text (the inverse direction risks
+                // matching "Bratislava" against an akcia text of "BA" etc.).
+                // Need a unique winner across all locations or we abstain.
+                var hits = locationsByNormName
+                    .Where(kv => n.Contains(kv.Key))
+                    .ToList();
+                if (hits.Count == 1)
+                {
+                    matchedId = hits[0].Value;
+                    matchedSource = label;
+                    matchedNorm = n;
+                    matchedHow = $"contains '{hits[0].Key}'";
+                    break;
+                }
+                if (hits.Count > 1)
+                {
+                    _log.LogInformation("[InvoiceScanning]   DL={Ref} {Label}='{Raw}' (norm='{Norm}') → ambiguous ({N} candidates)",
+                        p.DeliveryNoteRef, label, raw, n, hits.Count);
+                }
+            }
+
+            if (matchedId.HasValue)
+            {
+                p.LocationId = matchedId.Value;
+                _log.LogInformation("[InvoiceScanning]   DL={Ref} matched via {Source}='{Norm}' ({How}) → Location#{Id}",
+                    p.DeliveryNoteRef, matchedSource, matchedNorm, matchedHow, matchedId.Value);
+                changed++;
+            }
+            else
+            {
+                _log.LogInformation("[InvoiceScanning]   DL={Ref} no match (akcia='{Akcia}' prevzal='{Prev}' pozn='{Pozn}')",
+                    p.DeliveryNoteRef, p.AkciaName, p.PickedUpBy, p.DeliveryNote);
+            }
+        }
+        if (changed > 0)
+        {
+            await _db.SaveChangesAsync();
+            _log.LogInformation("[InvoiceScanning] AutoMatch updated {N} purchases.", changed);
+        }
+    }
+
+    /// <summary>
+    /// Diagnostic endpoint: returns a summary of what Document AI extracted for
+    /// this invoice, so we can see whether expected entities like "line_item"
+    /// are present + what their property names look like. Helps tune the
+    /// parser when the standard Invoice Parser shape doesn't match an unusual
+    /// document layout (the SK construction summary-invoice is one such case).
+    /// </summary>
+    [HttpGet("{id}/ocr-diagnostic")]
+    public async Task<ActionResult<object>> OcrDiagnostic(int id)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(id);
+        if (doc == null) return NotFound();
+        if (string.IsNullOrWhiteSpace(doc.RawOcrJson))
+            return BadRequest("Žiadne uložené OCR dáta.");
+
+        // Re-parse the raw JSON to count entity types + sample line items.
+        try
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(doc.RawOcrJson);
+            var root = json.RootElement;
+            var entities = root.TryGetProperty("entities", out var e) ? e : default;
+
+            var typeCounts = new Dictionary<string, int>();
+            var samples    = new List<object>();
+            if (entities.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var ent in entities.EnumerateArray())
+                {
+                    var t = ent.TryGetProperty("type", out var tv) ? tv.GetString() ?? "?" : "?";
+                    typeCounts[t] = typeCounts.TryGetValue(t, out var c) ? c + 1 : 1;
+
+                    // Sample first 3 of any "line_item"-like entity for inspection.
+                    if (t.Contains("line", StringComparison.OrdinalIgnoreCase) && samples.Count < 6)
+                    {
+                        var mention = ent.TryGetProperty("mentionText", out var m) ? m.GetString() : null;
+                        var props   = new List<object>();
+                        if (ent.TryGetProperty("properties", out var pp) && pp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        {
+                            foreach (var p in pp.EnumerateArray())
+                            {
+                                props.Add(new {
+                                    type = p.TryGetProperty("type", out var pt) ? pt.GetString() : null,
+                                    text = p.TryGetProperty("mentionText", out var pm) ? pm.GetString() : null
+                                });
+                            }
+                        }
+                        samples.Add(new { type = t, mentionText = mention, properties = props });
+                    }
+                }
+            }
+
+            return Ok(new {
+                totalEntities = typeCounts.Values.Sum(),
+                entityTypes   = typeCounts.OrderByDescending(kv => kv.Value).Select(kv => new { type = kv.Key, count = kv.Value }),
+                textLength    = root.TryGetProperty("text", out var textEl) ? (textEl.GetString() ?? "").Length : 0,
+                lineLikeSamples = samples
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest($"Diagnostic parse zlyhal: {ex.Message}");
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Edit (line + delivery list)
+    // ────────────────────────────────────────────────────────────────
+
+    [HttpPut("{id}/lines/{lineId}")]
+    public async Task<ActionResult<InvoiceDocumentDto>> UpdateLine(int id, int lineId, [FromBody] UpdateInvoiceLineDto dto)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(id);
+        if (doc == null) return NotFound();
+        if (doc.Status != "review") return BadRequest("Faktúru nemožno upravovať po uložení / zahodení.");
+
+        var line = await _db.MaterialPurchaseLines
+            .Include(l => l.Purchase)
+            .FirstOrDefaultAsync(l => l.Id == lineId && l.Purchase.InvoiceDocumentId == id);
+        if (line == null) return NotFound();
+
+        var editor = User.Identity?.Name ?? "unknown";
+        var edits = DeserializeHistory(line.LineEditHistory);
+
+        TryEdit(edits, editor, "supplierItemCode", line.SupplierItemCode, dto.SupplierItemCode, v => line.SupplierItemCode = v);
+        TryEdit(edits, editor, "materialNameRaw",  line.MaterialNameRaw, dto.MaterialNameRaw, v => { if (v != null) line.MaterialNameRaw = v; });
+        TryEdit(edits, editor, "unit",             line.Unit,            dto.Unit,            v => { if (v != null) line.Unit = v; });
+        TryEditDecimal(edits, editor, "quantity",  line.Quantity, dto.Quantity, v => line.Quantity = v);
+        TryEditDecimal(edits, editor, "unitPrice", line.UnitPrice, dto.UnitPrice, v => line.UnitPrice = v);
+        TryEditDecimal(edits, editor, "lineTotal", line.LineTotal, dto.LineTotal, v => line.LineTotal = v);
+        TryEditDecimal(edits, editor, "vatRate",   line.VatRate,   dto.VatRate,   v => line.VatRate = v);
+        TryEditBool(edits, editor, "isReverseCharge", line.IsReverseCharge, dto.IsReverseCharge, v => line.IsReverseCharge = v);
+        TryEditBool(edits, editor, "isService",       line.IsService,       dto.IsService,       v => line.IsService = v);
+
+        // If quantity or unitPrice changed but lineTotal wasn't explicitly set,
+        // recompute it. Finance-grade: never let the displayed total drift from
+        // the inputs unless the operator overrode it on purpose.
+        if (dto.LineTotal == null && (dto.Quantity.HasValue || dto.UnitPrice.HasValue))
+        {
+            var recomputed = Round2(line.Quantity * line.UnitPrice);
+            if (line.LineTotal != recomputed)
+            {
+                edits.Add(new EditRecord("lineTotal", line.LineTotal.ToString(CultureInfo.InvariantCulture), recomputed.ToString(CultureInfo.InvariantCulture), editor, DateTime.UtcNow, AutoCalc: true));
+                line.LineTotal = recomputed;
+            }
+        }
+
+        line.LineEditHistory = SerializeHistory(edits);
+
+        // Recompute parent purchase totals.
+        var purchase = await _db.MaterialPurchases
+            .Include(p => p.Lines)
+            .FirstAsync(p => p.Id == line.PurchaseId);
+        purchase.TotalCost       = purchase.Lines.Sum(l => l.LineTotal);
+        purchase.SubtotalExclVat = Round2(purchase.Lines.Sum(l => l.LineTotal));
+        purchase.SubtotalVat     = Round2(purchase.Lines.Sum(l => Round2(l.LineTotal * l.VatRate / 100m)));
+
+        await _db.SaveChangesAsync();
+        await RecomputeReconciliationAsync(id);
+        return await BuildDtoAsync(id);
+    }
+
+    [HttpPut("{id}/delivery-lists/{purchaseId}")]
+    public async Task<ActionResult<InvoiceDocumentDto>> UpdateDeliveryList(int id, int purchaseId, [FromBody] UpdateInvoiceDeliveryListDto dto)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(id);
+        if (doc == null) return NotFound();
+        // Location reassignment (Pracovisko) is allowed even after commit —
+        // the manager might realise a delivery list went to the wrong site
+        // only after the invoice is in their books. Line-item numbers stay
+        // locked (see UpdateLine which requires status='review'). Only the
+        // 'discarded' state blocks all edits.
+        if (doc.Status == "discarded") return BadRequest("Zahodenú faktúru nemožno upraviť.");
+
+        var purchase = await _db.MaterialPurchases
+            .FirstOrDefaultAsync(p => p.Id == purchaseId && p.InvoiceDocumentId == id);
+        if (purchase == null) return NotFound();
+
+        var previousLocationId = purchase.LocationId;
+
+        if (dto.LocationId.HasValue)
+        {
+            // Null is allowed via dto.LocationId = -1 sentinel below; here LocationId.HasValue + actual int
+            if (dto.LocationId.Value > 0)
+            {
+                var loc = await _db.Locations.FindAsync(dto.LocationId.Value);
+                if (loc == null || !loc.IsActive) return BadRequest("Neplatné pracovisko.");
+                purchase.LocationId = dto.LocationId.Value;
+            }
+            else
+            {
+                // -1 / 0 sentinel = clear (Sklad / Inventár).
+                purchase.LocationId = null;
+            }
+        }
+        if (dto.PickedUpBy != null)   purchase.PickedUpBy   = string.IsNullOrWhiteSpace(dto.PickedUpBy)   ? null : dto.PickedUpBy.Trim();
+        if (dto.DeliveryNote != null) purchase.DeliveryNote = string.IsNullOrWhiteSpace(dto.DeliveryNote) ? null : dto.DeliveryNote.Trim();
+
+        // If the manager just moved the delivery list to a different Pracovisko
+        // on a committed invoice, the MaterialUsage rows that Option A minted
+        // at commit time are still pointing at the OLD location — they need to
+        // follow the move, otherwise the material shows under both sites.
+        // When the new LocationId is null (back to Sklad), the usages are
+        // deleted: Sklad lines stay catalogue-only.
+        if (doc.Status == "committed" && purchase.LocationId != previousLocationId)
+        {
+            var lineIds = await _db.MaterialPurchaseLines
+                .Where(l => l.PurchaseId == purchase.Id)
+                .Select(l => l.Id)
+                .ToListAsync();
+            var usages = await _db.MaterialUsages
+                .Where(u => u.SourceMaterialPurchaseLineId != null
+                         && lineIds.Contains(u.SourceMaterialPurchaseLineId.Value))
+                .ToListAsync();
+
+            if (purchase.LocationId == null)
+            {
+                // Moving to Sklad — drop the per-site usage rows.
+                _db.MaterialUsages.RemoveRange(usages);
+            }
+            else if (usages.Count > 0)
+            {
+                // Move existing usages to the new location.
+                foreach (var u in usages) u.LocationId = purchase.LocationId.Value;
+            }
+            else
+            {
+                // No usages existed (e.g. the delivery list was Sklad at commit
+                // time). Mint them now for the lines that have qty > 0.
+                var purchaseWithLines = await _db.MaterialPurchases
+                    .Include(p => p.Lines)
+                    .FirstAsync(p => p.Id == purchase.Id);
+                var catalogue = await _db.Materials.ToListAsync();
+                foreach (var line in purchaseWithLines.Lines)
+                {
+                    // Services no longer skipped here either — Item C of
+                    // INVOICE_SCANNING_V1_FOLLOWUPS.md. Matches the
+                    // commit-time path in AutoPromoteAndCreateUsagesAsync.
+                    if (line.Quantity <= 0) continue;
+                    if (string.IsNullOrWhiteSpace(line.MaterialNameRaw)) continue;
+
+                    var material = catalogue.FirstOrDefault(m => m.Id == (line.MaterialId ?? -1))
+                                ?? catalogue.FirstOrDefault(m =>
+                                       string.Equals(m.Name, line.MaterialNameRaw.Trim(), StringComparison.OrdinalIgnoreCase)
+                                    && string.Equals(m.Unit, (line.Unit ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (material == null)
+                    {
+                        material = new Material
+                        {
+                            Name         = Truncate(line.MaterialNameRaw.Trim(), 200),
+                            Unit         = Truncate((line.Unit ?? "").Trim(), 50),
+                            PricePerUnit = line.UnitPrice,
+                            IsActive     = true,
+                        };
+                        _db.Materials.Add(material);
+                        await _db.SaveChangesAsync();
+                        catalogue.Add(material);
+                    }
+                    line.MaterialId = material.Id;
+
+                    var unitPriceForUsage = line.Quantity > 0
+                        ? Round2(line.LineTotal / line.Quantity)
+                        : line.UnitPrice;
+
+                    _db.MaterialUsages.Add(new MaterialUsage
+                    {
+                        LocationId                   = purchase.LocationId.Value,
+                        MaterialId                   = material.Id,
+                        EmployeeId                   = purchase.EmployeeId,
+                        Quantity                     = line.Quantity,
+                        UnitPriceAtTime              = unitPriceForUsage,
+                        Date                         = purchase.PurchaseDate.Date,
+                        Note                         = string.IsNullOrWhiteSpace(purchase.DeliveryNoteRef)
+                                                           ? $"Faktúra #{doc.InvoiceNumber}"
+                                                           : $"Faktúra #{doc.InvoiceNumber} / {purchase.DeliveryNoteRef}",
+                        SourceMaterialPurchaseLineId = line.Id,
+                        IsService                    = line.IsService,
+                    });
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync();
+        return await BuildDtoAsync(id);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Commit / discard
+    // ────────────────────────────────────────────────────────────────
+
+    [HttpPost("{id}/commit")]
+    public async Task<ActionResult<InvoiceDocumentDto>> Commit(int id)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(id);
+        if (doc == null) return NotFound();
+        if (doc.Status == "committed") return Conflict("Faktúra je už uložená.");
+        if (doc.Status != "review") return BadRequest("Faktúru nemožno uložiť v aktuálnom stave.");
+
+        // Server-authoritative reconciliation. The UI gate is a hint; this is
+        // the binding check.
+        var ok = await RecomputeReconciliationAsync(id);
+        if (!ok)
+            return BadRequest($"Súčet riadkov sa nezhoduje s vytlačenou sumou. {doc.ReconciliationNote}");
+
+        // Sanity: every delivery list either has a LocationId or is explicitly
+        // null (= Sklad). We don't force NOT-null here because the schema
+        // allows null. The reconciliation check above is the binding gate.
+
+        doc.Status      = "committed";
+        doc.CommittedBy = User.Identity?.Name ?? "unknown";
+        doc.CommittedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        // Option A: promote each line to the Material catalogue (find-or-create
+        // by name) and mint MaterialUsage rows for the lines whose delivery list
+        // has a Pracovisko assigned. Sklad / Inventár (LocationId == null)
+        // stays out of the per-site consumption view by design.
+        await AutoPromoteAndCreateUsagesAsync(id);
+
+        return await BuildDtoAsync(id);
+    }
+
+    /// <summary>
+    /// Option A flow (INVOICE_SCANNING_PLAN.md): after Commit succeeds,
+    ///   1. For every line, find-or-create a Material catalogue row keyed by
+    ///      normalised MaterialNameRaw + Unit. Set MaterialPurchaseLine.MaterialId.
+    ///   2. For every line whose parent MaterialPurchase has a LocationId
+    ///      (i.e. not Sklad), create a MaterialUsage tagged with
+    ///      SourceMaterialPurchaseLineId so a future Discard cascades it away.
+    ///
+    /// Services (<see cref="MaterialPurchaseLine.IsService"/>) are skipped —
+    /// they don't represent physical inventory. Non-positive quantities are
+    /// skipped (credit / "Zľava z prenájmu" rows have qty &lt;= 0).
+    ///
+    /// Idempotent on re-commit: if a usage already exists for a line
+    /// (SourceMaterialPurchaseLineId match), skip — never duplicate.
+    /// </summary>
+    private async Task AutoPromoteAndCreateUsagesAsync(int invoiceDocumentId)
+    {
+        var doc = await _db.InvoiceDocuments
+            .Include(d => d.Purchases).ThenInclude(p => p.Lines)
+            .FirstAsync(d => d.Id == invoiceDocumentId);
+
+        // Pull existing source-line ids so re-commits (shouldn't happen, but the
+        // method is idempotent anyway) don't double up.
+        var lineIds = doc.Purchases.SelectMany(p => p.Lines).Select(l => l.Id).ToList();
+        var alreadyTagged = await _db.MaterialUsages
+            .Where(u => u.SourceMaterialPurchaseLineId != null
+                     && lineIds.Contains(u.SourceMaterialPurchaseLineId!.Value))
+            .Select(u => u.SourceMaterialPurchaseLineId!.Value)
+            .ToListAsync();
+        var alreadyTaggedSet = new HashSet<int>(alreadyTagged);
+
+        // Snapshot the catalogue once so we don't re-query inside the loop.
+        var catalogue = await _db.Materials.ToListAsync();
+
+        foreach (var purchase in doc.Purchases)
+        {
+            foreach (var line in purchase.Lines)
+            {
+                // Services (rentals) used to be skipped here on the
+                // grounds that they don't represent physical inventory.
+                // Per INVOICE_SCANNING_V1_FOLLOWUPS.md item C, rentals
+                // now flow into MaterialUsage with IsService=true so the
+                // Pracovisko Spotreba can show them with a distinct
+                // badge. Credit-note rows (qty<=0) and empty-name rows
+                // still skipped — those are data-quality guards.
+                if (line.Quantity <= 0) continue;
+                if (string.IsNullOrWhiteSpace(line.MaterialNameRaw)) continue;
+
+                // 1) Find-or-create the Material catalogue row.
+                var material = line.Material;
+                if (material == null && line.MaterialId.HasValue)
+                {
+                    material = catalogue.FirstOrDefault(m => m.Id == line.MaterialId.Value);
+                }
+                if (material == null)
+                {
+                    var nameKey = line.MaterialNameRaw.Trim();
+                    var unitKey = (line.Unit ?? "").Trim();
+                    material = catalogue.FirstOrDefault(m =>
+                        string.Equals(m.Name, nameKey, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(m.Unit, unitKey, StringComparison.OrdinalIgnoreCase));
+                    if (material == null)
+                    {
+                        material = new Material
+                        {
+                            Name         = Truncate(nameKey, 200),
+                            Unit         = Truncate(unitKey, 50),
+                            PricePerUnit = line.UnitPrice,
+                            IsActive     = true,
+                        };
+                        _db.Materials.Add(material);
+                        await _db.SaveChangesAsync();   // need the Id before we tag the line
+                        catalogue.Add(material);
+                    }
+                    line.MaterialId = material.Id;
+                }
+
+                // 2) Create the per-site MaterialUsage when this delivery list
+                //    targets a Pracovisko (Sklad lines stay catalogue-only).
+                if (purchase.LocationId == null) continue;
+                if (alreadyTaggedSet.Contains(line.Id)) continue;
+
+                // The Pracovisko view computes LineCost as Quantity × UnitPriceAtTime,
+                // so the snapshotted unit price must reconcile to the printed
+                // Spolu. Some scanned lines have UnitPrice != LineTotal/Quantity
+                // (parser sometimes stores the list price in UnitPrice when the
+                // discount cell is blank). Derive from LineTotal so the per-site
+                // cost matches the invoice exactly.
+                var unitPriceForUsage = line.Quantity > 0
+                    ? Round2(line.LineTotal / line.Quantity)
+                    : line.UnitPrice;
+
+                var usage = new MaterialUsage
+                {
+                    LocationId                   = purchase.LocationId.Value,
+                    MaterialId                   = material.Id,
+                    EmployeeId                   = purchase.EmployeeId,
+                    Quantity                     = line.Quantity,
+                    UnitPriceAtTime              = unitPriceForUsage,
+                    Date                         = purchase.PurchaseDate.Date,
+                    Note                         = string.IsNullOrWhiteSpace(purchase.DeliveryNoteRef)
+                                                       ? $"Faktúra #{doc.InvoiceNumber}"
+                                                       : $"Faktúra #{doc.InvoiceNumber} / {purchase.DeliveryNoteRef}",
+                    SourceMaterialPurchaseLineId = line.Id,
+                    IsService                    = line.IsService,
+                };
+                _db.MaterialUsages.Add(usage);
+                alreadyTaggedSet.Add(line.Id);
+            }
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// One-shot backfill of MaterialUsages for service lines that committed
+    /// before Item C (INVOICE_SCANNING_V1_FOLLOWUPS.md) shipped. Iterates every
+    /// committed InvoiceDocument and re-runs the usage-minting pass.
+    /// AutoPromoteAndCreateUsagesAsync is already idempotent — it tracks the
+    /// existing SourceMaterialPurchaseLineId set and skips lines whose usage
+    /// already exists — so this is safe to call repeatedly and only mints
+    /// usages that weren't there before. Superadmin only; runs synchronously.
+    /// </summary>
+    [HttpPost("backfill-service-usages")]
+    public async Task<IActionResult> BackfillServiceUsages()
+    {
+        if (!User.HasClaim("isSuperAdmin", "true")) return Forbid();
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var beforeCount = await _db.MaterialUsages.CountAsync();
+
+        var committedIds = await _db.InvoiceDocuments
+            .Where(d => d.Status == "committed")
+            .Select(d => d.Id)
+            .ToListAsync();
+
+        foreach (var id in committedIds)
+        {
+            await AutoPromoteAndCreateUsagesAsync(id);
+        }
+
+        var afterCount = await _db.MaterialUsages.CountAsync();
+        sw.Stop();
+
+        _log.LogInformation(
+            "[InvoiceScanning] Backfill: processed {N} invoices, minted {Created} usages in {Ms}ms",
+            committedIds.Count, afterCount - beforeCount, sw.ElapsedMilliseconds);
+
+        return Ok(new
+        {
+            invoicesProcessed = committedIds.Count,
+            usagesCreated     = afterCount - beforeCount,
+            durationMs        = sw.ElapsedMilliseconds
+        });
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Discard(int id)
+    {
+        var doc = await _db.InvoiceDocuments
+            .Include(d => d.Purchases).ThenInclude(p => p.Lines)
+            .FirstOrDefaultAsync(d => d.Id == id);
+        if (doc == null) return NotFound();
+
+        // Hard-delete the InvoiceDocument and its MaterialPurchases. Allowed
+        // for every status — including committed (the manager may want to
+        // erase an erroneous record from their books). The Cloudinary PDF
+        // remains as audit — we never delete uploaded PDFs in V1.
+        // Frontend asks for stronger confirmation on committed invoices.
+        foreach (var p in doc.Purchases)
+        {
+            _db.MaterialPurchaseLines.RemoveRange(p.Lines);
+        }
+        _db.MaterialPurchases.RemoveRange(doc.Purchases);
+        _db.InvoiceDocuments.Remove(doc);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  Reconciliation
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Server-authoritative reconciliation: sum of all line totals + sum of VAT
+    /// amounts must equal InvoiceDocument.TotalInclVat to the cent. Updates
+    /// ReconciliationOk and ReconciliationNote on the document. Returns true
+    /// when the document reconciles.
+    /// </summary>
+    private async Task<bool> RecomputeReconciliationAsync(int invoiceDocumentId)
+    {
+        var doc = await _db.InvoiceDocuments
+            .Include(d => d.Purchases).ThenInclude(p => p.Lines)
+            .FirstAsync(d => d.Id == invoiceDocumentId);
+
+        var lineSum = doc.Purchases.SelectMany(p => p.Lines).Sum(l => l.LineTotal);
+        var vatSum  = doc.Purchases.SelectMany(p => p.Lines).Sum(l => Round2(l.LineTotal * l.VatRate / 100m));
+        var grand   = Round2(lineSum + vatSum);
+        var printed = Round2(doc.TotalInclVat);
+
+        var diff = Math.Abs(grand - printed);
+        var ok = diff <= 0.01m;
+
+        doc.ReconciliationOk = ok;
+        doc.ReconciliationNote = ok
+            ? $"Riadky {Money(lineSum)} + DPH {Money(vatSum)} = {Money(grand)} sedí s vytlačeným {Money(printed)}."
+            : $"Riadky {Money(lineSum)} + DPH {Money(vatSum)} = {Money(grand)} sa nezhoduje s vytlačeným {Money(printed)} (rozdiel {Money(diff)}).";
+        await _db.SaveChangesAsync();
+        return ok;
+    }
+
+    private static decimal Round2(decimal v) => Math.Round(v, 2, MidpointRounding.AwayFromZero);
+    private static string Money(decimal v) => SlovakNumberHelper.FormatMoney(v) + " €";
+    private static string Truncate(string? s, int max)
+        => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s[..max] + "…");
+
+    /// <summary>
+    /// Clip a string to a varchar limit before persisting. Returns null when
+    /// the input is null (preserves NULL semantics for nullable columns).
+    /// Used everywhere to keep OCR-derived strings from overflowing the
+    /// schema's varchar(N) and crashing the save.
+    /// </summary>
+    private static string? Clip(string? s, int max)
+    {
+        if (s == null) return null;
+        var t = s.Trim();
+        if (t.Length == 0) return null;
+        return t.Length <= max ? t : t[..max];
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    //  DTO builders
+    // ────────────────────────────────────────────────────────────────
+
+    private async Task<InvoiceDocumentDto> BuildDtoAsync(int id)
+    {
+        var doc = await _db.InvoiceDocuments
+            .Include(d => d.Purchases).ThenInclude(p => p.Location)
+            .Include(d => d.Purchases).ThenInclude(p => p.Lines)
+            .FirstAsync(d => d.Id == id);
+
+        var dto = BuildSummaryDto(doc);
+        dto.DeliveryLists = doc.Purchases
+            .OrderBy(p => p.Id)
+            .Select(p => new InvoiceDeliveryListDto
+            {
+                Id               = p.Id,
+                DeliveryNoteRef  = p.DeliveryNoteRef,
+                PurchaseDate     = p.PurchaseDate,
+                PickedUpBy       = p.PickedUpBy,
+                DeliveryNote     = p.DeliveryNote,
+                LocationId       = p.LocationId,
+                LocationName     = p.Location?.Name,
+                SubtotalExclVat  = p.SubtotalExclVat,
+                SubtotalVat      = p.SubtotalVat,
+                Lines = p.Lines
+                    .OrderBy(l => l.Id)
+                    .Select(l => new InvoiceLineDto
+                    {
+                        Id               = l.Id,
+                        PurchaseId       = l.PurchaseId,
+                        SupplierItemCode = l.SupplierItemCode,
+                        MaterialNameRaw  = l.MaterialNameRaw,
+                        Unit             = l.Unit,
+                        Quantity         = l.Quantity,
+                        UnitPrice        = l.UnitPrice,
+                        LineTotal        = l.LineTotal,
+                        ListPriceExclVat = l.ListPriceExclVat,
+                        DiscountPercent  = l.DiscountPercent,
+                        UnitPriceInclVat = l.UnitPriceInclVat,
+                        VatRate          = l.VatRate,
+                        IsReverseCharge  = l.IsReverseCharge,
+                        IsService        = l.IsService
+                    })
+                    .ToList()
+            })
+            .ToList();
+        return dto;
+    }
+
+    private static InvoiceDocumentDto BuildSummaryDto(InvoiceDocument d) => new()
+    {
+        Id                 = d.Id,
+        InvoiceNumber      = d.InvoiceNumber,
+        SupplierName       = d.SupplierName,
+        SupplierIco        = d.SupplierIco,
+        SupplierIcDph      = d.SupplierIcDph,
+        SupplierIban       = d.SupplierIban,
+        IssueDate          = d.IssueDate,
+        DeliveryDate       = d.DeliveryDate,
+        DueDate            = d.DueDate,
+        PeriodFrom         = d.PeriodFrom,
+        PeriodTo           = d.PeriodTo,
+        Currency           = d.Currency,
+        TotalExclVat       = d.TotalExclVat,
+        TotalVat           = d.TotalVat,
+        TotalInclVat       = d.TotalInclVat,
+        PdfUrl             = d.PdfUrl,
+        Status             = d.Status,
+        ReconciliationOk   = d.ReconciliationOk,
+        ReconciliationNote = d.ReconciliationNote,
+        UploadedBy         = d.UploadedBy,
+        UploadedAt         = d.UploadedAt,
+        CommittedBy        = d.CommittedBy,
+        CommittedAt        = d.CommittedAt,
+        Note               = d.Note,
+        ScanSource         = d.ScanSource,
+        ScanPageCount      = d.ScanPageCount
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Helpers
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Try to map an invoice's <c>prevzal:</c> text onto an existing
+    /// Employee. Strips Slovak honorifics ("p.", "pán", "ing.", "mgr."),
+    /// splits into tokens, diacritics-stripped + lowercased. The Employee
+    /// matches when their last name (and optionally first name) appears as
+    /// a token in the prevzal text. Returns the Employee id only when the
+    /// match is UNIQUE — ambiguity stays on the uploader so we never silently
+    /// pin a purchase to the wrong worker.
+    /// </summary>
+    private static int? MatchEmployeeFromPickedUpBy(string? prevzal, IEnumerable<Models.Employee> employees)
+    {
+        if (string.IsNullOrWhiteSpace(prevzal)) return null;
+
+        // Drop the common honorifics + punctuation, then tokenise on
+        // whitespace / dashes / dots / commas.
+        var cleaned = Regex.Replace(
+            NormalizeForMatch(prevzal),
+            @"\b(p|pan|ing|mgr|bc|dr|phdr|mudr|rndr)\.?\b",
+            " ",
+            RegexOptions.IgnoreCase);
+        var tokens = cleaned.Split(new[] { ' ', '-', '.', ',', '/', ';' },
+                                   StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => t.Length >= 2)
+            .ToHashSet();
+        if (tokens.Count == 0) return null;
+
+        var hits = new List<int>();
+        foreach (var emp in employees)
+        {
+            var first = NormalizeForMatch(emp.FirstName);
+            var last  = NormalizeForMatch(emp.LastName);
+            // Last name is the strong signal — match on that. If both names
+            // appear in the prevzal text it's a stronger hit, but a single
+            // last-name hit is enough.
+            if (!string.IsNullOrEmpty(last) && tokens.Contains(last))
+            {
+                hits.Add(emp.Id);
+            }
+        }
+        return hits.Count == 1 ? hits[0] : (int?)null;
+    }
+
+    /// <summary>Strip diacritics + lowercase for fuzzy Location matching.</summary>
+    private static string NormalizeForMatch(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var formD = s.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder();
+        foreach (var ch in formD)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+                sb.Append(ch);
+        }
+        return sb.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant().Trim();
+    }
+
+    // ─── Audit trail ───────────────────────────────────────────────
+
+    private sealed record EditRecord(string Field, string? OldValue, string? NewValue, string EditedBy, DateTime EditedAt, bool AutoCalc = false);
+
+    private static List<EditRecord> DeserializeHistory(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<EditRecord>>(json) ?? []; }
+        catch { return []; }
+    }
+
+    private static string SerializeHistory(List<EditRecord> edits)
+        => JsonSerializer.Serialize(edits);
+
+    private static void TryEdit(List<EditRecord> edits, string editor, string field, string? current, string? incoming, Action<string?> apply)
+    {
+        if (incoming == null) return;
+        var normalized = string.IsNullOrWhiteSpace(incoming) ? null : incoming.Trim();
+        if (current == normalized) return;
+        edits.Add(new EditRecord(field, current, normalized, editor, DateTime.UtcNow));
+        apply(normalized);
+    }
+
+    private static void TryEditDecimal(List<EditRecord> edits, string editor, string field, decimal current, decimal? incoming, Action<decimal> apply)
+    {
+        if (incoming == null) return;
+        var rounded = Round2(incoming.Value);
+        if (current == rounded) return;
+        edits.Add(new EditRecord(field, current.ToString(CultureInfo.InvariantCulture), rounded.ToString(CultureInfo.InvariantCulture), editor, DateTime.UtcNow));
+        apply(rounded);
+    }
+
+    private static void TryEditBool(List<EditRecord> edits, string editor, string field, bool current, bool? incoming, Action<bool> apply)
+    {
+        if (incoming == null) return;
+        if (current == incoming.Value) return;
+        edits.Add(new EditRecord(field, current.ToString(), incoming.Value.ToString(), editor, DateTime.UtcNow));
+        apply(incoming.Value);
+    }
+}

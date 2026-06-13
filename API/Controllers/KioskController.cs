@@ -70,7 +70,13 @@ public class KioskController : ControllerBase
         {
             EmployeeId = employee.Id,
             LocationId = dto.LocationId,
-            ClockIn = Now
+            ClockIn = Now,
+            // Snapshot the employee's current hourly wage at insert time so
+            // payroll calculations don't get rewritten by future wage changes
+            // (PAYROLL_AND_PNL_PLAN.md §design decision (a)). Null wage → 0
+            // and the admin Mzdy view surfaces an amber "Sadzba nenastavená"
+            // warning so the manager knows to fix it.
+            WageAtTime = employee.HourlyWage ?? 0m
         };
 
         _db.TimeEntries.Add(entry);
@@ -144,7 +150,14 @@ public class KioskController : ControllerBase
                     ? (t.ClockOut.Value - t.ClockIn).TotalHours
                     : null,
                 Note = t.Note,
-                PhotoUrl = t.PhotoUrl
+                PhotoUrl = t.PhotoUrl,
+                ProofOfWorkSkipped = t.ProofOfWorkSkipped,
+                HasDiary = _db.WorkDiaries.Any(d => d.TimeEntryId == t.Id),
+                DiaryBody = _db.WorkDiaries
+                               .Where(d => d.TimeEntryId == t.Id)
+                               .OrderBy(d => d.Id)
+                               .Select(d => d.BodyText)
+                               .FirstOrDefault()
             })
             .ToListAsync();
 
@@ -171,7 +184,9 @@ public class KioskController : ControllerBase
             LocationId = dto.LocationId,
             ClockIn = dto.ClockIn,
             ClockOut = dto.ClockOut,
-            Note = dto.Note
+            Note = dto.Note,
+            // Snapshot wage at insert (PAYROLL_AND_PNL_PLAN.md §(a)).
+            WageAtTime = employee.HourlyWage ?? 0m
         };
 
         _db.TimeEntries.Add(entry);
@@ -233,12 +248,17 @@ public class KioskController : ControllerBase
 
         var entry = new Models.TimeEntry
         {
-            EmployeeId = employee.Id,
-            LocationId = dto.LocationId,
-            CarId      = dto.CarId,
-            ClockIn    = clockIn,
-            ClockOut   = clockOut,
-            Note       = dto.Note
+            EmployeeId         = employee.Id,
+            LocationId         = dto.LocationId,
+            CarId              = dto.CarId,
+            ClockIn            = clockIn,
+            ClockOut           = clockOut,
+            Note               = dto.Note,
+            // Defaults to false when the kiosk omits the field (flag-off path).
+            // See PROOF_OF_WORK_UX_PLAN.md §(d).
+            ProofOfWorkSkipped = dto.ProofOfWorkSkipped ?? false,
+            // Snapshot wage at insert (PAYROLL_AND_PNL_PLAN.md §(a)).
+            WageAtTime         = employee.HourlyWage ?? 0m
         };
 
         _db.TimeEntries.Add(entry);
@@ -254,6 +274,114 @@ public class KioskController : ControllerBase
             Timestamp    = clockOut,
             TimeEntryId  = entry.Id
         });
+    }
+
+    /// <summary>
+    /// Auto-skip check for the kiosk proof-of-work step. Returns the most recent
+    /// proof (photo or diary) the worker has already attached today at this
+    /// Location within the past hour, if any. The kiosk uses this to skip the
+    /// proof-pick step entirely and show a Slovak hint instead.
+    ///
+    /// See PROOF_OF_WORK_UX_PLAN.md §"Auto-skip". The "past hour" window is the
+    /// V1 default; tune via the constant below if the customer wants it wider.
+    /// </summary>
+    [HttpPost("proof-exists")]
+    public async Task<ActionResult<ProofExistsDto>> ProofExists([FromBody] ProofExistsRequestDto dto)
+    {
+        var employee = await FindEmployeeByPin(dto.Pin);
+        if (employee == null) return Unauthorized("Neplatný PIN");
+
+        var date = (dto.Date?.Date) ?? Now.Date;
+        var cutoffUtc = DateTime.UtcNow.AddHours(-1);
+
+        // WorkPhoto path: standalone "Nahrať fotografiu" tile.
+        var photo = await _db.WorkPhotos
+            .Where(p => p.EmployeeId == employee.Id
+                     && p.LocationId == dto.LocationId
+                     && p.CreatedAt >= cutoffUtc)
+            .OrderByDescending(p => p.CreatedAt)
+            .Select(p => new { p.CreatedAt })
+            .FirstOrDefaultAsync();
+
+        // WorkDiary path: linked or standalone diary submitted today.
+        var diary = await _db.WorkDiaries
+            .Where(d => d.EmployeeId == employee.Id
+                     && d.LocationId == dto.LocationId
+                     && d.Date == date
+                     && d.CreatedAt >= cutoffUtc)
+            .OrderByDescending(d => d.CreatedAt)
+            .Select(d => new { d.CreatedAt })
+            .FirstOrDefaultAsync();
+
+        // TimeEntry path: in-modal photo attached during a previous šichta.
+        var entryPhoto = await _db.TimeEntries
+            .Where(t => t.EmployeeId == employee.Id
+                     && t.LocationId == dto.LocationId
+                     && t.PhotoUrl != null && t.PhotoUrl != ""
+                     && t.CreatedAt >= cutoffUtc)
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(t => new { t.CreatedAt })
+            .FirstOrDefaultAsync();
+
+        // Pick the latest. Avoid null arithmetic.
+        DateTime? bestAt = null;
+        string? bestSource = null;
+        if (photo != null) { bestAt = photo.CreatedAt; bestSource = "photo"; }
+        if (diary != null && (bestAt == null || diary.CreatedAt > bestAt)) { bestAt = diary.CreatedAt; bestSource = "diary"; }
+        if (entryPhoto != null && (bestAt == null || entryPhoto.CreatedAt > bestAt)) { bestAt = entryPhoto.CreatedAt; bestSource = "photo"; }
+
+        // Convert UTC back to Europe/Bratislava local for the Slovak hint copy.
+        var localAt = bestAt.HasValue ? TimeZoneInfo.ConvertTimeFromUtc(bestAt.Value, _tz) : (DateTime?)null;
+
+        return Ok(new ProofExistsDto
+        {
+            Exists = bestAt.HasValue,
+            Source = bestSource,
+            At     = localAt
+        });
+    }
+
+    /// <summary>
+    /// Roll-up of today's TimeEntries at a given Location. Used by the kiosk
+    /// hours step so the next worker arriving on site can read what colleagues
+    /// already did and avoid duplicate notes. PIN-validated. Read-only.
+    /// </summary>
+    [HttpPost("today-at-location")]
+    public async Task<ActionResult<List<TodayAtLocationEntryDto>>> TodayAtLocation([FromBody] TodayAtLocationRequestDto dto)
+    {
+        var employee = await FindEmployeeByPin(dto.Pin);
+        if (employee == null) return Unauthorized("Neplatný PIN");
+
+        var today = Now.Date;
+        var tomorrow = today.AddDays(1);
+
+        var rows = await _db.TimeEntries
+            .Where(t => t.LocationId == dto.LocationId
+                     && t.ClockIn >= today
+                     && t.ClockIn <  tomorrow)
+            .OrderBy(t => t.ClockIn)
+            .Select(t => new TodayAtLocationEntryDto
+            {
+                EmployeeId   = t.EmployeeId,
+                EmployeeName = t.Employee.FirstName + " " + t.Employee.LastName,
+                ClockIn      = t.ClockIn,
+                HoursWorked  = t.ClockOut.HasValue
+                    ? (t.ClockOut.Value - t.ClockIn).TotalHours
+                    : (double?)null,
+                Note         = t.Note,
+                // Pull the linked diary body (if any). When a worker submitted
+                // via the diary tile, the TimeEntry note carries only the
+                // "Stavebný denník" marker — the actual content lives here.
+                DiaryBody    = _db.WorkDiaries
+                                  .Where(d => d.TimeEntryId == t.Id)
+                                  .OrderBy(d => d.Id)
+                                  .Select(d => d.BodyText)
+                                  .FirstOrDefault(),
+                IsMine       = t.EmployeeId == employee.Id
+            })
+            .ToListAsync();
+
+        return Ok(rows);
     }
 
     [HttpGet("overview")]

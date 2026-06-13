@@ -27,6 +27,14 @@
           <a routerLink="/admin/commander" routerLinkActive="text-amber-500 dark:text-amber-400"
              class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Commander</a>
         }
+        @if (flags.invoiceScanning() || auth.isSuperAdmin()) {
+          <a routerLink="/admin/invoices" routerLinkActive="text-amber-500 dark:text-amber-400"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Faktúry</a>
+        }
+        @if (flags.payrollAndPnL() || auth.isSuperAdmin()) {
+          <a routerLink="/admin/mzdy" routerLinkActive="text-amber-500 dark:text-amber-400"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Mzdy</a>
+        }
         <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400"
            class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Záznamy</a>
         <span class="text-slate-500 dark:text-slate-400 ml-4">{{ auth.displayName() }}</span>
@@ -109,6 +117,14 @@
         @if (flags.commanderIntegration() || auth.isSuperAdmin()) {
           <a routerLink="/admin/commander" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
              class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Commander</a>
+        }
+        @if (flags.invoiceScanning() || auth.isSuperAdmin()) {
+          <a routerLink="/admin/invoices" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Faktúry</a>
+        }
+        @if (flags.payrollAndPnL() || auth.isSuperAdmin()) {
+          <a routerLink="/admin/mzdy" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Mzdy</a>
         }
         <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
            class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Záznamy</a>

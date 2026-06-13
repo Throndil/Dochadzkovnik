@@ -105,7 +105,14 @@ public class ReportsController : ControllerBase
                 HoursWorked = t.ClockOut.HasValue
                     ? (t.ClockOut.Value - t.ClockIn).TotalHours
                     : null,
-                Note = t.Note
+                Note = t.Note,
+                ProofOfWorkSkipped = t.ProofOfWorkSkipped,
+                HasDiary = _db.WorkDiaries.Any(d => d.TimeEntryId == t.Id),
+                DiaryBody = _db.WorkDiaries
+                               .Where(d => d.TimeEntryId == t.Id)
+                               .OrderBy(d => d.Id)
+                               .Select(d => d.BodyText)
+                               .FirstOrDefault()
             })
             .ToListAsync();
     }

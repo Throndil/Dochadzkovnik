@@ -6,7 +6,19 @@ namespace API.Services;
 
 public interface IBlobStorageService
 {
+    /// <summary>
+    /// Upload an image. The stream is normalised to JPEG before upload —
+    /// handles HEIC, PNG, WebP, BMP, etc. Use for photos.
+    /// </summary>
     Task<string> UploadAsync(Stream stream, string fileName, string folder);
+
+    /// <summary>
+    /// Upload a non-image file as-is (PDF, ZIP, etc.). No normalisation.
+    /// Used by the invoice-scanning flow to preserve the original PDF
+    /// immutably for audit. Cloudinary stores it as resource_type=raw.
+    /// </summary>
+    Task<string> UploadRawAsync(Stream stream, string fileName, string folder);
+
     Task DeleteAsync(string url, string folder);
 }
 
@@ -41,6 +53,26 @@ public class CloudinaryStorageService : IBlobStorageService
         var result = await _cloudinary.UploadAsync(uploadParams);
         if (result.Error != null)
             throw new Exception($"Cloudinary upload failed: {result.Error.Message}");
+
+        return result.SecureUrl.ToString();
+    }
+
+    public async Task<string> UploadRawAsync(Stream stream, string fileName, string folder)
+    {
+        // Raw upload: no image normalisation, file goes up byte-identical.
+        // Cloudinary stores it under resource_type=raw and serves it at
+        // /raw/upload/... in the URL.
+        var publicId = $"{folder}/{Guid.NewGuid()}{Path.GetExtension(fileName)}";
+        var uploadParams = new RawUploadParams
+        {
+            File = new FileDescription(fileName, stream),
+            PublicId = publicId,
+            Overwrite = true
+        };
+
+        var result = await _cloudinary.UploadAsync(uploadParams);
+        if (result.Error != null)
+            throw new Exception($"Cloudinary raw upload failed: {result.Error.Message}");
 
         return result.SecureUrl.ToString();
     }

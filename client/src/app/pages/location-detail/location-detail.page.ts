@@ -1,12 +1,16 @@
-import { Component, signal, computed, OnInit } from '@angular/core';
+import { Component, signal, computed, OnInit, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
-import { LocationService, Location, LocationPhoto } from '../../services/location.service';
+import { LocationService, Location, LocationPhoto, LocationPnl } from '../../services/location.service';
 import { normaliseFile, compressImage, cloudinaryThumb } from '../../utils/image-utils';
-import { TimeEntryService } from '../../services/time-entry.service';
+import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
+import { MaterialService, MaterialUsage } from '../../services/material.service';
+import { WorkDiaryService, WorkDiary } from '../../services/work-diary.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
+import { AuthService } from '../../services/auth.service';
 
 export interface PhotoGroup {
   key: string;            // unique: date__employeeName
@@ -119,6 +123,183 @@ export class LocationDetailPage implements OnInit {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
 
+  // ─── Materials used at this Pracovisko ──────────────────────────
+  private materialService = inject(MaterialService);
+  materials = signal<MaterialUsage[]>([]);
+  materialsLoading = signal(false);
+
+  /** Sum of LineCost across the loaded materials list. */
+  materialsTotalCost = computed(() => this.materials().reduce((s, m) => s + (m.lineCost || 0), 0));
+
+  loadMaterials() {
+    const ym = this.galleryMonth();
+    const [y, m] = ym.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const from = `${ym}-01`;
+    const to   = `${ym}-${String(lastDay).padStart(2, '0')}`;
+    this.materialsLoading.set(true);
+    this.materialService.getUsages(this.id, from, to).subscribe({
+      next: rows => { this.materials.set(rows); this.materialsLoading.set(false); },
+      error: () => this.materialsLoading.set(false),
+    });
+  }
+
+  // ─── Worker hours summary at this Pracovisko ────────────────────
+  hoursEntries = signal<TimeEntry[]>([]);
+  hoursLoading = signal(false);
+
+  /** Aggregate hours by employee. Open entries (no clockOut) are skipped. */
+  hoursByEmployee = computed(() => {
+    const map = new Map<number, { name: string; photoUrl?: string; hours: number; shifts: number }>();
+    for (const t of this.hoursEntries()) {
+      if (t.hoursWorked == null) continue;
+      const row = map.get(t.employeeId) ?? { name: t.employeeName, photoUrl: t.employeePhotoUrl, hours: 0, shifts: 0 };
+      row.hours += t.hoursWorked;
+      row.shifts += 1;
+      map.set(t.employeeId, row);
+    }
+    return Array.from(map.entries())
+      .map(([id, v]) => ({ employeeId: id, ...v }))
+      .sort((a, b) => b.hours - a.hours);
+  });
+
+  hoursTotal = computed(() => this.hoursByEmployee().reduce((s, r) => s + r.hours, 0));
+
+  loadHours() {
+    const ym = this.galleryMonth();
+    const [y, m] = ym.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const from = `${ym}-01`;
+    const to   = `${ym}-${String(lastDay).padStart(2, '0')}`;
+    this.hoursLoading.set(true);
+    this.timeEntryService.getAll({ from, to, locationId: this.id }).subscribe({
+      next: rows => { this.hoursEntries.set(rows); this.hoursLoading.set(false); },
+      error: () => this.hoursLoading.set(false),
+    });
+  }
+
+  // Format helpers shared by the two new sections.
+  formatMoney(v: number): string {
+    return new Intl.NumberFormat('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+  }
+  formatQty(v: number): string {
+    return new Intl.NumberFormat('sk-SK', { maximumFractionDigits: 3 }).format(v);
+  }
+  formatHours(v: number): string {
+    return new Intl.NumberFormat('sk-SK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v);
+  }
+
+  // ─── Stavebný denník section (ProofOfWorkChoices flag) ────────────
+  flags = inject(FeatureFlagService);
+  private workDiaryService = inject(WorkDiaryService);
+  diaries = signal<WorkDiary[]>([]);
+  diariesLoading = signal(false);
+  /** Id of the diary whose body is currently expanded. Null = all collapsed. */
+  expandedDiaryId = signal<number | null>(null);
+
+  toggleDiary(id: number) {
+    this.expandedDiaryId.set(this.expandedDiaryId() === id ? null : id);
+  }
+
+  loadDiaries() {
+    if (!this.flags.proofOfWorkChoices()) return;
+    const ym = this.galleryMonth();           // "YYYY-MM"
+    const from = `${ym}-01`;
+    // Use the JS Date math to compute the last day of the month robustly.
+    const [y, m] = ym.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${ym}-${String(lastDay).padStart(2, '0')}`;
+    this.diariesLoading.set(true);
+    this.workDiaryService.list({ from, to, locationId: this.id }).then(rows => {
+      this.diaries.set(rows);
+      this.diariesLoading.set(false);
+    }).catch(() => this.diariesLoading.set(false));
+  }
+
+  deleteDiary(d: WorkDiary) {
+    if (!confirm(`Odstrániť záznam z denníka zo dňa ${new Date(d.date).toLocaleDateString('sk-SK')}?`)) return;
+    this.workDiaryService.delete(d.id).then(() => {
+      this.diaries.update(arr => arr.filter(x => x.id !== d.id));
+      if (this.expandedDiaryId() === d.id) this.expandedDiaryId.set(null);
+    });
+  }
+
+  // ─── Náklady a zisk / P&L (PayrollAndPnL flag) ──────────────────
+  auth = inject(AuthService);
+  /** Card renders only for the flag or superadmin — same gate as the Mzdy link. */
+  pnlVisible = computed(() => this.flags.payrollAndPnL() || this.auth.isSuperAdmin());
+  pnl = signal<LocationPnl | null>(null);
+  pnlLoading = signal(false);
+  /** Collapsible breakdowns: collapsed by default on mobile, expanded on md+. */
+  labourExpanded = signal(typeof window === 'undefined' || window.innerWidth >= 768);
+  materialExpanded = signal(typeof window === 'undefined' || window.innerWidth >= 768);
+
+  // Inline Zmluvná hodnota edit
+  editingContract = signal(false);
+  contractDraft = '';
+  savingContract = signal(false);
+
+  /** Profit margin in % (profit / revenue). Null when profit or revenue is missing. */
+  pnlMargin = computed(() => {
+    const p = this.pnl();
+    if (!p || p.profit == null || !p.revenue) return null;
+    return Math.round((p.profit / p.revenue) * 100);
+  });
+
+  loadPnl() {
+    if (!this.pnlVisible()) return;
+    const ym = this.galleryMonth();
+    const [y, m] = ym.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const from = `${ym}-01`;
+    const to   = `${ym}-${String(lastDay).padStart(2, '0')}`;
+    this.pnlLoading.set(true);
+    this.locationService.getPnl(this.id, from, to).subscribe({
+      next: data => { this.pnl.set(data); this.pnlLoading.set(false); },
+      error: () => this.pnlLoading.set(false),
+    });
+  }
+
+  downloadPnlExcel() {
+    const ym = this.galleryMonth();
+    const [y, m] = ym.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    const from = `${ym}-01`;
+    const to   = `${ym}-${String(lastDay).padStart(2, '0')}`;
+    this.locationService.downloadPnlExcel(this.id, from, to, this.location()?.name ?? 'pracovisko');
+  }
+
+  startContractEdit() {
+    const v = this.pnl()?.location.contractValue;
+    this.contractDraft = v != null ? String(v) : '';
+    this.editingContract.set(true);
+  }
+
+  cancelContractEdit() {
+    this.editingContract.set(false);
+  }
+
+  saveContractValue() {
+    const raw = this.contractDraft.trim().replace(/\s/g, '').replace(',', '.');
+    const value = raw === '' ? null : Number(raw);
+    if (value !== null && (isNaN(value) || value < 0)) {
+      alert('Zadajte platnú sumu v €.');
+      return;
+    }
+    this.savingContract.set(true);
+    this.locationService.updateContractValue(this.id, value).subscribe({
+      next: () => {
+        this.savingContract.set(false);
+        this.editingContract.set(false);
+        this.loadPnl();
+      },
+      error: () => {
+        this.savingContract.set(false);
+        alert('Uloženie zmluvnej hodnoty zlyhalo. Skúste znova.');
+      }
+    });
+  }
+
   // locationService is public so the template can call downloadPhotosZip() directly
   constructor(
     private route: ActivatedRoute,
@@ -137,6 +318,10 @@ export class LocationDetailPage implements OnInit {
       this.photoPreview.set(loc.photoUrl ?? null);
     });
     this.loadGallery();
+    this.loadDiaries();
+    this.loadMaterials();
+    this.loadHours();
+    this.loadPnl();
   }
 
   loadGallery() {

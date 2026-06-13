@@ -65,7 +65,14 @@ public class TimeEntriesController : ControllerBase
                     ? (t.ClockOut.Value - t.ClockIn).TotalHours
                     : null,
                 Note = t.Note,
-                PhotoUrl = t.PhotoUrl
+                PhotoUrl = t.PhotoUrl,
+                ProofOfWorkSkipped = t.ProofOfWorkSkipped,
+                HasDiary = _db.WorkDiaries.Any(d => d.TimeEntryId == t.Id),
+                DiaryBody = _db.WorkDiaries
+                               .Where(d => d.TimeEntryId == t.Id)
+                               .OrderBy(d => d.Id)
+                               .Select(d => d.BodyText)
+                               .FirstOrDefault()
             })
             .ToListAsync();
     }
@@ -91,7 +98,9 @@ public class TimeEntriesController : ControllerBase
             CarId = dto.CarId,
             ClockIn = dto.ClockIn,
             ClockOut = dto.ClockOut,
-            Note = dto.Note
+            Note = dto.Note,
+            // Snapshot wage at insert (PAYROLL_AND_PNL_PLAN.md §(a)).
+            WageAtTime = employee.HourlyWage ?? 0m
         };
 
         _db.TimeEntries.Add(entry);
@@ -110,7 +119,12 @@ public class TimeEntriesController : ControllerBase
                 ? (entry.ClockOut.Value - entry.ClockIn).TotalHours
                 : null,
             Note = entry.Note,
-            PhotoUrl = entry.PhotoUrl
+            PhotoUrl = entry.PhotoUrl,
+            ProofOfWorkSkipped = entry.ProofOfWorkSkipped,
+            // Just-created TimeEntry can't yet have a linked diary — set false
+            // explicitly rather than firing a needless EXISTS query.
+            HasDiary = false,
+            DiaryBody = null
         });
     }
 

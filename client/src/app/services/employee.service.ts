@@ -15,6 +15,8 @@ export interface Employee {
   pinPlain?: string;  // visible to manager on edit page
   /** Reason given when the worker declined push notifications from the kiosk. Null if never declined. */
   notificationsDeclineReason?: string;
+  /** EUR/h. Null when no rate has been set yet. Admin-only field; never on kiosk DTOs. */
+  hourlyWage?: number | null;
 }
 
 export interface CreateEmployee {
@@ -33,6 +35,8 @@ export interface UpdateEmployee {
   address?: string;
   city?: string;
   isActive: boolean;
+  /** EUR/h. Omit to leave the existing value unchanged. */
+  hourlyWage?: number | null;
 }
 
 /**

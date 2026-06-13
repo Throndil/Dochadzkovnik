@@ -13,8 +13,13 @@ public class AppDbContext : IdentityDbContext<AppUser>
     public DbSet<Car> Cars => Set<Car>();
     public DbSet<TimeEntry> TimeEntries => Set<TimeEntry>();
     public DbSet<WorkPhoto> WorkPhotos => Set<WorkPhoto>();
+    public DbSet<WorkDiary> WorkDiaries => Set<WorkDiary>();
     public DbSet<Material> Materials => Set<Material>();
     public DbSet<MaterialUsage> MaterialUsages => Set<MaterialUsage>();
+    public DbSet<MaterialPurchase> MaterialPurchases => Set<MaterialPurchase>();
+    public DbSet<MaterialPurchaseLine> MaterialPurchaseLines => Set<MaterialPurchaseLine>();
+    public DbSet<InvoiceDocument> InvoiceDocuments => Set<InvoiceDocument>();
+    public DbSet<EmployeeAdvance> EmployeeAdvances => Set<EmployeeAdvance>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
     public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
@@ -57,6 +62,34 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 .OnDelete(DeleteBehavior.Restrict);
 
             e.HasIndex(x => new { x.LocationId, x.CreatedAt });
+        });
+
+        builder.Entity<WorkDiary>(e =>
+        {
+            e.Property(x => x.BodyText).IsRequired();
+            e.Property(x => x.AttachmentUrl).HasMaxLength(1000);
+
+            e.HasOne(x => x.Employee)
+                .WithMany()
+                .HasForeignKey(x => x.EmployeeId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasOne(x => x.Location)
+                .WithMany()
+                .HasForeignKey(x => x.LocationId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Optional link back to the šichta TimeEntry that produced this
+            // diary (populated by the in-šichta combined flow). SetNull so
+            // deleting a TimeEntry does not also wipe the diary audit trail.
+            e.HasOne(x => x.TimeEntry)
+                .WithMany()
+                .HasForeignKey(x => x.TimeEntryId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(x => new { x.LocationId, x.Date });
+            e.HasIndex(x => new { x.EmployeeId, x.Date });
+            e.HasIndex(x => x.TimeEntryId);
         });
 
         builder.Entity<TimeEntry>(e =>
@@ -112,8 +145,130 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 .HasForeignKey(x => x.EmployeeId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // Option A: usages minted from scanned-invoice lines carry a back-
+            // pointer so discarding the invoice (which removes the line via
+            // MaterialPurchase cascade) sweeps the usage too. Cascade matches
+            // that intent: line gone → usage gone.
+            e.HasOne(x => x.SourceMaterialPurchaseLine)
+                .WithMany()
+                .HasForeignKey(x => x.SourceMaterialPurchaseLineId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             e.HasIndex(x => new { x.LocationId, x.Date });
             e.HasIndex(x => new { x.LocationId, x.MaterialId });
+            e.HasIndex(x => x.SourceMaterialPurchaseLineId);
+        });
+
+        builder.Entity<MaterialPurchase>(e =>
+        {
+            e.Property(x => x.SupplierName).HasMaxLength(200);
+            e.Property(x => x.ReceiptPhotoUrl).HasMaxLength(1000);
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.TotalCost).HasPrecision(14, 4);
+
+            // Invoice-scanning extensions
+            e.Property(x => x.DeliveryNoteRef).HasMaxLength(100);
+            e.Property(x => x.PickedUpBy).HasMaxLength(200);
+            e.Property(x => x.DeliveryNote).HasMaxLength(2000);
+            e.Property(x => x.AkciaName).HasMaxLength(200);
+            e.Property(x => x.SubtotalExclVat).HasPrecision(14, 2);
+            e.Property(x => x.SubtotalVat).HasPrecision(14, 2);
+
+            e.HasOne(x => x.Employee)
+                .WithMany()
+                .HasForeignKey(x => x.EmployeeId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // The "site this is for" — null = general / company stock.
+            e.HasOne(x => x.Location)
+                .WithMany()
+                .HasForeignKey(x => x.LocationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Optional link back to the kiosk šichta TimeEntry that produced this
+            // purchase (populated by the in-šichta combined flow). SetNull so
+            // deleting a TimeEntry does not also wipe the purchase audit trail.
+            e.HasOne(x => x.TimeEntry)
+                .WithMany()
+                .HasForeignKey(x => x.TimeEntryId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Optional parent invoice (when this purchase came from a scanned PDF).
+            // SetNull so deleting the invoice document doesn't cascade-wipe the
+            // committed MaterialPurchase records — they're financial history.
+            e.HasOne(x => x.InvoiceDocument)
+                .WithMany(x => x.Purchases)
+                .HasForeignKey(x => x.InvoiceDocumentId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(x => x.PurchaseDate);
+            e.HasIndex(x => new { x.EmployeeId, x.PurchaseDate });
+            e.HasIndex(x => x.LocationId);
+            e.HasIndex(x => x.InvoiceDocumentId);
+        });
+
+        builder.Entity<MaterialPurchaseLine>(e =>
+        {
+            e.Property(x => x.MaterialNameRaw).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Unit).HasMaxLength(50).IsRequired();
+            // Same precisions as MaterialUsage so quantities + prices are
+            // comparable across the two sides of the materials story.
+            e.Property(x => x.Quantity).HasPrecision(12, 3);
+            e.Property(x => x.UnitPrice).HasPrecision(12, 4);
+            e.Property(x => x.LineTotal).HasPrecision(14, 4);
+
+            // Invoice-scanning extensions
+            e.Property(x => x.SupplierItemCode).HasMaxLength(50);
+            e.Property(x => x.ListPriceExclVat).HasPrecision(12, 4);
+            e.Property(x => x.DiscountPercent).HasPrecision(5, 2);
+            e.Property(x => x.UnitPriceInclVat).HasPrecision(12, 4);
+            e.Property(x => x.VatRate).HasPrecision(5, 2);
+
+            e.HasOne(x => x.Purchase)
+                .WithMany(x => x.Lines)
+                .HasForeignKey(x => x.PurchaseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // MaterialId is nullable — line starts unidentified and is
+            // promoted to a catalogue row by the admin afterwards. SetNull
+            // means deleting a Material does not wipe historical purchase
+            // lines (they keep their MaterialNameRaw + Unit + price).
+            e.HasOne(x => x.Material)
+                .WithMany()
+                .HasForeignKey(x => x.MaterialId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(x => x.PurchaseId);
+            e.HasIndex(x => x.MaterialId);
+        });
+
+        builder.Entity<InvoiceDocument>(e =>
+        {
+            e.Property(x => x.InvoiceNumber).HasMaxLength(100).IsRequired();
+            e.Property(x => x.SupplierName).HasMaxLength(200).IsRequired();
+            e.Property(x => x.SupplierIco).HasMaxLength(50);
+            e.Property(x => x.SupplierIcDph).HasMaxLength(50);
+            e.Property(x => x.SupplierIban).HasMaxLength(50);
+            e.Property(x => x.Currency).HasMaxLength(3).IsRequired();
+            e.Property(x => x.TotalExclVat).HasPrecision(14, 2);
+            e.Property(x => x.TotalVat).HasPrecision(14, 2);
+            e.Property(x => x.TotalInclVat).HasPrecision(14, 2);
+            e.Property(x => x.PdfUrl).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.Status).HasMaxLength(30).IsRequired();
+            e.Property(x => x.ReconciliationNote).HasMaxLength(500);
+            e.Property(x => x.UploadedBy).HasMaxLength(100).IsRequired();
+            e.Property(x => x.CommittedBy).HasMaxLength(100);
+            e.Property(x => x.Note).HasMaxLength(2000);
+            // RawOcrJson stays unbounded (text) — Document AI responses can be
+            // hundreds of KB on a multi-page invoice. Postgres text handles it.
+
+            // Dedup guard: re-uploading the same invoice number from the same
+            // supplier is a hard error. The controller catches the exception
+            // and surfaces a Slovak message rather than letting EF crash.
+            e.HasIndex(x => new { x.InvoiceNumber, x.SupplierIco }).IsUnique();
+            e.HasIndex(x => x.Status);
+            e.HasIndex(x => x.UploadedAt);
+            e.HasIndex(x => new { x.SupplierName, x.IssueDate });
         });
 
         builder.Entity<PushSubscription>(e =>
@@ -202,6 +357,25 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 mu.UpdatedAt = DateTime.UtcNow;
                 if (entry.State == EntityState.Added) mu.CreatedAt = DateTime.UtcNow;
             }
+            else if (entry.Entity is MaterialPurchase mp)
+            {
+                mp.UpdatedAt = DateTime.UtcNow;
+                if (entry.State == EntityState.Added) mp.CreatedAt = DateTime.UtcNow;
+            }
+            else if (entry.Entity is MaterialPurchaseLine mpl)
+            {
+                if (entry.State == EntityState.Added) mpl.CreatedAt = DateTime.UtcNow;
+                // Lines are append-only on insert path; subsequent edits go
+                // through the controller which recomputes LineTotal.
+            }
+            else if (entry.Entity is WorkDiary wd)
+            {
+                wd.UpdatedAt = DateTime.UtcNow;
+                if (entry.State == EntityState.Added) wd.CreatedAt = DateTime.UtcNow;
+            }
+            // InvoiceDocument.UploadedAt is set explicitly by the controller (it
+            // is the moment of upload, not save). CommittedAt is set explicitly
+            // by the commit endpoint. Neither uses SetTimestamps semantics.
             // WorkPhoto.CreatedAt is set explicitly by the controller (to support backdating).
             // The model property initializer (= DateTime.UtcNow) covers the default case,
             // so we intentionally do NOT override it here.

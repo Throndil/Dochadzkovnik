@@ -1,0 +1,291 @@
+<app-navbar />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900 pb-32">
+  <div class="max-w-6xl mx-auto px-4 py-4 sm:p-6 space-y-4">
+    <div class="flex items-center gap-3">
+      <a routerLink="/admin/invoices" class="text-amber-500 hover:text-amber-400 text-sm">← Späť na zoznam</a>
+    </div>
+
+    @if (loading()) {
+      <app-spinner />
+    } @else if (invoice(); as inv) {
+      <!-- ── Header ─────────────────────────────────────────────── -->
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div class="min-w-0">
+            <div class="text-xs text-slate-500 uppercase tracking-wider">Faktúra č.</div>
+            <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ inv.invoiceNumber }}</div>
+            <div class="text-sm text-slate-700 dark:text-slate-300 mt-1">{{ inv.supplierName }}</div>
+            @if (inv.supplierIco) {
+              <div class="text-xs text-slate-500 dark:text-slate-400">IČO {{ inv.supplierIco }}<span *ngIf="inv.supplierIcDph"> · IČ DPH {{ inv.supplierIcDph }}</span></div>
+            }
+          </div>
+          <div class="text-right shrink-0 space-y-1">
+            <div class="text-xs text-slate-500">Dátum vyhotovenia</div>
+            <div class="text-sm text-slate-900 dark:text-white">{{ inv.issueDate | date:'dd.MM.yyyy' }}</div>
+            @if (inv.dueDate) {
+              <div class="text-xs text-slate-500 mt-1">Splatnosť: {{ inv.dueDate | date:'dd.MM.yyyy' }}</div>
+            }
+            <a [href]="inv.pdfUrl" target="_blank" rel="noopener"
+               class="inline-block mt-2 text-amber-500 hover:text-amber-400 text-sm font-medium underline">Otvoriť PDF</a>
+          </div>
+        </div>
+
+        <!-- Reconciliation banner -->
+        @if (reconcileOk()) {
+          <div class="bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 text-green-800 dark:text-green-300 p-3 rounded-lg text-sm">
+            <strong>Sedí.</strong> {{ reconcileNote() }}
+          </div>
+        } @else {
+          <div class="bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 text-red-800 dark:text-red-300 p-3 rounded-lg text-sm">
+            <strong>Nesedí.</strong> {{ reconcileNote() }}
+          </div>
+        }
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+          <div>
+            <div class="text-xs text-slate-500">Cena bez DPH</div>
+            <div class="text-sm font-semibold text-slate-900 dark:text-white tabular-nums">{{ formatMoney(inv.totalExclVat) }} €</div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500">DPH</div>
+            <div class="text-sm font-semibold text-slate-900 dark:text-white tabular-nums">{{ formatMoney(inv.totalVat) }} €</div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500">Vytlačené spolu</div>
+            <div class="text-base font-bold text-slate-900 dark:text-white tabular-nums">{{ formatMoney(inv.totalInclVat) }} €</div>
+          </div>
+          <div>
+            <div class="text-xs text-slate-500">Naše súčty</div>
+            <div class="text-base font-bold tabular-nums"
+                 [class.text-green-600]="reconcileOk()" [class.dark:text-green-400]="reconcileOk()"
+                 [class.text-red-600]="!reconcileOk()" [class.dark:text-red-400]="!reconcileOk()">
+              {{ formatMoney(ourGrandTotal()) }} €
+            </div>
+          </div>
+        </div>
+      </div>
+
+      @if (error()) {
+        <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm">
+          {{ error() }}
+        </div>
+      }
+
+      <!-- ── Delivery lists ──────────────────────────────────────── -->
+      @for (dl of inv.deliveryLists; track dl.id) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-slate-900 dark:text-white">
+                {{ dl.deliveryNoteRef || 'Bez čísla dodacieho listu' }}
+              </div>
+              <div class="text-xs text-slate-500 dark:text-slate-400">
+                {{ dl.purchaseDate | date:'dd.MM.yyyy' }}
+                @if (dl.pickedUpBy) { · prevzal {{ dl.pickedUpBy }} }
+              </div>
+              @if (dl.deliveryNote) {
+                <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">{{ dl.deliveryNote }}</div>
+              }
+            </div>
+            <div class="shrink-0">
+              <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                Pracovisko
+                @if (recentlySavedDlId() === dl.id) {
+                  <span class="ml-2 text-green-500 dark:text-green-400 font-medium">✓ Uložené</span>
+                }
+              </label>
+              <!-- [selected] on each option (rather than [value] on the select)
+                   guarantees the right option is highlighted even when the
+                   locations list resolves AFTER the select first renders.
+                   The (change) handler immediately PUTs the new locationId
+                   to the backend — no save button. -->
+              <select [disabled]="!isLocationEditable()"
+                      (change)="onLocationChange(dl.id, $any($event.target).value ? +$any($event.target).value : null)"
+                      class="w-full sm:w-64 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+                <option value="" [selected]="dl.locationId == null">— Sklad / Inventár —</option>
+                @for (loc of locations(); track loc.id) {
+                  <option [value]="loc.id" [selected]="dl.locationId === loc.id">{{ loc.name }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <!-- Lines table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300">
+                <tr>
+                  <th class="text-left px-2 py-2 font-semibold">Kód</th>
+                  <th class="text-left px-2 py-2 font-semibold">Popis</th>
+                  <th class="text-right px-2 py-2 font-semibold">Mn.</th>
+                  <th class="text-left px-2 py-2 font-semibold">MJ</th>
+                  <th class="text-right px-2 py-2 font-semibold" title="Cena z cenníka bez DPH">Cena</th>
+                  <th class="text-right px-2 py-2 font-semibold" title="Zľava v %">Zľava</th>
+                  <th class="text-center px-2 py-2 font-semibold">DPH</th>
+                  <th class="text-center px-2 py-2 font-semibold" title="Prenesenie daňovej povinnosti">PDP</th>
+                  <th class="text-right px-2 py-2 font-semibold" title="Cena × (1 − zľava) × množstvo">Spolu</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (line of dl.lines; track line.id) {
+                  <tr class="border-t border-slate-200 dark:border-slate-700">
+                    <td class="px-2 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{ line.supplierItemCode || '—' }}</td>
+                    <td class="px-2 py-2 text-slate-900 dark:text-white">
+                      <span [class.italic]="line.isService" [class.text-slate-500]="line.isService">{{ line.materialNameRaw }}</span>
+                    </td>
+                    <td class="px-2 py-2 text-right tabular-nums">
+                      <input type="text" [value]="formatQty(line.quantity)"
+                             [disabled]="!isReview()"
+                             (blur)="onQuantityBlur(line, $any($event.target).value)"
+                             class="w-20 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                    </td>
+                    <td class="px-2 py-2 text-slate-700 dark:text-slate-300">{{ line.unit }}</td>
+                    <!-- Cena = list price (cenník bez DPH). Editable. -->
+                    <td class="px-2 py-2 text-right tabular-nums">
+                      <input type="text" [value]="formatMoney(listPriceFor(line))"
+                             [disabled]="!isReview()"
+                             (blur)="onListPriceBlur(line, $any($event.target).value)"
+                             class="w-24 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                    </td>
+                    <!-- Zľava % (read-only display from extracted prices). -->
+                    <td class="px-2 py-2 text-right tabular-nums">
+                      <span class="text-slate-700 dark:text-slate-300 text-sm">{{ formatPercent(line.discountPercent) }}</span>
+                    </td>
+                    <td class="px-2 py-2 text-center">
+                      <select [value]="vatRateString(line.vatRate)"
+                              [disabled]="!isReview()"
+                              (change)="onVatRateChange(line, $any($event.target).value)"
+                              class="px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                        <option value="0">0 %</option>
+                        <option value="10">10 %</option>
+                        <option value="20">20 %</option>
+                        <option value="23">23 %</option>
+                      </select>
+                    </td>
+                    <td class="px-2 py-2 text-center">
+                      <input type="checkbox" [checked]="line.isReverseCharge"
+                             [disabled]="!isReview()"
+                             (change)="onReverseToggle(line, $any($event.target).checked)"
+                             title="Prenesenie daňovej povinnosti"
+                             class="h-4 w-4 accent-amber-500" />
+                    </td>
+                    <!-- Spolu: editable. Shows the value stored in DB (line.lineTotal).
+                         The expected value (list × (1−zľava) × qty) is shown underneath
+                         in small text when it differs, so the manager spots OCR errors. -->
+                    <td class="px-2 py-2 text-right tabular-nums font-semibold">
+                      <input type="text" [value]="formatMoney(line.lineTotal)"
+                             [disabled]="!isReview()"
+                             (blur)="onLineTotalBlur(line, $any($event.target).value)"
+                             [class.border-red-500]="!totalsMatch(line)"
+                             class="w-28 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm font-semibold" />
+                      @if (!totalsMatch(line)) {
+                        <div class="text-xs text-amber-500 dark:text-amber-400 mt-0.5" title="Vypočítané: Cena × (1 − Zľava) × Mn.">
+                          ≈ {{ formatMoney(expectedTotal(line)) }} €
+                        </div>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+              <tfoot class="border-t-2 border-slate-300 dark:border-slate-600">
+                <tr>
+                  <td colspan="7" class="px-2 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">
+                    Súčet bez DPH · DPH · Spolu s DPH:
+                  </td>
+                  <td class="px-2 py-2 text-right tabular-nums font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                    {{ formatMoney(dl.subtotalExclVat) }} €
+                    <span class="text-slate-400 mx-1">·</span>
+                    {{ formatMoney(dl.subtotalVat) }} €
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      }
+
+      <!-- ── Sticky footer ──────────────────────────────────────── -->
+      <!-- Visible for review AND committed. Review state shows reconciliation
+           + commit + discard. Committed state shows just the delete button
+           (red, stronger copy in the confirm dialog). -->
+      <div class="fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-3 safe-bottom z-30">
+        <div class="max-w-6xl mx-auto flex flex-col sm:flex-row gap-3 items-stretch sm:items-center sm:justify-between">
+          <div class="text-sm">
+            @if (isReview()) {
+              @if (reconcileOk()) {
+                <span class="text-green-700 dark:text-green-300 font-semibold">✓ Súčty sedia</span>
+              } @else {
+                <span class="text-red-700 dark:text-red-300 font-semibold">✗ Súčty nesedia — upravte riadky pred uložením</span>
+              }
+            } @else if (isCommitted()) {
+              <span class="text-slate-700 dark:text-slate-300">Uložená — odstránenie je trvalé.</span>
+            }
+          </div>
+          <div class="flex gap-2">
+            <button (click)="onDiscard()" [disabled]="discarding() || committing()"
+                    [class.bg-red-600]="isCommitted()" [class.hover:bg-red-700]="isCommitted()" [class.text-white]="isCommitted()"
+                    [class.bg-slate-200]="!isCommitted()" [class.dark:bg-slate-700]="!isCommitted()" [class.hover:bg-slate-300]="!isCommitted()" [class.dark:hover:bg-slate-600]="!isCommitted()" [class.text-slate-900]="!isCommitted()" [class.dark:text-white]="!isCommitted()"
+                    class="touch-target px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50">
+              {{ discarding() ? 'Mažem...' : (isCommitted() ? 'Odstrániť' : 'Zahodiť') }}
+            </button>
+            @if (isReview()) {
+              <button (click)="onCommit()" [disabled]="!reconcileOk() || committing() || discarding()"
+                      class="touch-target px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                {{ committing() ? 'Ukladám...' : 'Uložiť všetko' }}
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- Status banner for committed / discarded -->
+      @if (!isReview()) {
+        <div class="bg-slate-100 dark:bg-slate-700 rounded-lg p-4 text-sm text-slate-600 dark:text-slate-300">
+          Stav faktúry: <strong>{{ statusLabel(inv.status) }}</strong>.
+          @if (isCommitted()) {
+            Pracovisko každého dodacieho listu môžete upraviť aj teraz — ostatné polia sú zafixované.
+            Hlbšie úpravy cez Materiál → Nákupy.
+          }
+        </div>
+      }
+    } @else if (error()) {
+      <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm">
+        {{ error() }}
+      </div>
+    }
+
+    <!-- Commit confirm modal -->
+    <app-modal
+      [open]="showCommitConfirm()"
+      variant="confirm"
+      title="Uložiť faktúru?"
+      message="Po uložení sa riadky zafixujú a materiál sa premietne do spotreby priradených pracovísk. Pracovisko každého dodacieho listu môžete neskôr ešte zmeniť."
+      confirmLabel="Áno, uložiť"
+      busyLabel="Ukladám..."
+      [busy]="committing()"
+      (confirm)="onCommitConfirmed()"
+      (cancel)="showCommitConfirm.set(false)" />
+
+    <!-- Commit success modal -->
+    <app-modal
+      [open]="showCommitSuccess()"
+      variant="success"
+      title="Faktúra uložená"
+      message="Záznamy sú v účtovníctve (Materiál → Nákupy) a materiál bol pridaný do spotreby pracovísk."
+      confirmLabel="OK"
+      (confirm)="showCommitSuccess.set(false)"
+      (cancel)="showCommitSuccess.set(false)" />
+
+    <!-- Discard confirm modal — stern wording for committed invoices -->
+    <app-modal
+      [open]="showDiscardConfirm()"
+      variant="danger"
+      [title]="isCommitted() ? 'Odstrániť uloženú faktúru?' : 'Zahodiť tento sken?'"
+      [message]="discardMessage()"
+      [confirmLabel]="isCommitted() ? 'Áno, odstrániť' : 'Áno, zahodiť'"
+      busyLabel="Odstraňujem..."
+      [busy]="discarding()"
+      (confirm)="onDiscardConfirmed()"
+      (cancel)="showDiscardConfirm.set(false)" />
+  </div>
+</div>

@@ -5,17 +5,36 @@
        landscape notch when the kiosk is launched as a standalone PWA on a wall-mounted tablet. -->
   <header class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between shrink-0"
           style="padding-top: max(0.75rem, env(safe-area-inset-top)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right));">
-    <h1 class="flex items-center gap-2 text-xl font-bold text-slate-900 dark:text-white tracking-wide">
-      <img src="/profistav_logo.png" alt="Profistav logo" class="h-10 w-auto object-contain" />
-      Šichtovnica
+    <h1 class="flex items-center gap-2 text-lg sm:text-xl font-bold text-slate-900 dark:text-white tracking-wide min-w-0">
+      <img src="/profistav_logo.png" alt="Profistav logo" class="h-8 sm:h-10 w-auto object-contain shrink-0" />
+      <span class="truncate">Šichtovnica</span>
     </h1>
     <div class="text-slate-600 dark:text-slate-300 text-sm font-mono tabular-nums text-center hidden sm:block">
       <span class="text-slate-900 dark:text-white text-base font-semibold">{{ currentTime() | date:'HH:mm:ss' }}</span>
       <span class="mx-2 text-slate-500">|</span>
       <span>{{ currentTime() | date:'EEEE, d. M. yyyy' }}</span>
     </div>
-    <a href="/login" class="text-xs text-slate-500 dark:text-slate-400 hover:text-amber-400 transition-colors">Vladimír Sroka →</a>
+    <a href="/login" class="text-xs text-slate-500 dark:text-slate-400 hover:text-amber-400 transition-colors shrink-0 ml-2">Vladimír Sroka →</a>
   </header>
+
+  <!-- ══ Nákup materiálu capture ═══════════════════════════════════════════════
+       Mounted full-screen when the worker chooses Nákup over Šichtu inside
+       the existing clock-in modal (PIN-validated, no TimeEntry yet) OR via
+       the post-šichta-result "Pokračovať s nákupom materiálu" button (PIN +
+       just-created TimeEntryId). Replaces the kiosk content while active so
+       the worker isn't distracted by the weekly grid behind it. Closing the
+       flow returns to the standard kiosk main view. -->
+  @if (inShiftNakupContext(); as ctx) {
+    <app-nakup-flow
+      mode="in-shift"
+      [locations]="locations()"
+      [initialPin]="ctx.pin"
+      [initialTimeEntryId]="ctx.timeEntryId"
+      [initialLocationId]="null"
+      [triggerLocationId]="triggerLocationId()"
+      (close)="onInShiftNakupClose()"
+      (success)="onInShiftNakupClose()" />
+  } @else {
 
   <!-- ══ View tabs ════════════════════════════════════════════════ -->
   <div class="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex shrink-0" role="tablist">
@@ -72,10 +91,10 @@
       <!-- Always shown until dismissed or subscribed. When push isn't supported yet
            (e.g. iOS Safari without PWA installed) we show the install-guide path instead. -->
       @if (showNotificationPrompt()) {
-        <div class="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 border-2 border-green-300 dark:border-green-700 rounded-2xl p-6 mb-6 shadow-md">
+        <div class="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 border-2 border-green-300 dark:border-green-700 rounded-2xl p-4 sm:p-6 mb-6 shadow-md">
           <div class="text-center">
-            <h2 class="text-2xl font-bold text-green-900 dark:text-green-100 mb-2">Povoliť upozornenia</h2>
-            <p class="text-green-800 dark:text-green-200 mb-4 text-base">
+            <h2 class="text-xl sm:text-2xl font-bold text-green-900 dark:text-green-100 mb-2">Povoliť upozornenia</h2>
+            <p class="text-green-800 dark:text-green-200 mb-4 text-sm sm:text-base">
               Dostaňte upozornenia, keď ste bez záznamu dlhšie ako 2 dni.
             </p>
             @if (notificationSupported()) {
@@ -921,6 +940,8 @@
 
   </div><!-- end content -->
 
+  } <!-- /@else (no in-šichta NakupFlow active) -->
+
 </div><!-- end page -->
 
 <!-- ══ Modal overlay: clock-in/out flow ════════════════════════ -->
@@ -939,9 +960,12 @@
           }
           <p class="text-slate-500 dark:text-slate-400 text-sm">
             @if (clockStep() === 'pin') { <span>Zadajte váš PIN</span> }
+            @if (clockStep() === 'mode-pick') { <span>Čo chceš urobiť?</span> }
             @if (clockStep() === 'location') { <span>Vyberte pracovisko</span> }
             @if (clockStep() === 'car') { <span>Použili ste auto?</span> }
             @if (clockStep() === 'hours') { <span>Počet hodín</span> }
+            @if (clockStep() === 'proof-pick') { <span>Pridať dôkaz</span> }
+            @if (clockStep() === 'diary') { <span>Zápis do denníka</span> }
             @if (clockStep() === 'photo-reason') { <span>Foto alebo dôvod</span> }
             @if (clockStep() === 'result') { <span>Hotovo</span> }
           </p>
@@ -1007,6 +1031,28 @@
               }
             </button>
           </div>
+        </div>
+      }
+
+      <!-- ── Step: Mode pick (only when MaterialPurchases flag is ON) ─────────
+           Inserted between PIN validation and the existing Location step. PIN
+           is already validated server-side, so picking "Nákup materiálu" hands
+           the validated PIN off to NakupFlow without a second prompt. -->
+      @if (clockStep() === 'mode-pick') {
+        <div class="p-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button (click)="pickShiftFromModePick()"
+                  class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-amber-400 dark:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 active:bg-amber-100 dark:active:bg-amber-900/40">
+            <span class="text-4xl">🕒</span>
+            <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Zaznamenať šichtu</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Hodiny + fotka</span>
+          </button>
+
+          <button (click)="pickNakupFromModePick()"
+                  class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-green-400 dark:border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 active:bg-green-100 dark:active:bg-green-900/40">
+            <span class="text-4xl">🛒</span>
+            <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Nákup materiálu</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Materiál + cena + účtenka</span>
+          </button>
         </div>
       }
 
@@ -1133,6 +1179,31 @@
               </div>
             }
           </div>
+
+          <!-- Today's roll-up at this site (peer notes context) — always expanded -->
+          @if (todayAtLocation().length > 0) {
+            <div class="mb-5 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+              <div class="px-3 py-2 bg-slate-100 dark:bg-slate-700 text-sm text-slate-700 dark:text-slate-200">
+                Dnes sa tu už zapísali: <span class="font-semibold">{{ todayAtLocation().length }}</span>
+              </div>
+              <ul class="divide-y divide-slate-200 dark:divide-slate-700">
+                @for (r of todayAtLocation(); track r.employeeId + '-' + r.clockIn) {
+                  <li class="px-3 py-2">
+                    <div class="flex justify-between items-baseline gap-2">
+                      <span class="text-sm font-medium text-slate-900 dark:text-white truncate">{{ r.employeeName }}</span>
+                      <span class="text-xs text-amber-500 font-semibold whitespace-nowrap">{{ r.hoursWorked != null ? (r.hoursWorked | hm) : '—' }}</span>
+                    </div>
+                    @if (r.note) {
+                      <p class="text-xs text-slate-600 dark:text-slate-300 mt-0.5 whitespace-pre-wrap">{{ r.note }}</p>
+                    }
+                    @if (r.diaryBody) {
+                      <p class="text-xs text-slate-700 dark:text-slate-200 mt-1 whitespace-pre-wrap border-l-2 border-blue-400 pl-2">{{ r.diaryBody }}</p>
+                    }
+                  </li>
+                }
+              </ul>
+            </div>
+          }
 
           <!-- Date picker -->
           <div class="mb-5">
@@ -1283,6 +1354,85 @@
         </div>
       }
 
+      <!-- ── Step: Proof of work picker (ProofOfWorkChoices flag) ─── -->
+      @if (clockStep() === 'proof-pick') {
+        @if (autoSkipHint()) {
+          <div class="px-6 pt-6">
+            <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2 text-blue-700 dark:text-blue-300 text-sm">
+              {{ autoSkipHint() }}
+            </div>
+          </div>
+        }
+        <div class="p-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button (click)="pickProofPhoto()"
+                  class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-amber-400 dark:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 active:bg-amber-100 dark:active:bg-amber-900/40">
+            <span class="text-4xl">📷</span>
+            <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Nahrať fotku</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Vyfotiť alebo z galérie</span>
+          </button>
+
+          <button (click)="pickProofDiary()"
+                  class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 active:bg-blue-100 dark:active:bg-blue-900/40">
+            <span class="text-4xl">📓</span>
+            <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Zapísať do denníka</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Krátka poznámka o práci</span>
+          </button>
+
+          <button (click)="confirmSkipProof()"
+                  class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 active:bg-slate-100 dark:active:bg-slate-600">
+            <span class="text-4xl">→</span>
+            <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Bez dôkazu</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Uložiť len hodiny</span>
+          </button>
+        </div>
+      }
+
+      <!-- ── Step: Construction diary ─────────────────────────── -->
+      @if (clockStep() === 'diary') {
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Čo ste dnes robili?</label>
+            <textarea [(ngModel)]="diaryBody" name="diaryBody" rows="6"
+                      class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                      placeholder="Napríklad: Položil obklad v kúpeľni, 8 m²."></textarea>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Foto denníka (nepovinné)</label>
+            @if (diaryAttachmentFile() === null) {
+              <label class="touch-target inline-flex items-center gap-2 px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white rounded-lg cursor-pointer">
+                <span>Pridať foto alebo PDF</span>
+                <input type="file" accept="image/*,application/pdf" (change)="onDiaryAttachmentSelected($event)" class="hidden" />
+              </label>
+            } @else {
+              <div class="flex items-center gap-3 p-3 bg-slate-100 dark:bg-slate-700 rounded-lg">
+                @if (diaryAttachmentPreview()) {
+                  <img [src]="diaryAttachmentPreview()" alt="Náhľad" class="w-16 h-16 rounded object-cover border border-slate-300 dark:border-slate-600" />
+                } @else {
+                  <div class="w-16 h-16 rounded bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-3xl">📄</div>
+                }
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm text-slate-900 dark:text-white truncate">{{ diaryAttachmentFile()?.name }}</div>
+                </div>
+                <button type="button" (click)="removeDiaryAttachment()"
+                        class="w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center text-sm font-bold">×</button>
+              </div>
+            }
+          </div>
+
+          <div class="flex gap-2 pt-2">
+            <button (click)="backToProofPick()"
+                    class="touch-target flex-1 px-4 py-3 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-900 dark:text-white">
+              Späť
+            </button>
+            <button (click)="submitDiary()" [disabled]="loading() || diaryBody.trim().length === 0"
+                    class="touch-target flex-1 px-4 py-3 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-bold disabled:opacity-50">
+              {{ loading() ? 'Ukladám...' : 'Uložiť' }}
+            </button>
+          </div>
+        </div>
+      }
+
       <!-- ── Step: Photo or Reason ─────────────────────────── -->
       @if (clockStep() === 'photo-reason') {
         <div class="p-6">
@@ -1406,6 +1556,11 @@
             {{ response()!.message }}
           </p>
           <p class="text-slate-500 text-sm">{{ response()!.timestamp | date:'HH:mm' }}</p>
+          @if (autoSkipHint()) {
+            <div class="inline-block mt-3 bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-2 text-blue-700 dark:text-blue-300 text-xs">
+              {{ autoSkipHint() }}
+            </div>
+          }
           @if (photoUploaded()) {
             <div class="inline-flex items-center gap-1.5 mt-3 bg-green-500/10 border border-green-500/30 rounded-full px-3 py-1">
               <svg class="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1419,6 +1574,26 @@
               }
             </div>
           }
+
+          <!-- In-šichta combined Nákup capture: only when the worker logged hours
+               at the configured trigger Location AND the feature flag is on. The
+               button hands the PIN + just-created TimeEntryId to NakupFlow in
+               'in-shift' mode; the flow asks for the target site, the items, and
+               the receipt, then writes the linked MaterialPurchase. -->
+          <!--
+            Nákup materiálu follow-up button — temporarily disabled per customer 2026-05-25.
+            Re-enable by uncommenting; the backend + NakupFlow component are untouched.
+
+            @if (!responseError() && pendingTimeEntryIdForNakup() !== null) {
+              <button (click)="startInShiftNakup()"
+                      class="touch-target w-full mt-5 py-4 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold text-lg shadow-md">
+                Pokračovať s nákupom materiálu
+              </button>
+              <p class="text-slate-500 text-xs mt-2">Pridaj materiál a účtenku k tejto šichte.</p>
+            }
+          -->
+
+
           <p class="text-slate-600 text-xs mt-4">Okno sa zatvorí automaticky…</p>
         </div>
       }
