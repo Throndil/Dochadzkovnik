@@ -73,7 +73,15 @@ public sealed record EmployeePhotoRow(
     string LocationName,
     string PhotoUrl,
     string Source,        // "Šichta" or "Foto pracoviska"
-    string? Note);
+    string? Note)
+{
+    /// <summary>
+    /// Downloaded thumbnail bytes (JPEG) for the embedded preview, or null when
+    /// the fetch failed / was skipped. Populated by the controller before the
+    /// workbook is built; the Fotky sheet embeds it next to the link.
+    /// </summary>
+    public byte[]? ThumbnailBytes { get; set; }
+}
 
 public class PayrollExcelExportService : IPayrollExcelExportService
 {
@@ -262,8 +270,12 @@ public class PayrollExcelExportService : IPayrollExcelExportService
         s4.Columns().AdjustToContents();
 
         // ─── Sheet 5: Fotky ────────────────────────────────────────────
+        // Each row carries the metadata + a clickable link, plus an embedded
+        // thumbnail (when the controller managed to download one). The image is
+        // anchored into the "Náhľad" column; the row is given enough height to
+        // show it.
         var s5 = wb.Worksheets.Add("Fotky");
-        WriteHeaders(s5, "Dátum", "Pracovisko", "Zdroj", "Poznámka", "Odkaz");
+        WriteHeaders(s5, "Dátum", "Pracovisko", "Zdroj", "Poznámka", "Odkaz", "Náhľad");
         r = 2;
         foreach (var p in d.Photos.OrderBy(x => x.CapturedAt))
         {
@@ -276,9 +288,32 @@ public class PayrollExcelExportService : IPayrollExcelExportService
             s5.Cell(r, 5).SetHyperlink(new XLHyperlink(p.PhotoUrl));
             s5.Cell(r, 5).Style.Font.FontColor = XLColor.Blue;
             s5.Cell(r, 5).Style.Font.Underline = XLFontUnderlineValues.Single;
+
+            if (p.ThumbnailBytes is { Length: > 0 } bytes)
+            {
+                try
+                {
+                    using var imgStream = new MemoryStream(bytes);
+                    // Format is auto-detected from the stream bytes (the enum
+                    // XLPictureFormat lives in ClosedXML.Excel.Drawings; no need
+                    // to depend on it here).
+                    s5.AddPicture(imgStream)
+                        .MoveTo(s5.Cell(r, 6), 3, 3)
+                        .WithSize(160, 120);
+                    s5.Row(r).Height = 92; // ~123 px, fits the 120 px image
+                }
+                catch
+                {
+                    // A malformed/unsupported image must never break the export —
+                    // the link in column 5 is still there.
+                }
+            }
             r++;
         }
-        s5.Columns().AdjustToContents();
+        // Adjust text columns only; the picture column gets a fixed width so the
+        // embedded thumbnails aren't squeezed.
+        for (var c = 1; c <= 5; c++) s5.Column(c).AdjustToContents();
+        s5.Column(6).Width = 24;
 
         // ─── Sheet 6: Zálohy ───────────────────────────────────────────
         var s6 = wb.Worksheets.Add("Zálohy");

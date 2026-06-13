@@ -179,8 +179,8 @@ public class TimeEntriesController : ControllerBase
         if (photo.Length > 20 * 1024 * 1024)
             return BadRequest("File too large (max 20 MB)");
 
-        var month = entry.ClockIn.ToString("yyyy-MM");
-        var folder = $"work-photos/{entry.LocationId}/{month}";
+        var locationName = (await _db.Locations.FindAsync(entry.LocationId))?.Name;
+        var folder = CloudinaryFolders.WorkPhotos(entry.LocationId, locationName, entry.ClockIn);
 
         await using var stream = photo.OpenReadStream();
         var url = await _blob.UploadAsync(stream, photo.FileName, folder);

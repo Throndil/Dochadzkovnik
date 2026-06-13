@@ -155,6 +155,7 @@ builder.Services.AddScoped<IInvoiceParser, InvoiceParser>();
 // App services
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPinHasher, PinHasher>();
+builder.Services.AddScoped<IWageService, WageService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 
 // Notification services (push only)

@@ -203,8 +203,7 @@ export class MzdyPage implements OnInit {
       if (saved && /^\d{4}-\d{2}$/.test(saved)) return saved;
     } catch { /* ignore */ }
     const now = new Date();
-    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
 
   private initialStoredDate(key: string, fallback: string): string {
@@ -324,10 +323,24 @@ export class MzdyPage implements OnInit {
   }
 
   private resetNewAdvance() {
-    this.newAdvanceDate.set(this.todayIso());
+    this.newAdvanceDate.set(this.defaultAdvanceDate());
     this.newAdvanceAmount.set(null);
     this.newAdvanceNote.set('');
     this.newAdvanceError.set(null);
+  }
+
+  /**
+   * Default date for a new advance: today when it falls in the period being
+   * viewed, otherwise clamped into that period. This way an advance you add
+   * while looking at, say, May lands in May and shows up in the list — rather
+   * than silently saving into the current month and "disappearing".
+   */
+  private defaultAdvanceDate(): string {
+    const today = this.todayIso();
+    const { from, to } = this.periodRange();
+    if (today < from) return from;
+    if (today > to) return to;
+    return today;
   }
 
   async submitNewAdvance() {
@@ -428,7 +441,7 @@ export class MzdyPage implements OnInit {
   }
 
   downloadEmployeeReport(row: PayrollRow) {
-    this.svc.downloadEmployeeReport(row.employeeId, this.periodParam());
+    this.svc.downloadEmployeeReport(row.employeeId, this.periodParam(), `${row.firstName} ${row.lastName}`);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────

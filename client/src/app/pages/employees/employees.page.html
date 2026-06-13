@@ -60,7 +60,7 @@
                  (dragleave)="onDragLeave()"
                  (drop)="onDrop($event)">
               @if (photoPreview()) {
-                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Preview" />
+                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Náhľad" />
                 <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
                   <span class="text-slate-900 dark:text-white text-xs text-center px-2">Zmeniť foto</span>
                 </div>
@@ -114,7 +114,7 @@
             <tr class="border-t border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700/50">
               <td class="px-4 py-3">
                 @if (emp.photoUrl) {
-                  <img [src]="emp.photoUrl" class="w-10 h-10 rounded-full object-cover" alt="Photo" />
+                  <img [src]="emp.photoUrl" class="w-10 h-10 rounded-full object-cover" alt="Fotografia" />
                 } @else {
                   <div class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center text-slate-600 dark:text-slate-300 text-sm font-bold">
                     {{ emp.firstName[0] }}{{ emp.lastName[0] }}
@@ -166,7 +166,7 @@
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
           <div class="flex items-center gap-3 mb-3">
             @if (emp.photoUrl) {
-              <img [src]="emp.photoUrl" class="w-12 h-12 rounded-full object-cover" alt="Photo" />
+              <img [src]="emp.photoUrl" class="w-12 h-12 rounded-full object-cover" alt="Fotografia" />
             } @else {
               <div class="w-12 h-12 rounded-full bg-slate-200 dark:bg-slate-600 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold">
                 {{ emp.firstName[0] }}{{ emp.lastName[0] }}

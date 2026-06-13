@@ -29,10 +29,10 @@
                 [class.dark:hover:bg-slate-600]="!liveRefresh()">
           @if (liveRefresh()) {
             <span class="w-2.5 h-2.5 rounded-full bg-white animate-pulse"></span>
-            Live
+            Naživo
           } @else {
             <span class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
-            Sledovať live
+            Sledovať naživo
           }
         </button>
         <button type="button" (click)="load()" [disabled]="loading() || !enabled()"
@@ -313,7 +313,7 @@
                         @if (liveRefresh()) {
                           <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400 normal-case tracking-normal">
                             <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                            live
+                            naživo
                           </span>
                         }
                       }

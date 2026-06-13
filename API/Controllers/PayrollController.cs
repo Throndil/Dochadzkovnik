@@ -24,12 +24,43 @@ public class PayrollController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IPayrollExcelExportService _xlsx;
+    private readonly IWageService _wage;
     private readonly ILogger<PayrollController> _log;
 
-    public PayrollController(AppDbContext db, IPayrollExcelExportService xlsx, ILogger<PayrollController> log)
+    // Shared client for pulling photo thumbnails to embed in the Excel export.
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+
+    /// <summary>
+    /// Rewrites a Cloudinary image URL to request a small JPEG thumbnail
+    /// (≤180×120, auto-quality) for embedding. Non-Cloudinary URLs pass through.
+    /// </summary>
+    private static string ThumbUrl(string url)
+    {
+        const string marker = "/upload/";
+        var i = url.IndexOf(marker, StringComparison.Ordinal);
+        if (i < 0) return url;
+        return url.Insert(i + marker.Length, "w_180,h_120,c_limit,q_auto,f_jpg/");
+    }
+
+    /// <summary>Best-effort thumbnail download — returns null on any failure so the export never breaks.</summary>
+    private static async Task<byte[]?> TryFetchThumbnailAsync(string url)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            return await _http.GetByteArrayAsync(ThumbUrl(url), cts.Token);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public PayrollController(AppDbContext db, IPayrollExcelExportService xlsx, IWageService wage, ILogger<PayrollController> log)
     {
         _db = db;
         _xlsx = xlsx;
+        _wage = wage;
         _log = log;
     }
 
@@ -184,6 +215,11 @@ public class PayrollController : ControllerBase
             CreatedAt  = a.CreatedAt
         }).ToList();
 
+        // Download thumbnails to embed in the Fotky sheet. Best-effort and in
+        // parallel; any failure leaves ThumbnailBytes null and the row keeps
+        // just its hyperlink.
+        await Task.WhenAll(photos.Select(async p => p.ThumbnailBytes = await TryFetchThumbnailAsync(p.PhotoUrl)));
+
         var data = new EmployeeReportData(
             EmployeeId: emp.Id,
             FullName: $"{emp.FirstName} {emp.LastName}",
@@ -212,50 +248,38 @@ public class PayrollController : ControllerBase
     /// POST /api/payroll/employee/{id}/set-wage
     /// Body: { rate: number | null, applyFrom?: "YYYY-MM-DD" }
     ///
-    /// Updates <c>Employee.HourlyWage</c> to <c>rate</c> (always — so future
-    /// TimeEntry inserts snapshot it). When <c>applyFrom</c> is provided,
-    /// also UPDATEs <c>WageAtTime</c> on every TimeEntry where
-    /// <c>EmployeeId = id AND ClockIn &gt;= applyFrom</c> — this is how the
-    /// manager retroactively prices entries that pre-date the rate being
-    /// set, and how they record a promotion ("Janko's new rate of 6,80
-    /// applies from 15.05.").
+    /// Records the rate in the effective-dated wage history (see
+    /// <c>WageService</c>) and reprices every shift from the rate in effect on
+    /// its date. <c>applyFrom</c> is the effective date — e.g. a promotion
+    /// ("Janko's new rate of 6,80 applies from 15.05."). When omitted, the
+    /// service applies the rate from the employee's start date if they have no
+    /// rate yet (so all their shifts are covered), otherwise from today.
     ///
-    /// applyFrom NULL = no backfill, only future entries pick up the rate.
-    /// rate NULL = clear the rate; applyFrom is ignored when rate is null.
+    /// rate NULL = clear the rate history; shifts with no effective rate
+    /// price at 0. Returns the number of shifts whose price changed.
     /// </summary>
     [HttpPost("employee/{id}/set-wage")]
     public async Task<ActionResult<int>> SetWage(int id, [FromBody] SetWageRequest body)
     {
-        var emp = await _db.Employees.FindAsync(id);
-        if (emp == null) return NotFound();
+        var exists = await _db.Employees.AnyAsync(e => e.Id == id);
+        if (!exists) return NotFound();
 
-        if (body.Rate is decimal r && r < 0)
-            return BadRequest("Sadzba musí byť kladná.");
-
-        // 1) Update the catalogue rate so future inserts snapshot it.
-        emp.HourlyWage = body.Rate;
-
-        // 2) Optional retroactive backfill.
-        var backfilled = 0;
-        if (body.Rate.HasValue && body.ApplyFrom.HasValue)
+        // The rate goes into the effective-dated history (WageService), which
+        // reprices every shift from the rate in effect on its date. ApplyFrom
+        // is the effective date; null lets the service pick a sensible default
+        // (the employee's start date for a first rate, else today for a raise).
+        try
         {
-            var fromDate = body.ApplyFrom.Value.Date;
-            var rate     = body.Rate.Value;
-            var entries  = await _db.TimeEntries
-                .Where(t => t.EmployeeId == id && t.ClockIn >= fromDate)
-                .ToListAsync();
-            foreach (var entry in entries)
-            {
-                entry.WageAtTime = rate;
-                backfilled++;
-            }
+            var repriced = await _wage.SetWageAsync(id, body.Rate, body.ApplyFrom, User.Identity?.Name);
             _log.LogInformation(
-                "[Payroll] SetWage employee={Id} rate={Rate} applyFrom={From} → {N} entries backfilled",
-                id, rate, fromDate, backfilled);
+                "[Payroll] SetWage employee={Id} rate={Rate} effectiveFrom={From} → {N} shifts repriced",
+                id, body.Rate, body.ApplyFrom, repriced);
+            return Ok(repriced);
         }
-
-        await _db.SaveChangesAsync();
-        return Ok(backfilled);
+        catch (ArgumentOutOfRangeException)
+        {
+            return BadRequest("Sadzba musí byť kladná.");
+        }
     }
 
     public sealed class SetWageRequest

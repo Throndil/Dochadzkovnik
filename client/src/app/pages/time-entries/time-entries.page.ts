@@ -165,7 +165,7 @@ export class TimeEntriesPage implements OnInit {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Downloaded-${date}_${month}.xlsx`;
+      a.download = `Stiahnuté-${date}_${month}.xlsx`;
       a.click();
       window.URL.revokeObjectURL(url);
     });

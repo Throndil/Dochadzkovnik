@@ -429,7 +429,8 @@ public class LocationsController : ControllerBase
         if (adminEmployee == null)
             return StatusCode(500, "System admin employee not found. Please restart the API.");
 
-        var folder = $"work-photos/{id}/{photoDate:yyyy-MM}";
+        var locationName = (await _db.Locations.FindAsync(id))?.Name;
+        var folder = CloudinaryFolders.WorkPhotos(id, locationName, photoDate);
         using var stream = file.OpenReadStream();
         var photoUrl = await _blobStorage.UploadAsync(stream, file.FileName, folder);
 

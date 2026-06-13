@@ -28,13 +28,24 @@ public class CloudinaryStorageService : IBlobStorageService
     private readonly IImageProcessingService _imageProcessor;
     private readonly ILogger<CloudinaryStorageService> _logger;
 
+    /// <summary>
+    /// Top-level folder all of this project's assets live under, so they're
+    /// separated from anything else sharing the Cloudinary account. Configurable
+    /// via Cloudinary:ProjectFolder; defaults to "profistav".
+    /// </summary>
+    private readonly string _root;
+
     public CloudinaryStorageService(Cloudinary cloudinary, IImageProcessingService imageProcessor,
-        ILogger<CloudinaryStorageService> logger)
+        ILogger<CloudinaryStorageService> logger, IConfiguration config)
     {
         _cloudinary = cloudinary;
         _imageProcessor = imageProcessor;
         _logger = logger;
+        _root = (config["Cloudinary:ProjectFolder"] ?? "profistav").Trim().Trim('/');
     }
+
+    /// <summary>Prepend the project root to a relative folder path.</summary>
+    private string Rooted(string folder) => string.IsNullOrEmpty(_root) ? folder : $"{_root}/{folder}";
 
     public async Task<string> UploadAsync(Stream stream, string fileName, string folder)
     {
@@ -42,7 +53,7 @@ public class CloudinaryStorageService : IBlobStorageService
         await using var jpeg = await _imageProcessor.NormaliseToJpegAsync(stream);
         var jpegFileName = Path.GetFileNameWithoutExtension(fileName) + ".jpg";
 
-        var publicId = $"{folder}/{Guid.NewGuid()}";
+        var publicId = $"{Rooted(folder)}/{Guid.NewGuid()}";
         var uploadParams = new ImageUploadParams
         {
             File = new FileDescription(jpegFileName, jpeg),
@@ -62,7 +73,7 @@ public class CloudinaryStorageService : IBlobStorageService
         // Raw upload: no image normalisation, file goes up byte-identical.
         // Cloudinary stores it under resource_type=raw and serves it at
         // /raw/upload/... in the URL.
-        var publicId = $"{folder}/{Guid.NewGuid()}{Path.GetExtension(fileName)}";
+        var publicId = $"{Rooted(folder)}/{Guid.NewGuid()}{Path.GetExtension(fileName)}";
         var uploadParams = new RawUploadParams
         {
             File = new FileDescription(fileName, stream),

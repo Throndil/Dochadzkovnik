@@ -501,8 +501,8 @@ public class KioskController : ControllerBase
         int slots = maxPhotos - existingUrls.Count;
         if (slots <= 0) return BadRequest("Maximum 5 photos already uploaded for this entry");
 
-        var month = entry.ClockIn.ToString("yyyy-MM");
-        var folder = $"work-photos/{entry.LocationId}/{month}";
+        var locationName = (await _db.Locations.FindAsync(entry.LocationId))?.Name;
+        var folder = CloudinaryFolders.WorkPhotos(entry.LocationId, locationName, entry.ClockIn);
 
         var newUrls = new List<string>();
         foreach (var photo in photos.Take(slots))
@@ -548,8 +548,7 @@ public class KioskController : ControllerBase
         if (todayCount >= 5)
             return BadRequest("Denný limit fotografií (5) bol dosiahnutý");
 
-        var month = DateTime.UtcNow.ToString("yyyy-MM");
-        var folder = $"work-photos/{locationId}/{month}";
+        var folder = CloudinaryFolders.WorkPhotos(locationId, location.Name, DateTime.UtcNow);
 
         await using var stream = photo.OpenReadStream();
         var url = await _blob.UploadAsync(stream, photo.FileName, folder);

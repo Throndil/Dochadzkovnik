@@ -20,6 +20,7 @@ public class AppDbContext : IdentityDbContext<AppUser>
     public DbSet<MaterialPurchaseLine> MaterialPurchaseLines => Set<MaterialPurchaseLine>();
     public DbSet<InvoiceDocument> InvoiceDocuments => Set<InvoiceDocument>();
     public DbSet<EmployeeAdvance> EmployeeAdvances => Set<EmployeeAdvance>();
+    public DbSet<EmployeeWageRate> EmployeeWageRates => Set<EmployeeWageRate>();
     public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
     public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
@@ -305,6 +306,21 @@ public class AppDbContext : IdentityDbContext<AppUser>
         {
             e.HasKey(x => x.Key);
             e.Property(x => x.Key).HasMaxLength(100);
+        });
+
+        builder.Entity<EmployeeWageRate>(e =>
+        {
+            // 4 decimals matches the other money rates (e.g. material price/unit).
+            e.Property(x => x.RatePerHour).HasPrecision(12, 4);
+            e.Property(x => x.CreatedBy).HasMaxLength(100);
+
+            e.HasOne(x => x.Employee)
+                .WithMany(x => x.WageRates)
+                .HasForeignKey(x => x.EmployeeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Lookups are always "this employee's rates, ordered by date".
+            e.HasIndex(x => new { x.EmployeeId, x.EffectiveFrom });
         });
     }
 

@@ -30,4 +30,5 @@ public class Employee
 
     public ICollection<TimeEntry> TimeEntries { get; set; } = [];
     public ICollection<EmployeeAdvance> Advances { get; set; } = [];
+    public ICollection<EmployeeWageRate> WageRates { get; set; } = [];
 }

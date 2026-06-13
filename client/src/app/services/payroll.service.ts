@@ -117,10 +117,25 @@ export class PayrollService {
     this.downloadBlob(url, `Mzdy_${this.periodToken(period)}.xlsx`);
   }
 
-  /** Per-employee comprehensive workbook. */
-  downloadEmployeeReport(employeeId: number, period: PayrollPeriod): void {
+  /**
+   * Per-employee comprehensive workbook. The filename includes the worker's
+   * name: cross-origin the server's Content-Disposition isn't readable by JS,
+   * so this client-built name (which the browser actually uses) must carry it.
+   */
+  downloadEmployeeReport(employeeId: number, period: PayrollPeriod, employeeName?: string): void {
     const url = `${this.url}/employee/${employeeId}/export?${this.periodQuery(period)}`;
-    this.downloadBlob(url, `Mzda_${this.periodToken(period)}.xlsx`);
+    const namePart = employeeName ? `${this.sanitizeName(employeeName)}_` : '';
+    this.downloadBlob(url, `Mzda_${namePart}${this.periodToken(period)}.xlsx`);
+  }
+
+  /** Diacritics-stripped, filesystem-safe form of a name (e.g. "Ján Novák" → "Jan_Novak"). */
+  private sanitizeName(name: string): string {
+    return name
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .trim()
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
   }
 
   private downloadBlob(url: string, fallbackName: string): void {

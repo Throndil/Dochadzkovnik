@@ -15,14 +15,16 @@ public class EmployeesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IPinHasher _pinHasher;
+    private readonly IWageService _wage;
     private readonly IBlobStorageService? _blobStorage;
     private readonly IConfiguration _config;
 
     public EmployeesController(AppDbContext db, IPinHasher pinHasher,
-        IConfiguration config, IBlobStorageService? blobStorage = null)
+        IConfiguration config, IWageService wage, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _pinHasher = pinHasher;
+        _wage = wage;
         _blobStorage = blobStorage;
         _config = config;
     }
@@ -207,12 +209,19 @@ public class EmployeesController : ControllerBase
         emp.Address = dto.Address;
         emp.City = dto.City;
         emp.IsActive = dto.IsActive;
+
         // HourlyWage is optional on the DTO: omitting it means "don't touch".
-        // Sending null explicitly is treated as "clear it back to unset".
-        // The admin Mzdy view warns when this is null.
-        if (dto.HourlyWage.HasValue) emp.HourlyWage = dto.HourlyWage;
+        // When it changed, route it through the wage service so it lands in the
+        // effective-dated rate history and reprices shifts — exactly like the
+        // Mzdy page does. (effectiveFrom = null → the service covers the
+        // employee's whole history for a first rate, else applies from today.)
+        var wageChanged = dto.HourlyWage.HasValue && dto.HourlyWage.Value != emp.HourlyWage;
 
         await _db.SaveChangesAsync();
+
+        if (wageChanged)
+            await _wage.SetWageAsync(id, dto.HourlyWage!.Value, null, User.Identity?.Name);
+
         return NoContent();
     }
 

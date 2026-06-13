@@ -50,7 +50,7 @@
                  (dragleave)="onDragLeave()"
                  (drop)="onDrop($event)">
               @if (photoPreview()) {
-                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Preview" />
+                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Náhľad" />
                 <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
                   <span class="text-slate-900 dark:text-white text-xs text-center px-2">Zmeniť foto</span>
                 </div>
@@ -96,7 +96,7 @@
           <!-- Clicking the image opens location detail -->
           <a [routerLink]="['/admin/locations', loc.id]" class="block cursor-pointer">
             @if (loc.photoUrl) {
-              <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Location photo" />
+              <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Fotografia pracoviska" />
             } @else {
               <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">📍</div>
             }
