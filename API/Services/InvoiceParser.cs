@@ -126,7 +126,7 @@ public sealed class InvoiceParser : IInvoiceParser
         // for each segment extract metadata + match Document AI line_item
         // entities by their textAnchor offsets when available, or by text
         // proximity otherwise.
-        var deliveryLists = TryParseBySupplier(header.SupplierIco, text, ocr.Entities, header)
+        var deliveryLists = TryParseBySupplier(header, text, ocr.Entities)
                             ?? ParseDeliveryLists(text, ocr.Entities);
 
         // ── Post-correction ──────────────────────────────────────────
@@ -160,19 +160,23 @@ public sealed class InvoiceParser : IInvoiceParser
     }
 
     /// <summary>
-    /// Route to a supplier-specific line parser by IČO, or null to fall back to
-    /// the general parser. Digits-only comparison so "SK..."/spaces don't matter.
+    /// Route to a supplier-specific line parser, or null to fall back to the
+    /// general parser. Matches by IČO when it could be extracted, but also by
+    /// supplier name — some layouts (e.g. HEKTRANS / Doklado.sk) split the
+    /// "IČO:" label from its value, so the IČO is unreliable while the company
+    /// name is clear.
     /// </summary>
     private IReadOnlyList<ParsedDeliveryList>? TryParseBySupplier(
-        string? ico, string text, IReadOnlyList<DocumentAiEntity> entities, ParsedInvoiceHeader header)
+        ParsedInvoiceHeader header, string text, IReadOnlyList<DocumentAiEntity> entities)
     {
-        var digits = new string((ico ?? "").Where(char.IsDigit).ToArray());
-        return digits switch
-        {
-            IcoBauArticel => ParseSunSoftDeliveryLists(text, entities, header),
-            IcoHektrans   => ParseHektransDeliveryLists(text, entities, header),
-            _ => null
-        };
+        var ico  = new string((header.SupplierIco ?? "").Where(char.IsDigit).ToArray());
+        var name = (header.SupplierName ?? "").ToLowerInvariant();
+
+        if (ico == IcoBauArticel || (name.Contains("bau") && name.Contains("articel")))
+            return ParseSunSoftDeliveryLists(text, entities, header);
+        if (ico == IcoHektrans || name.Contains("hektrans"))
+            return ParseHektransDeliveryLists(text, entities, header);
+        return null;
     }
 
     /// <summary>
