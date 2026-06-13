@@ -62,20 +62,26 @@ export class InvoiceReviewPage implements OnInit {
   showCommitSuccess  = signal(false);
   showDiscardConfirm = signal(false);
 
-  // Sum of all line totals across all delivery lists, formatted SK.
-  ourGrandTotal = computed(() => {
+  // Sum of all line totals (excl. VAT) across all delivery lists.
+  ourExclTotal = computed(() => {
     const inv = this.invoice();
     if (!inv) return 0;
     let lineSum = 0;
-    let vatSum = 0;
-    for (const dl of inv.deliveryLists) {
-      for (const l of dl.lines) {
-        lineSum += l.lineTotal;
-        vatSum  += this.round2(l.lineTotal * l.vatRate / 100);
-      }
-    }
-    return this.round2(lineSum + vatSum);
+    for (const dl of inv.deliveryLists) for (const l of dl.lines) lineSum += l.lineTotal;
+    return this.round2(lineSum);
   });
+
+  // Sum of VAT across all lines.
+  ourVatTotal = computed(() => {
+    const inv = this.invoice();
+    if (!inv) return 0;
+    let vatSum = 0;
+    for (const dl of inv.deliveryLists) for (const l of dl.lines) vatSum += this.round2(l.lineTotal * l.vatRate / 100);
+    return this.round2(vatSum);
+  });
+
+  // Grand total incl. VAT — what we compare against the printed total.
+  ourGrandTotal = computed(() => this.round2(this.ourExclTotal() + this.ourVatTotal()));
 
   ngOnInit() {
     this.id = Number(this.route.snapshot.paramMap.get('id'));

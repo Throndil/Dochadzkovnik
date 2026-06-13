@@ -734,10 +734,14 @@ public class InvoicesController : ControllerBase
                 }
             }
 
+            var fullText = root.TryGetProperty("text", out var textEl) ? (textEl.GetString() ?? "") : "";
             return Ok(new {
                 totalEntities = typeCounts.Values.Sum(),
                 entityTypes   = typeCounts.OrderByDescending(kv => kv.Value).Select(kv => new { type = kv.Key, count = kv.Value }),
-                textLength    = root.TryGetProperty("text", out var textEl) ? (textEl.GetString() ?? "").Length : 0,
+                textLength    = fullText.Length,
+                // Full OCR text — needed to build supplier-specific text parsers
+                // for layouts where Document AI's structured entities are poor.
+                text          = fullText,
                 lineLikeSamples = samples
             });
         }
