@@ -489,15 +489,24 @@ public sealed class InvoiceParser : IInvoiceParser
                                 ?? SlovakNumberHelper.TryParse(TotalExclVatRx.Match(text).Groups[1].Value);
         decimal? totalVat     = SlovakNumberHelper.TryParse(FindEntity(entities, "total_tax_amount")?.MentionText);
 
-        // Grand total (incl. VAT): prefer the explicitly-labelled text total
-        // ("celkom k úhrade … EUR" / "suma na úhradu …" / DEK's zaokrúhlenie
-        // pattern). It is money-denominated and anchored to the amount-due
-        // line, so — unlike Document AI's bare total_amount entity — it can't
-        // be hijacked by a stray "TOTAL 1.65 t" printed on an extra page such
-        // as a weighbridge ticket scanned together with the invoice. The
-        // entity is only a fallback when no labelled total is found in the text.
-        decimal? totalInclVat = SlovakNumberHelper.TryParse(TotalInclVatRx.Match(text).Groups[1].Value)
-                                ?? SlovakNumberHelper.TryParse(FindEntity(entities, "total_amount")?.MentionText);
+        // Grand total (incl. VAT). Two candidates: the labelled text total
+        // ("celkom k úhrade …", "suma na úhradu …", DEK's zaokrúhlenie block)
+        // and Document AI's total_amount entity. Each fails differently — the
+        // entity can grab a stray small figure like a weighbridge "TOTAL 1.65 t"
+        // on an extra page, while the text regex can misfire on an unusual
+        // layout. The grand incl-VAT total is the LARGEST monetary figure on an
+        // invoice, so when both parse we take the larger: that rejects the tiny
+        // weighbridge value (BAU) without ever dropping below the reliable
+        // entity total on suppliers like DEK.
+        var textTotal   = SlovakNumberHelper.TryParse(TotalInclVatRx.Match(text).Groups[1].Value);
+        var entityTotal = SlovakNumberHelper.TryParse(FindEntity(entities, "total_amount")?.MentionText);
+        decimal? totalInclVat = (textTotal, entityTotal) switch
+        {
+            (decimal a, decimal b) => Math.Max(a, b),
+            (decimal a, null)      => a,
+            (null, decimal b)      => b,
+            _                      => null
+        };
 
         // If VAT total is missing but excl + incl are present, derive it.
         if (totalVat == null && totalExclVat.HasValue && totalInclVat.HasValue)
