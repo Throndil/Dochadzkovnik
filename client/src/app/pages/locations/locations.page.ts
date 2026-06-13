@@ -1,9 +1,10 @@
-﻿import { Component, signal, OnInit } from '@angular/core';
+﻿import { Component, signal, OnInit, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { LocationService, Location, CreateLocation } from '../../services/location.service';
+import { MaterialService } from '../../services/material.service';
 import { LocationManagePanelComponent } from '../../components/location-manage-panel/location-manage-panel.component';
 
 @Component({
@@ -22,6 +23,28 @@ export class LocationsPage implements OnInit {
 
   // The location currently shown in the manage slide-over panel (null = closed)
   manageLocation = signal<Location | null>(null);
+
+  // ─── Cross-Pracoviská export ─────────────────────────────────────
+  private materialService = inject(MaterialService);
+  /** Year-month filter for the export, e.g. "2026-05". Empty = whole history. */
+  exportMonth = signal<string>(this.currentYearMonth());
+
+  /** Trigger the all-locations Excel download. Snake_case to match SK preferences. */
+  onExportAll() {
+    const ym = this.exportMonth();
+    if (ym) {
+      const [y, m] = ym.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      this.materialService.downloadAllLocationsExcel(`${ym}-01`, `${ym}-${String(lastDay).padStart(2, '0')}`);
+    } else {
+      this.materialService.downloadAllLocationsExcel();
+    }
+  }
+
+  private currentYearMonth(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
 
   constructor(private locationService: LocationService) {}
 

@@ -17,8 +17,18 @@ public class Employee
     public string? WhatsAppNumber { get; set; }
     /// <summary>Set when the worker explicitly declines push notifications from the kiosk banner.</summary>
     public string? NotificationsDeclineReason { get; set; }
+    /// <summary>
+    /// Hourly wage in EUR. NULL means "not set yet" — the Mzdy view warns
+    /// the admin in amber and any TimeEntry inserted while NULL snapshots
+    /// WageAtTime = 0. See PAYROLL_AND_PNL_PLAN.md §design decision (a).
+    /// Admin-only data; MUST NOT appear in any /api/kiosk/* response DTO.
+    /// </summary>
+    public decimal? HourlyWage { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<TimeEntry> TimeEntries { get; set; } = [];
+    public ICollection<EmployeeAdvance> Advances { get; set; } = [];
+    public ICollection<EmployeeWageRate> WageRates { get; set; } = [];
 }

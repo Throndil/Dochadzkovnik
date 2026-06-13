@@ -9,19 +9,51 @@ import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 import { PushService } from '../../services/push.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
+import { MaterialPurchaseService } from '../../services/material-purchase.service';
+import { WorkDiaryService } from '../../services/work-diary.service';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { NakupFlowComponent } from '../../components/nakup-flow/nakup-flow.component';
 
 type View = 'main' | 'photo-upload' | 'my-hours';
-type ClockStep = 'pin' | 'location' | 'car' | 'hours' | 'photo-reason' | 'result';
+/**
+ * Clock-in modal step machine. The 'mode-pick' step is inserted between
+ * 'pin' (PIN validated server-side) and 'location' (existing šichta flow)
+ * when the MaterialPurchases feature flag is ON. It lets the worker choose
+ * between recording šichta hours and recording a Nákup materiálu — without
+ * polluting the kiosk root or duplicating the PIN entry.
+ */
+/**
+ * 'proof-pick' and 'diary' are inserted between 'hours' and 'photo-reason'/'result'
+ * when the ProofOfWorkChoices feature flag is ON. They let the worker pick
+ * Fotografia / Stavebný denník / Pokračovať bez dôkazu instead of being forced
+ * into the photo step. See PROOF_OF_WORK_UX_PLAN.md.
+ */
+type ClockStep = 'pin' | 'mode-pick' | 'location' | 'car' | 'hours' | 'proof-pick' | 'diary' | 'photo-reason' | 'result';
 type WuStep = 'pin' | 'location' | 'photo' | 'result';
 
 @Component({
   selector: 'app-kiosk',
-  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe, SpinnerComponent],
+  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe, SpinnerComponent, NakupFlowComponent],
   templateUrl: './kiosk.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class KioskPage implements OnInit, OnDestroy {
+
+  // ─── In-šichta Nákup capture ──────────────────────────────────────
+  /** Configured trigger Location.Id (or fallback by name). When the worker picks
+   *  this Location during the existing šichta flow, the result step offers a
+   *  "Pokračovať s nákupom materiálu" button. Loaded on init when the flag is on. */
+  triggerLocationId = signal<number | null>(null);
+  /** When set, render <app-nakup-flow mode="in-shift"> and hide the rest of the
+   *  kiosk UI. Carries the validated PIN. The TimeEntryId is populated only when
+   *  the worker entered the Nákup flow via the post-šichta-result button (link
+   *  back to the šichta record); when entered via the in-modal mode-pick step
+   *  before any šichta is recorded, TimeEntryId stays null. */
+  inShiftNakupContext = signal<{ pin: string; timeEntryId: number | null } | null>(null);
+  /** Set in submitHours' success handler when the worker just logged hours at the
+   *  trigger Location AND the flag is on. Drives the in-šichta button on the
+   *  result step. Cleared by closeModal(). */
+  pendingTimeEntryIdForNakup = signal<number | null>(null);
 
   // ─── Main view ──────────────────────────────────────────────────
   view = signal<View>('main');
@@ -55,6 +87,35 @@ export class KioskPage implements OnInit, OnDestroy {
   photoUploaded = signal(false); // shown on result step
   noPhotoReason = '';             // filled on photo-reason step when skipping photo
   readonly MAX_PHOTOS = 5;
+
+  // ─── Proof-of-work choice (ProofOfWorkChoices flag) ─────────────
+  /** Set true when the worker explicitly picked "Pokračovať bez dôkazu". */
+  proofOfWorkSkipped = signal(false);
+  /** Stavebný denník body. Empty string when no diary is being submitted. */
+  diaryBody = '';
+  /** Optional file attached to the diary (PDF or image scan). */
+  diaryAttachmentFile = signal<File | null>(null);
+  diaryAttachmentPreview = signal<string | null>(null);
+  /** Visible result-screen badge: 'photo' | 'diary' | 'skipped' | null. */
+  proofResult = signal<'photo' | 'diary' | 'skipped' | null>(null);
+  /** Auto-skip hint shown on the result screen when proof-pick was skipped
+   *  because a recent proof already exists. Slovak copy, includes the prior
+   *  timestamp. Cleared by closeModal. */
+  autoSkipHint = signal<string | null>(null);
+
+  // ─── Today at this location (read-only roll-up on the hours step) ─
+  /** Other workers' entries at the picked Location for today. Loaded right
+   *  after selectLocation. Used to give the next worker site context before
+   *  they write their own note. */
+  todayAtLocation = signal<Array<{
+    employeeId: number;
+    employeeName: string;
+    clockIn: string;
+    hoursWorked: number | null;
+    note: string | null;
+    diaryBody: string | null;
+    isMine: boolean;
+  }>>([]);
 
   // ─── Work photo upload (Nahrať fotografiu tab) ──────────────────
   wuStep = signal<WuStep | null>(null);
@@ -115,6 +176,53 @@ export class KioskPage implements OnInit, OnDestroy {
     return this.locations().find(l => l.id === locationId)?.photoUrl ?? null;
   }
 
+  // ─── Mode-pick step (inside the clock-in modal, post-PIN) ───────
+
+  /**
+   * "Zaznamenať šichtu" tile inside the modal — continue the existing
+   * šichta flow (Location → Car → Hours → Photo → Result).
+   */
+  pickShiftFromModePick() {
+    this.clockStep.set('location');
+  }
+
+  /**
+   * "Nákup materiálu" tile inside the modal — close the šichta modal,
+   * mount NakupFlow with the already-validated PIN. No TimeEntryId yet
+   * (no šichta exists). The resulting MaterialPurchase has TimeEntryId=null.
+   */
+  pickNakupFromModePick() {
+    if (!this.pin) return;
+    const ctx = { pin: this.pin, timeEntryId: null as number | null };
+    this.closeModal();
+    this.inShiftNakupContext.set(ctx);
+  }
+
+  /**
+   * Triggered from the šichta result screen's "Pokračovať s nákupom materiálu"
+   * button when the worker logged hours at the trigger Location. Captures the
+   * PIN + TimeEntryId BEFORE closeModal() blanks them, then mounts the post-
+   * šichta Nákup flow with the link to the just-created TimeEntry.
+   */
+  startInShiftNakup() {
+    const teId = this.pendingTimeEntryIdForNakup();
+    if (teId == null || !this.pin) return;
+    const ctx = { pin: this.pin, timeEntryId: teId };
+    if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = undefined; }
+    this.closeModal();           // also clears pendingTimeEntryIdForNakup
+    this.inShiftNakupContext.set(ctx);
+  }
+
+  /** NakupFlow closed (cancel or finish). Reloads the weekly overview + missing
+   *  list so a freshly auto-booked šichta from the in-šichta path lands in
+   *  the kiosk's grid without a manual refresh. Cheap reads; safe to call on
+   *  cancel too. */
+  onInShiftNakupClose() {
+    this.inShiftNakupContext.set(null);
+    this.loadOverview();
+    this.loadMissingOverview();
+  }
+
   /** Parse a photoUrl that may be a single URL or comma-separated list of URLs. */
   parsePhotoUrls(photoUrl?: string | null): string[] {
     if (!photoUrl) return [];
@@ -133,6 +241,8 @@ export class KioskPage implements OnInit, OnDestroy {
   private clockTimeout?: ReturnType<typeof setTimeout>;
   private resetTimer?: ReturnType<typeof setTimeout>;
   private pushService = inject(PushService);
+  private mpService = inject(MaterialPurchaseService);
+  private workDiaryService = inject(WorkDiaryService);
   /** Exposed to template so every notification surface can be hidden when the
    *  Notifications feature flag is off in the customer's environment. */
   flags = inject(FeatureFlagService);
@@ -178,6 +288,20 @@ export class KioskPage implements OnInit, OnDestroy {
     this.kioskService.getLocations().subscribe(locs => this.locations.set(locs));
     this.kioskService.getCars().subscribe(cars => this.cars.set(cars));
     this.scheduleTick();
+
+    // Load the trigger Location id for the post-šichta combined capture. Server
+    // resolves either the configured MaterialPurchases:TriggerLocationId or
+    // falls back to a case-insensitive name match against "Nákup materiálu".
+    // Failure leaves triggerLocationId null — the after-šichta button just
+    // doesn't appear, which is the safe default. The in-modal mode-pick step
+    // (PIN → mode → location/Nákup) is independent of this — it only needs
+    // the feature flag.
+    if (this.flags.materialPurchases()) {
+      this.mpService.getKioskConfig().subscribe({
+        next: cfg => this.triggerLocationId.set(cfg?.triggerLocationId ?? null),
+        error: () => this.triggerLocationId.set(null)
+      });
+    }
 
     // Initialize push notification support — only when the Notifications feature
     // flag is enabled. Customer-facing prod ships with this off, so the kiosk
@@ -373,6 +497,13 @@ export class KioskPage implements OnInit, OnDestroy {
     this.response.set(null);
     this.responseError.set(false);
     this.status.set(null);
+    // Reset per-worker signals here too: closeModal usually clears them, but
+    // when one worker taps another worker's tile before the 5s result timer
+    // fires, closeModal never ran. Without this reset the next worker would
+    // briefly see the previous worker's today roll-up / selected location.
+    this.todayAtLocation.set([]);
+    this.selectedLocation.set(null);
+    this.selectedCar.set('none');
     this.clockStep.set('pin');
     this.inlinePushDone.set(false);
     this.inlinePushError.set('');
@@ -402,7 +533,15 @@ export class KioskPage implements OnInit, OnDestroy {
     this.photoPreviews.set([]);
     this.photoUploaded.set(false);
     this.noPhotoReason = '';
+    this.proofOfWorkSkipped.set(false);
+    this.diaryBody = '';
+    this.diaryAttachmentFile.set(null);
+    this.diaryAttachmentPreview.set(null);
+    this.proofResult.set(null);
+    this.autoSkipHint.set(null);
+    this.todayAtLocation.set([]);
     this.myMissingDays.set([]);
+    this.pendingTimeEntryIdForNakup.set(null);
     // Refresh the public Treba pripomenúť list — the worker may have just filled hours.
     this.loadMissingOverview();
     if (this.resetTimer) { clearTimeout(this.resetTimer); this.resetTimer = undefined; }
@@ -474,6 +613,10 @@ export class KioskPage implements OnInit, OnDestroy {
         }
         this.status.set(s);
         this.loading.set(false);
+        // Nákup materiálu standalone kiosk flow is temporarily disabled per
+        // customer request 2026-05-25 — always go straight to location after
+        // PIN. To re-enable, restore the original ternary:
+        //   this.clockStep.set(this.flags.materialPurchases() ? 'mode-pick' : 'location');
         this.clockStep.set('location');
         // Fetch personal missing days for the red banner shown on the location step.
         // Best-effort: if it fails we just don't show the banner.
@@ -527,6 +670,13 @@ export class KioskPage implements OnInit, OnDestroy {
     this.selectedDate = this.todayString();
     this.comment = '';
     this.selectedCar.set('none');
+    // Fetch today's roll-up so the hours step can show peer notes. Best-effort —
+    // failures leave the card empty rather than blocking the flow.
+    this.todayAtLocation.set([]);
+    this.kioskService.getTodayAtLocation(this.pin, loc.id).subscribe({
+      next: rows => this.todayAtLocation.set(rows ?? []),
+      error: () => this.todayAtLocation.set([])
+    });
     // Go to car step if there are active cars, otherwise skip straight to hours
     this.clockStep.set(this.cars().length > 0 ? 'car' : 'hours');
   }
@@ -552,12 +702,131 @@ export class KioskPage implements OnInit, OnDestroy {
   proceedFromHours() {
     this.clampSelectedDate();
     if (!this.selectedLocation()) return;
-    // If no photo taken yet, require the worker to take one or give a reason
-    if (this.photoFiles().length === 0) {
-      this.noPhotoReason = '';
-      this.clockStep.set('photo-reason');
+    // Skip the photo-or-reason step when the picked Location is the configured
+    // Nákup materiálu trigger — workers are recording a shopping trip, not
+    // proof-of-work, and the post-šichta result screen offers the proper
+    // Nákup capture (with its own receipt photo). Asking for a šichta photo
+    // here is just friction.
+    const isTrigger = this.flags.materialPurchases()
+      && this.triggerLocationId() !== null
+      && this.selectedLocation()?.id === this.triggerLocationId();
+    if (isTrigger) {
+      this.submitHours();
       return;
     }
+    // Worker already took a photo on the hours step (legacy quick-attach flow)
+    // — skip the proof-of-work picker, submit directly.
+    if (this.photoFiles().length > 0) {
+      this.submitHours();
+      return;
+    }
+    // New flag-on path: three-tile proof-of-work picker, with an auto-skip
+    // ahead of it. If the worker already attached a proof at this site in
+    // the past hour, skip the picker entirely and submit with a hint.
+    if (this.flags.proofOfWorkChoices()) {
+      this.proofOfWorkSkipped.set(false);
+      this.diaryBody = '';
+      this.diaryAttachmentFile.set(null);
+      this.diaryAttachmentPreview.set(null);
+      const dateStr = this.selectedDate || undefined;
+      this.kioskService.checkProofExists(this.pin, this.selectedLocation()!.id, dateStr).subscribe({
+        next: r => {
+          if (r.exists && r.at) {
+            // Format the prior timestamp in HH:mm. Backend returns local TZ.
+            // Note: we deliberately do NOT auto-submit here — the worker should
+            // see the hint on the proof-pick screen and still pick their option.
+            // Customer feedback 2026-05-25: instant auto-clock-in was too aggressive.
+            const at = new Date(r.at);
+            const hh = String(at.getHours()).padStart(2, '0');
+            const mm = String(at.getMinutes()).padStart(2, '0');
+            const what = r.source === 'diary' ? 'zápis do denníka' : 'fotku';
+            this.autoSkipHint.set(`Dnes ste tu už pridali ${what} o ${hh}:${mm}.`);
+          }
+          this.clockStep.set('proof-pick');
+        },
+        error: () => {
+          // Auto-skip detection is a nice-to-have; on any error, fall through to the picker.
+          this.clockStep.set('proof-pick');
+        }
+      });
+      return;
+    }
+    // Legacy flag-off path: existing photo-reason step unchanged.
+    this.noPhotoReason = '';
+    this.clockStep.set('photo-reason');
+  }
+
+  // ─── Proof-of-work step (ProofOfWorkChoices flag) ─────────────────
+
+  /**
+   * "Fotografia" tile — fall through to the existing photo-reason step so
+   * the camera / gallery / no-photo-reason UI keeps working unchanged.
+   */
+  pickProofPhoto() {
+    this.noPhotoReason = '';
+    this.clockStep.set('photo-reason');
+  }
+
+  /** "Stavebný denník" tile — open the inline diary form. */
+  pickProofDiary() {
+    this.diaryBody = '';
+    this.diaryAttachmentFile.set(null);
+    this.diaryAttachmentPreview.set(null);
+    this.clockStep.set('diary');
+  }
+
+  /**
+   * "Pokračovať bez dôkazu" tile — confirm and submit with the skip flag
+   * set. The confirm is rendered inline on the proof-pick step via a
+   * `confirmingSkip` signal-less prompt; keeping component state small.
+   */
+  confirmSkipProof() {
+    this.proofOfWorkSkipped.set(true);
+    this.submitHours();
+  }
+
+  /** "Späť" from diary form back to the proof-pick tiles. */
+  backToProofPick() {
+    this.diaryBody = '';
+    this.diaryAttachmentFile.set(null);
+    this.diaryAttachmentPreview.set(null);
+    this.clockStep.set('proof-pick');
+  }
+
+  async onDiaryAttachmentSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const raw = input.files?.[0];
+    input.value = '';
+    if (!raw) return;
+    // PDFs pass through unchanged; images go through the existing pipeline
+    // for HEIC normalisation + compression.
+    if (raw.type === 'application/pdf') {
+      this.diaryAttachmentFile.set(raw);
+      this.diaryAttachmentPreview.set(null);
+      return;
+    }
+    const normalised = await normaliseFile(raw);
+    const file = await compressImage(normalised);
+    const preview = await fileToDataUrl(file);
+    this.diaryAttachmentFile.set(file);
+    this.diaryAttachmentPreview.set(preview);
+  }
+
+  removeDiaryAttachment() {
+    this.diaryAttachmentFile.set(null);
+    this.diaryAttachmentPreview.set(null);
+  }
+
+  /**
+   * Diary form submit. Reuses the standard submitHours pipeline: the diary
+   * body is buffered on this component; submitHours fires the kiosk
+   * /log-hours call AND, on success, POSTs the diary linked to the new
+   * TimeEntryId. proofOfWorkSkipped stays false — a diary IS a proof.
+   */
+  submitDiary() {
+    const body = this.diaryBody.trim();
+    if (body.length === 0) return;        // disabled button on the template
+    this.proofOfWorkSkipped.set(false);
     this.submitHours();
   }
 
@@ -569,18 +838,28 @@ export class KioskPage implements OnInit, OnDestroy {
     const carId = car !== 'none' && car !== null ? car.id : undefined;
     const photoFiles = this.photoFiles();
 
-    // If a no-photo reason was given, append it to the note
-    const finalComment = this.noPhotoReason
-      ? (this.comment ? `${this.comment} | Dôvod bez foto: ${this.noPhotoReason}` : `Dôvod bez foto: ${this.noPhotoReason}`)
-      : (this.comment || undefined);
+    // Append a marker to the TimeEntry note so the admin Záznamy dochádzky
+    // view can tell at a glance how the worker satisfied the proof-of-work step.
+    // Same `|`-separator convention as the legacy "Dôvod bez foto" path.
+    const usingDiary = this.diaryBody.trim().length > 0;
+    let finalComment: string | undefined = this.comment || undefined;
+    const suffixes: string[] = [];
+    if (this.noPhotoReason) suffixes.push(`Dôvod bez foto: ${this.noPhotoReason}`);
+    if (usingDiary)         suffixes.push('Stavebný denník');
+    if (suffixes.length > 0) {
+      const tail = suffixes.join(' | ');
+      finalComment = finalComment ? `${finalComment} | ${tail}` : tail;
+    }
 
+    const skipProof = this.proofOfWorkSkipped();
     this.kioskService.logHours(
       this.pin,
       this.selectedLocation()!.id,
       this.hoursWorked,
       finalComment,
       this.selectedDate || undefined,
-      carId
+      carId,
+      skipProof || undefined  // omit field entirely on the false path so flag-off behaviour is byte-identical
     ).subscribe({
       next: res => {
         this.response.set(res);
@@ -590,11 +869,61 @@ export class KioskPage implements OnInit, OnDestroy {
         // so peers don't keep seeing them on the "needs reminding" card.
         this.loadMissingOverview();
 
+
+        // In-šichta combined Nákup capture: when the worker just logged hours at
+        // the configured trigger Location AND the feature flag is on, expose the
+        // resulting TimeEntryId so the result screen can offer a "Pokračovať s
+        // nákupom materiálu" button. The button hands the PIN + TimeEntryId off
+        // to the NakupFlow component in 'in-shift' mode.
+        const pickedLocId = this.selectedLocation()?.id ?? null;
+        if (
+          this.flags.materialPurchases()
+          && pickedLocId !== null
+          && this.triggerLocationId() === pickedLocId
+          && res.timeEntryId
+        ) {
+          this.pendingTimeEntryIdForNakup.set(res.timeEntryId);
+        }
+
+        // ProofOfWorkChoices flag-on diary path: if the worker composed a diary
+        // body on the 'diary' step, POST it linked to the new TimeEntry and
+        // optionally upload the attachment. Failures are non-fatal — hours are
+        // already saved.
+        const diaryBody = this.diaryBody.trim();
+        if (diaryBody.length > 0 && res.timeEntryId) {
+          const date = (this.selectedDate || new Date().toISOString().slice(0, 10));
+          this.workDiaryService.createFromKiosk({
+            pin: this.pin,
+            locationId: this.selectedLocation()!.id,
+            date,
+            bodyText: diaryBody,
+            timeEntryId: res.timeEntryId
+          }).then(async created => {
+            const attachment = this.diaryAttachmentFile();
+            if (attachment) {
+              try { await this.workDiaryService.uploadKioskAttachment(created.id, this.pin, attachment); } catch { /* non-fatal */ }
+            }
+            this.proofResult.set('diary');
+            this.loading.set(false);
+            this.clockStep.set('result');
+            this.scheduleReset();
+          }).catch(() => {
+            // Hours saved, diary failed — show warning in result
+            const current = this.response();
+            this.response.set({ ...current!, message: current!.message + ' (denník sa nepodarilo uložiť)' });
+            this.loading.set(false);
+            this.clockStep.set('result');
+            this.scheduleReset();
+          });
+          return;
+        }
+
         if (photoFiles.length > 0 && res.timeEntryId) {
           // Upload all photos via the kiosk endpoint (no JWT needed — PIN already verified above)
           this.kioskService.uploadEntryPhotos(res.timeEntryId, this.pin, photoFiles).subscribe({
             next: () => {
               this.photoUploaded.set(true);
+              this.proofResult.set('photo');
               this.loading.set(false);
               this.clockStep.set('result');
               this.scheduleReset();
@@ -609,6 +938,7 @@ export class KioskPage implements OnInit, OnDestroy {
             }
           });
         } else {
+          if (skipProof) this.proofResult.set('skipped');
           this.loading.set(false);
           this.clockStep.set('result');
           this.scheduleReset();

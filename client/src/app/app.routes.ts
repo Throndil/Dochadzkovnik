@@ -2,6 +2,9 @@ import { Routes } from '@angular/router';
 import { authGuard } from './guards/auth.guard';
 import { commanderFeatureGuard } from './guards/commander-feature.guard';
 import { notificationsFeatureGuard } from './guards/notifications-feature.guard';
+import { invoiceScanningFeatureGuard } from './guards/invoice-scanning-feature.guard';
+import { invoiceCameraScanFeatureGuard } from './guards/invoice-camera-scan-feature.guard';
+import { payrollAndPnLFeatureGuard } from './guards/payroll-and-pnl-feature.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'kiosk', pathMatch: 'full' },
@@ -29,6 +32,10 @@ export const routes: Routes = [
       {
         path: 'dashboard',
         loadComponent: () => import('./pages/dashboard/dashboard.page').then(m => m.DashboardPage)
+      },
+      {
+        path: 'finance',
+        loadComponent: () => import('./pages/finance/finance.page').then(m => m.FinancePage)
       },
       {
         path: 'employees',
@@ -63,6 +70,26 @@ export const routes: Routes = [
         path: 'commander',
         canActivate: [commanderFeatureGuard],
         loadComponent: () => import('./pages/commander/commander.page').then(m => m.CommanderPage)
+      },
+      {
+        path: 'invoices',
+        canActivate: [invoiceScanningFeatureGuard],
+        loadComponent: () => import('./pages/invoices/invoices.page').then(m => m.InvoicesPage)
+      },
+      {
+        path: 'invoices/scan',
+        canActivate: [invoiceCameraScanFeatureGuard],
+        loadComponent: () => import('./pages/invoice-camera/invoice-camera.page').then(m => m.InvoiceCameraPage)
+      },
+      {
+        path: 'invoices/:id',
+        canActivate: [invoiceScanningFeatureGuard],
+        loadComponent: () => import('./pages/invoice-review/invoice-review.page').then(m => m.InvoiceReviewPage)
+      },
+      {
+        path: 'mzdy',
+        canActivate: [payrollAndPnLFeatureGuard],
+        loadComponent: () => import('./pages/mzdy/mzdy.page').then(m => m.MzdyPage)
       },
       {
         path: 'cars/:id',

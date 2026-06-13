@@ -498,3 +498,7 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 /Dochadzkovnik.sln
+
+#Claude
+claude.exe
+*.exe

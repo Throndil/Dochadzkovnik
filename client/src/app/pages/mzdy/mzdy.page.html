@@ -1,0 +1,399 @@
+<app-navbar />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-6xl mx-auto px-4 py-4 sm:p-6 space-y-4">
+
+    <!-- ── Header + period picker ─────────────────────────────────── -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Mzdy</h1>
+      <div class="flex items-center gap-2 flex-wrap">
+        <!-- Period mode toggle -->
+        <div class="inline-flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
+          <button type="button" (click)="setPeriodMode('month')"
+                  class="px-3 py-2 text-sm font-medium"
+                  [class]="periodMode() === 'month'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'">
+            Mesiac
+          </button>
+          <button type="button" (click)="setPeriodMode('week')"
+                  class="px-3 py-2 text-sm font-medium border-l border-slate-300 dark:border-slate-600"
+                  [class]="periodMode() === 'week'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'">
+            Týždeň
+          </button>
+          <button type="button" (click)="setPeriodMode('custom')"
+                  class="px-3 py-2 text-sm font-medium border-l border-slate-300 dark:border-slate-600"
+                  [class]="periodMode() === 'custom'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'">
+            Vlastné
+          </button>
+        </div>
+
+        @if (periodMode() === 'month') {
+          <button type="button" (click)="shiftMonth(-1)"
+                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
+            ‹
+          </button>
+          <input type="month" [ngModel]="month()" (ngModelChange)="onMonthChange($event)"
+                 class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+          <button type="button" (click)="shiftMonth(1)"
+                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
+            ›
+          </button>
+        } @else if (periodMode() === 'week') {
+          <button type="button" (click)="shiftWeek(-1)"
+                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
+            ‹
+          </button>
+          <span class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm tabular-nums whitespace-nowrap">
+            {{ weekLabel() }}
+          </span>
+          <button type="button" (click)="shiftWeek(1)"
+                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
+            ›
+          </button>
+        } @else {
+          <input type="date" [ngModel]="customFrom()" (ngModelChange)="onCustomChange('from', $event)"
+                 class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+          <span class="text-slate-500 dark:text-slate-400">–</span>
+          <input type="date" [ngModel]="customTo()" (ngModelChange)="onCustomChange('to', $event)"
+                 class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+        }
+
+        <button type="button" (click)="downloadMonthlySummary()"
+                class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors">
+          Stiahnuť Excel
+        </button>
+      </div>
+    </div>
+
+    <div class="text-sm text-slate-500 dark:text-slate-400">{{ periodLabel() }}</div>
+
+    @if (error()) {
+      <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm">
+        {{ error() }}
+      </div>
+    }
+
+    @if (loading()) {
+      <app-spinner />
+    } @else if (!data() || data()!.rows.length === 0) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500">
+        Vo zvolenom období nie je žiadna aktivita.
+      </div>
+    } @else {
+      <!-- ── Desktop table ────────────────────────────────────────── -->
+      <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <table class="w-full">
+          <thead class="bg-slate-100 dark:bg-slate-700/50">
+            <tr>
+              <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Meno</th>
+              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hodiny</th>
+              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hodinová sadzba</th>
+              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hrubá mzda</th>
+              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Zálohy</th>
+              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Výplata</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of data()!.rows; track row.employeeId) {
+              <tr class="border-t border-slate-200 dark:border-slate-700" [class.opacity-60]="!row.isActive">
+                <td class="px-4 py-3 text-slate-900 dark:text-white font-medium">
+                  {{ row.firstName }} {{ row.lastName }}
+                  @if (!row.isActive) {
+                    <span class="ml-2 text-xs text-slate-500 dark:text-slate-400">(neaktívny)</span>
+                  }
+                </td>
+                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap text-slate-700 dark:text-slate-200">{{ formatHours(row.hoursWorked) }} h</td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                  @if (editingRateFor() === row.employeeId) {
+                    <div class="flex flex-col items-end gap-1">
+                      <span class="inline-flex items-center gap-1">
+                        <input type="number" step="0.01" min="0"
+                               [ngModel]="rateDraft()" (ngModelChange)="rateDraft.set($event)"
+                               placeholder="€/h"
+                               class="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-right tabular-nums text-sm"
+                               [disabled]="savingRate()"
+                               (keyup.enter)="saveRate(row)" (keyup.escape)="cancelEditRate()" />
+                        <button type="button" (click)="saveRate(row)" [disabled]="savingRate()"
+                                class="text-emerald-600 hover:text-emerald-500 text-sm">✓</button>
+                        <button type="button" (click)="cancelEditRate()" [disabled]="savingRate()"
+                                class="text-slate-400 hover:text-slate-300 text-sm">✕</button>
+                      </span>
+                      <label class="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                        <input type="checkbox" [checked]="rateBackfillEnabled()"
+                               (change)="rateBackfillEnabled.set($any($event.target).checked)"
+                               class="accent-amber-500" />
+                        Aplikovať od
+                        <input type="date" [ngModel]="rateApplyFromDraft()" (ngModelChange)="rateApplyFromDraft.set($event)"
+                               [disabled]="!rateBackfillEnabled()"
+                               class="px-1 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs disabled:opacity-50" />
+                      </label>
+                    </div>
+                  } @else if (row.hourlyWageSnapshotAvg == null) {
+                    <button type="button" (click)="startEditRate(row)"
+                            class="text-amber-600 dark:text-amber-400 hover:underline text-sm">Sadzba nenastavená</button>
+                  } @else {
+                    <button type="button" (click)="startEditRate(row)"
+                            class="tabular-nums text-slate-700 dark:text-slate-200 hover:underline">
+                      {{ formatMoney(row.hourlyWageSnapshotAvg) }} €/h
+                    </button>
+                    @if (row.hourlyWageCurrent != null && row.hourlyWageCurrent !== row.hourlyWageSnapshotAvg) {
+                      <div class="text-xs text-slate-500">(katalóg: {{ formatMoney(row.hourlyWageCurrent) }} €/h)</div>
+                    }
+                  }
+                </td>
+                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap text-slate-700 dark:text-slate-200">
+                  {{ formatMoney(row.gross) }} €
+                </td>
+                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap">
+                  @if (row.advancesTotal > 0) {
+                    <button type="button" (click)="openAdvancesDrawer(row)"
+                            class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline font-medium"
+                            title="Upraviť zálohy">
+                      {{ formatMoney(row.advancesTotal) }} €
+                      <svg class="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                      </svg>
+                    </button>
+                  } @else {
+                    <button type="button" (click)="openAdvancesDrawer(row)"
+                            class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 border border-dashed border-amber-400/60 dark:border-amber-500/40 rounded-md px-2 py-1 text-sm font-medium transition-colors">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14"/>
+                      </svg>
+                      Pridať zálohu
+                    </button>
+                  }
+                </td>
+                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900 dark:text-white">
+                  @if (row.wageMissing && row.hoursWorked > 0) {
+                    <span class="text-amber-600 dark:text-amber-400">Sadzba nenastavená</span>
+                  } @else if (isOverdrawn(row)) {
+                    <span class="text-red-600 dark:text-red-400">{{ formatMoney(row.payout) }} €</span>
+                    <div class="text-xs font-normal text-red-600 dark:text-red-400">Zálohy prevyšujú mzdu</div>
+                  } @else {
+                    {{ formatMoney(row.payout) }} €
+                  }
+                </td>
+                <td class="px-4 py-3 text-right whitespace-nowrap">
+                  <button type="button" (click)="downloadEmployeeReport(row)"
+                          class="text-emerald-600 dark:text-emerald-400 hover:underline text-sm">
+                    Mzdový list
+                  </button>
+                </td>
+              </tr>
+            }
+          </tbody>
+          <tfoot class="bg-slate-100 dark:bg-slate-700/50 border-t-2 border-slate-300 dark:border-slate-600">
+            <tr>
+              <td class="px-4 py-3 font-semibold text-slate-900 dark:text-white">Spolu</td>
+              <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{{ formatHours(data()!.totals.hoursWorked) }} h</td>
+              <td></td>
+              <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.gross) }} €</td>
+              <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.advancesTotal) }} €</td>
+              <td class="px-4 py-3 text-right tabular-nums font-bold text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.payout) }} €</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <!-- ── Mobile cards ─────────────────────────────────────────── -->
+      <div class="md:hidden space-y-3">
+        @for (row of data()!.rows; track row.employeeId) {
+          <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-2"
+               [class.opacity-60]="!row.isActive">
+            <div class="flex items-center justify-between">
+              <div class="font-medium text-slate-900 dark:text-white">{{ row.firstName }} {{ row.lastName }}</div>
+              @if (!row.isActive) { <span class="text-xs text-slate-500">(neaktívny)</span> }
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div><span class="text-slate-500">Hodiny</span><br /><span class="tabular-nums">{{ formatHours(row.hoursWorked) }} h</span></div>
+              <div>
+                <span class="text-slate-500">Sadzba</span><br />
+                @if (row.hourlyWageSnapshotAvg == null) {
+                  <button type="button" (click)="startEditRate(row)" class="text-amber-500 underline">Nenastavená</button>
+                } @else {
+                  <button type="button" (click)="startEditRate(row)" class="tabular-nums underline">{{ formatMoney(row.hourlyWageSnapshotAvg) }} €/h</button>
+                }
+                @if (editingRateFor() === row.employeeId) {
+                  <div class="mt-1 space-y-1">
+                    <div class="flex items-center gap-1">
+                      <input type="number" step="0.01" min="0" placeholder="€/h"
+                             [ngModel]="rateDraft()" (ngModelChange)="rateDraft.set($event)"
+                             class="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm" />
+                      <button type="button" (click)="saveRate(row)" class="text-emerald-600 text-sm">✓</button>
+                      <button type="button" (click)="cancelEditRate()" class="text-slate-400 text-sm">✕</button>
+                    </div>
+                    <label class="flex items-center gap-1 text-xs text-slate-500">
+                      <input type="checkbox" [checked]="rateBackfillEnabled()"
+                             (change)="rateBackfillEnabled.set($any($event.target).checked)"
+                             class="accent-amber-500" />
+                      Aplikovať od
+                      <input type="date" [ngModel]="rateApplyFromDraft()" (ngModelChange)="rateApplyFromDraft.set($event)"
+                             [disabled]="!rateBackfillEnabled()"
+                             class="px-1 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs disabled:opacity-50" />
+                    </label>
+                  </div>
+                }
+              </div>
+              <div><span class="text-slate-500">Hrubá mzda</span><br /><span class="tabular-nums">{{ formatMoney(row.gross) }} €</span></div>
+              <div>
+                <span class="text-slate-500">Zálohy</span><br />
+                @if (row.advancesTotal > 0) {
+                  <button type="button" (click)="openAdvancesDrawer(row)" class="tabular-nums text-amber-600 underline">{{ formatMoney(row.advancesTotal) }} €</button>
+                } @else {
+                  <button type="button" (click)="openAdvancesDrawer(row)"
+                          class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 border border-dashed border-amber-400/60 rounded-md px-2 py-0.5 text-xs font-medium mt-0.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14"/>
+                    </svg>
+                    Pridať
+                  </button>
+                }
+              </div>
+            </div>
+            <div class="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+              <span class="font-bold text-slate-900 dark:text-white">
+                @if (row.wageMissing && row.hoursWorked > 0) {
+                  <span class="text-amber-600">Sadzba nenastavená</span>
+                } @else if (isOverdrawn(row)) {
+                  <span class="text-red-600 dark:text-red-400">Výplata: {{ formatMoney(row.payout) }} €</span>
+                  <span class="block text-xs font-normal text-red-600 dark:text-red-400">Zálohy prevyšujú mzdu</span>
+                } @else {
+                  Výplata: {{ formatMoney(row.payout) }} €
+                }
+              </span>
+              <button type="button" (click)="downloadEmployeeReport(row)"
+                      class="text-emerald-600 hover:underline text-sm">Mzdový list</button>
+            </div>
+          </div>
+        }
+
+        <!-- Mobile totals -->
+        <div class="bg-slate-100 dark:bg-slate-700 rounded-xl p-4 border border-slate-200 dark:border-slate-600">
+          <div class="font-semibold text-slate-900 dark:text-white mb-2">Spolu</div>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div>Hodiny: <span class="tabular-nums font-medium">{{ formatHours(data()!.totals.hoursWorked) }} h</span></div>
+            <div>Hrubá: <span class="tabular-nums font-medium">{{ formatMoney(data()!.totals.gross) }} €</span></div>
+            <div>Zálohy: <span class="tabular-nums font-medium">{{ formatMoney(data()!.totals.advancesTotal) }} €</span></div>
+            <div>Výplata: <span class="tabular-nums font-bold">{{ formatMoney(data()!.totals.payout) }} €</span></div>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- ── Advances drawer ───────────────────────────────────────── -->
+    @if (advancesEmployee(); as ae) {
+      <div class="fixed inset-0 z-30 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+           (click)="closeAdvancesDrawer()">
+        <div class="bg-white dark:bg-slate-800 rounded-t-2xl sm:rounded-xl border border-slate-200 dark:border-slate-700 w-full max-w-xl max-h-[90dvh] overflow-y-auto"
+             (click)="$event.stopPropagation()">
+          <div class="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-semibold text-slate-900 dark:text-white">
+                Zálohy — {{ ae.firstName }} {{ ae.lastName }}
+              </h2>
+              @if (isOverdrawn(ae)) {
+                <div class="text-xs text-red-600 dark:text-red-400">Zálohy prevyšujú mzdu</div>
+              }
+            </div>
+            <button type="button" (click)="closeAdvancesDrawer()"
+                    class="text-slate-400 hover:text-slate-200">✕</button>
+          </div>
+
+          <div class="p-4 space-y-4">
+            <!-- New-advance form -->
+            <div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3 space-y-2">
+              <div class="grid grid-cols-3 gap-2">
+                <label class="text-xs text-slate-600 dark:text-slate-300 col-span-1">
+                  Dátum
+                  <input type="date" [ngModel]="newAdvanceDate()" (ngModelChange)="newAdvanceDate.set($event)"
+                         class="mt-1 w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
+                </label>
+                <label class="text-xs text-slate-600 dark:text-slate-300 col-span-1">
+                  Suma (€)
+                  <input type="number" step="1" min="0" [ngModel]="newAdvanceAmount()" (ngModelChange)="newAdvanceAmount.set($event)"
+                         class="mt-1 w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
+                </label>
+                <label class="text-xs text-slate-600 dark:text-slate-300 col-span-1">
+                  Poznámka
+                  <input type="text" [ngModel]="newAdvanceNote()" (ngModelChange)="newAdvanceNote.set($event)"
+                         placeholder="(voliteľné)"
+                         class="mt-1 w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
+                </label>
+              </div>
+              @if (newAdvanceError()) {
+                <div class="text-xs text-red-600 dark:text-red-400">{{ newAdvanceError() }}</div>
+              }
+              <button type="button" (click)="submitNewAdvance()" [disabled]="newAdvanceSaving()"
+                      class="touch-target px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-sm font-semibold">
+                {{ newAdvanceSaving() ? 'Ukladám...' : 'Pridať zálohu' }}
+              </button>
+            </div>
+
+            <!-- Existing advances -->
+            @if (advancesLoading()) {
+              <app-spinner />
+            } @else if (advances().length === 0) {
+              <div class="text-sm text-slate-500 dark:text-slate-400">V tomto období ešte žiadne zálohy.</div>
+            } @else {
+              <ul class="divide-y divide-slate-200 dark:divide-slate-700">
+                @for (a of advances(); track a.id) {
+                  <li class="py-2">
+                    @if (editingAdvanceId() === a.id) {
+                      <div class="space-y-2">
+                        <div class="grid grid-cols-3 gap-2">
+                          <input type="date" [ngModel]="editAdvanceDate()" (ngModelChange)="editAdvanceDate.set($event)"
+                                 [disabled]="editAdvanceSaving()"
+                                 class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
+                          <input type="number" step="0.01" min="0.01" placeholder="€"
+                                 [ngModel]="editAdvanceAmount()" (ngModelChange)="editAdvanceAmount.set($event)"
+                                 [disabled]="editAdvanceSaving()"
+                                 (keyup.enter)="saveEditAdvance(a)" (keyup.escape)="cancelEditAdvance()"
+                                 class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-right tabular-nums" />
+                          <input type="text" placeholder="(voliteľné)"
+                                 [ngModel]="editAdvanceNote()" (ngModelChange)="editAdvanceNote.set($event)"
+                                 [disabled]="editAdvanceSaving()"
+                                 (keyup.enter)="saveEditAdvance(a)" (keyup.escape)="cancelEditAdvance()"
+                                 class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
+                        </div>
+                        @if (editAdvanceError()) {
+                          <div class="text-xs text-red-600 dark:text-red-400">{{ editAdvanceError() }}</div>
+                        }
+                        <div class="flex items-center justify-end gap-2">
+                          <button type="button" (click)="saveEditAdvance(a)" [disabled]="editAdvanceSaving()"
+                                  class="text-emerald-600 hover:text-emerald-500 text-sm">✓ Uložiť</button>
+                          <button type="button" (click)="cancelEditAdvance()" [disabled]="editAdvanceSaving()"
+                                  class="text-slate-400 hover:text-slate-300 text-sm">✕ Zrušiť</button>
+                        </div>
+                      </div>
+                    } @else {
+                      <div class="flex items-center justify-between gap-2">
+                        <div>
+                          <div class="text-sm text-slate-900 dark:text-white">{{ formatDate(a.date) }}</div>
+                          @if (a.note) { <div class="text-xs text-slate-500">{{ a.note }}</div> }
+                        </div>
+                        <div class="flex items-center gap-3">
+                          <span class="tabular-nums font-medium text-slate-900 dark:text-white">{{ formatMoney(a.amount) }} €</span>
+                          <button type="button" (click)="startEditAdvance(a)" title="Upraviť"
+                                  class="text-slate-500 hover:text-slate-400 text-sm">✎</button>
+                          <button type="button" (click)="deleteAdvance(a)" class="text-red-500 hover:text-red-400 text-sm">Zmazať</button>
+                        </div>
+                      </div>
+                    }
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+        </div>
+      </div>
+    }
+
+  </div>
+</div>

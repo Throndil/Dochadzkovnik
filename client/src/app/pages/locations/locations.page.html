@@ -1,12 +1,28 @@
 <app-navbar />
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
   <div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
-    <div class="flex justify-between items-center mb-4 sm:mb-6">
+    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6">
       <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Pracoviská</h1>
-      <button (click)="showForm() ? cancelForm() : showForm.set(true)"
-              class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
-        {{ showForm() ? 'Zrušiť' : '+ Pridať pracovisko' }}
-      </button>
+      <div class="flex items-center gap-2 flex-wrap">
+        <!-- Cross-Pracoviská Excel export. Month input is empty-friendly:
+             clear it (×) to export the whole history at historical prices. -->
+        <input type="month" [ngModel]="exportMonth()" (ngModelChange)="exportMonth.set($event)"
+               class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+        <button (click)="onExportAll()"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors"
+                title="Stiahnuť Excel so spotrebou všetkých pracovísk (ceny v čase použitia)">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Stiahnuť spotrebu (Excel)
+        </button>
+        <button (click)="showForm() ? cancelForm() : showForm.set(true)"
+                class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
+          {{ showForm() ? 'Zrušiť' : '+ Pridať pracovisko' }}
+        </button>
+      </div>
     </div>
 
     @if (showForm()) {
@@ -34,7 +50,7 @@
                  (dragleave)="onDragLeave()"
                  (drop)="onDrop($event)">
               @if (photoPreview()) {
-                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Preview" />
+                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Náhľad" />
                 <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
                   <span class="text-slate-900 dark:text-white text-xs text-center px-2">Zmeniť foto</span>
                 </div>
@@ -80,7 +96,7 @@
           <!-- Clicking the image opens location detail -->
           <a [routerLink]="['/admin/locations', loc.id]" class="block cursor-pointer">
             @if (loc.photoUrl) {
-              <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Location photo" />
+              <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Fotografia pracoviska" />
             } @else {
               <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">📍</div>
             }

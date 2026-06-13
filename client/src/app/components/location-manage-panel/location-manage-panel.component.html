@@ -49,12 +49,12 @@
           <button type="button" (click)="shiftRangeByMonths(-1)" aria-label="Predchádzajúci mesiac"
                   class="w-9 h-9 shrink-0 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold leading-none">‹</button>
           <div class="flex-1 grid grid-cols-2 gap-2 min-w-0">
-            <input type="date" [ngModel]="from()" [max]="to()"
+            <input type="date" appDate name="rangeFrom" [ngModel]="from()" [fpMaxDate]="to()"
                    (ngModelChange)="onFromChange($event)"
-                   class="min-w-0 px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
-            <input type="date" [ngModel]="to()" [min]="from()"
+                   class="min-w-0 px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm" />
+            <input type="date" appDate name="rangeTo" [ngModel]="to()" [fpMinDate]="from()"
                    (ngModelChange)="onToChange($event)"
-                   class="min-w-0 px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+                   class="min-w-0 px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg text-sm" />
           </div>
           <button type="button" (click)="shiftRangeByMonths(1)" aria-label="Nasledujúci mesiac"
                   class="w-9 h-9 shrink-0 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold leading-none">›</button>
@@ -76,8 +76,8 @@
         @if (summary().length === 0) {
           <p class="text-sm text-slate-500 dark:text-slate-400 italic">Žiadna spotreba v tomto období.</p>
         } @else {
-          <div class="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <table class="w-full text-sm">
+          <div class="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden overflow-x-auto">
+            <table class="w-full text-sm min-w-[20rem]">
               <thead class="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
                 <tr>
                   <th class="text-left  px-3 py-2 font-medium">Materiál</th>
@@ -214,8 +214,8 @@
               <div class="flex items-center gap-2">
                 <button type="button" (click)="adjustNewDate(-1)" aria-label="Predchádzajúci deň"
                         class="w-10 h-10 shrink-0 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold leading-none">‹</button>
-                <input type="date" [(ngModel)]="newEntry.date"
-                       class="flex-1 min-w-0 text-center px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg [color-scheme:dark]" />
+                <input type="date" appDate name="newEntryDate" [(ngModel)]="newEntry.date"
+                       class="flex-1 min-w-0 text-center px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg" />
                 <button type="button" (click)="adjustNewDate(1)" aria-label="Nasledujúci deň"
                         class="w-10 h-10 shrink-0 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold leading-none">›</button>
               </div>
@@ -278,8 +278,8 @@
                       <div class="flex items-center gap-1">
                         <button type="button" (click)="adjustEditDate(-1)" aria-label="Predchádzajúci deň"
                                 class="w-8 h-8 shrink-0 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold leading-none">‹</button>
-                        <input type="date" [(ngModel)]="editForm.date"
-                               class="flex-1 min-w-0 px-2 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded [color-scheme:dark]" />
+                        <input type="date" appDate name="editFormDate" [(ngModel)]="editForm.date"
+                               class="flex-1 min-w-0 px-2 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white rounded" />
                         <button type="button" (click)="adjustEditDate(1)" aria-label="Nasledujúci deň"
                                 class="w-8 h-8 shrink-0 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold leading-none">›</button>
                       </div>
@@ -297,6 +297,12 @@
                       <p class="font-medium text-slate-900 dark:text-white">
                         {{ u.materialName }}
                         <span class="text-amber-600 dark:text-amber-400">{{ formatQty(u.quantity) }} {{ u.unit }}</span>
+                        @if (u.fromPurchase) {
+                          <span class="ml-1 inline-block text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+                                title="Vytvorené automaticky z nákupu materiálu. Uprav cez Materiál → Nákupy.">
+                            z nákupu
+                          </span>
+                        }
                       </p>
                       <p class="text-xs text-slate-500 dark:text-slate-400">
                         {{ formatDate(u.date) }}
@@ -310,20 +316,25 @@
                       }
                     </div>
                     <div class="flex shrink-0 items-center gap-1">
-                      <button (click)="startEdit(u)" aria-label="Upraviť"
-                              class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </button>
-                      <button (click)="onDelete(u)" aria-label="Odstrániť"
-                              class="p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
-                        </svg>
-                      </button>
+                      @if (!u.fromPurchase) {
+                        <!-- Real MaterialUsage row — full controls. Synthetic rows from
+                             a Nákup are read-only here; the admin manages them via the
+                             Materiál → Nákupy tab. -->
+                        <button (click)="startEdit(u)" aria-label="Upraviť"
+                                class="p-1.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button (click)="onDelete(u)" aria-label="Odstrániť"
+                                class="p-1.5 rounded-md text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                          </svg>
+                        </button>
+                      }
                     </div>
                   </div>
                 }

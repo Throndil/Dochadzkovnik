@@ -15,14 +15,16 @@ public class EmployeesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IPinHasher _pinHasher;
+    private readonly IWageService _wage;
     private readonly IBlobStorageService? _blobStorage;
     private readonly IConfiguration _config;
 
     public EmployeesController(AppDbContext db, IPinHasher pinHasher,
-        IConfiguration config, IBlobStorageService? blobStorage = null)
+        IConfiguration config, IWageService wage, IBlobStorageService? blobStorage = null)
     {
         _db = db;
         _pinHasher = pinHasher;
+        _wage = wage;
         _blobStorage = blobStorage;
         _config = config;
     }
@@ -119,7 +121,8 @@ public class EmployeesController : ControllerBase
                 PhotoUrl = e.PhotoUrl,
                 IsActive = e.IsActive,
                 CreatedAt = e.CreatedAt,
-                NotificationsDeclineReason = e.NotificationsDeclineReason
+                NotificationsDeclineReason = e.NotificationsDeclineReason,
+                HourlyWage = e.HourlyWage
             })
             .ToListAsync();
     }
@@ -142,7 +145,8 @@ public class EmployeesController : ControllerBase
             IsActive = emp.IsActive,
             CreatedAt = emp.CreatedAt,
             PinPlain = emp.PinPlain,
-            NotificationsDeclineReason = emp.NotificationsDeclineReason
+            NotificationsDeclineReason = emp.NotificationsDeclineReason,
+            HourlyWage = emp.HourlyWage
         };
     }
 
@@ -206,7 +210,18 @@ public class EmployeesController : ControllerBase
         emp.City = dto.City;
         emp.IsActive = dto.IsActive;
 
+        // HourlyWage is optional on the DTO: omitting it means "don't touch".
+        // When it changed, route it through the wage service so it lands in the
+        // effective-dated rate history and reprices shifts — exactly like the
+        // Mzdy page does. (effectiveFrom = null → the service covers the
+        // employee's whole history for a first rate, else applies from today.)
+        var wageChanged = dto.HourlyWage.HasValue && dto.HourlyWage.Value != emp.HourlyWage;
+
         await _db.SaveChangesAsync();
+
+        if (wageChanged)
+            await _wage.SetWageAsync(id, dto.HourlyWage!.Value, null, User.Identity?.Name);
+
         return NoContent();
     }
 

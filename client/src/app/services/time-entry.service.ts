@@ -16,6 +16,12 @@ export interface TimeEntry {
   hoursWorked?: number;
   note?: string;
   photoUrl?: string;
+  /** True when the worker explicitly picked "Pokračovať bez dôkazu" on the kiosk. */
+  proofOfWorkSkipped?: boolean;
+  /** Server-computed: true when at least one WorkDiary is linked to this entry. */
+  hasDiary?: boolean;
+  /** Body of the linked WorkDiary, when present. Surfaced as its own column on the admin table. */
+  diaryBody?: string | null;
 }
 
 export interface CreateTimeEntry {

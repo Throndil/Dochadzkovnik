@@ -1,0 +1,95 @@
+<app-navbar />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
+
+    <!-- Header + month selector -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 sm:mb-6">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Financie — Prehľad</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5 capitalize">{{ monthLabel() }}</p>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <span class="whitespace-nowrap">Mesiac</span>
+        <input type="month" [value]="month()" (change)="onMonthChange($any($event.target).value)"
+               class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500" />
+      </label>
+    </div>
+
+    @if (loading()) {
+      <app-spinner />
+    } @else {
+      <!-- Summary cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        @if (canPayroll()) {
+          <a routerLink="/admin/mzdy"
+             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+            <div class="text-sm text-slate-500 dark:text-slate-400">Mzdy — výplaty</div>
+            <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">
+              {{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}
+            </div>
+          </a>
+        }
+
+        <a routerLink="/admin/materials"
+           class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+          <div class="text-sm text-slate-500 dark:text-slate-400">Materiál — náklady</div>
+          <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">
+            {{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}
+          </div>
+        </a>
+
+        @if (canInvoices()) {
+          <a routerLink="/admin/invoices"
+             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+            <div class="flex items-center justify-between">
+              <div class="text-sm text-slate-500 dark:text-slate-400">Faktúry — spolu (s DPH)</div>
+              @if (invoicePending()) {
+                <span class="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full font-medium">
+                  {{ invoicePending() }} na kontrolu
+                </span>
+              }
+            </div>
+            <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">
+              {{ invoiceTotal() !== null ? (invoiceTotal() | number:'1.2-2') + ' €' : '—' }}
+            </div>
+            @if (invoiceCount() !== null) {
+              <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ invoiceCount() }} faktúr</div>
+            }
+          </a>
+        }
+      </div>
+
+      <!-- Quick access -->
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">Rýchly prístup</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <a routerLink="/admin/materials"
+           class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+          <div class="font-semibold text-slate-900 dark:text-white">Materiál</div>
+          <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a inventár</div>
+        </a>
+
+        @if (canInvoices()) {
+          <a routerLink="/admin/invoices"
+             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+            <div class="font-semibold text-slate-900 dark:text-white">Faktúry</div>
+            <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Skenovanie a spracovanie faktúr</div>
+          </a>
+        }
+
+        @if (canPayroll()) {
+          <a routerLink="/admin/mzdy"
+             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+            <div class="font-semibold text-slate-900 dark:text-white">Mzdy</div>
+            <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</div>
+          </a>
+        }
+
+        <a routerLink="/admin/locations"
+           class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+          <div class="font-semibold text-slate-900 dark:text-white">Náklady a zisk (P&amp;L)</div>
+          <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Podľa pracoviska — otvorte pracovisko</div>
+        </a>
+      </div>
+    }
+  </div>
+</div>

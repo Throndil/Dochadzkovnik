@@ -5,10 +5,11 @@ import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { NotificationConfigService, NotificationConfig, NotificationEmployeeStatus, NotificationLogEntry } from '../../services/notification-config.service';
 import { EmployeeService, Employee, MissingHoursOverviewAdmin } from '../../services/employee.service';
+import { DatepickerDirective } from '../../directives/datepicker.directive';
 
 @Component({
   selector: 'app-notifications',
-  imports: [NavbarComponent, CommonModule, FormsModule, SpinnerComponent],
+  imports: [NavbarComponent, CommonModule, FormsModule, SpinnerComponent, DatepickerDirective],
   templateUrl: './notifications.page.html',
   standalone: true
 })

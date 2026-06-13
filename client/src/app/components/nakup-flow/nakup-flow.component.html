@@ -1,0 +1,363 @@
+<!--
+  Nákup materiálu kiosk capture. Mounted by the kiosk page after the worker has
+  been PIN-validated by the existing šichta modal — never asks for the PIN
+  again. Older-worker UX rules: big targets, plain Slovak, high contrast.
+-->
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900 flex flex-col">
+
+  <!-- ══ Location ═══════════════════════════════════════════════════ -->
+  @if (step() === 'location') {
+    <div class="flex-1 flex flex-col p-4 gap-4 max-w-3xl mx-auto w-full">
+      <div class="flex items-center justify-between">
+        <button (click)="backFromLocation()" class="text-slate-600 dark:text-slate-300 active:text-amber-500 px-2 py-1">
+          ← Späť
+        </button>
+        <h2 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Pre ktoré pracovisko?</h2>
+        <button (click)="done()" class="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm underline">
+          Zrušiť
+        </button>
+      </div>
+
+      <p class="text-slate-600 dark:text-slate-400 text-sm">Vyber pracovisko, alebo „Inventár" ak materiál nie je pre konkrétnu stavbu.</p>
+
+      <!-- Hours auto-book section — visible only when the kiosk page resolved a
+           trigger Location AND no šichta has been recorded yet (mode-pick path).
+           Submitting the flow will call /api/kiosk/log-hours under that Location
+           with the entered hours BEFORE creating the purchase, then stamp the
+           resulting TimeEntryId on the purchase. Hidden in the post-šichta path
+           because the worker already logged hours via the šichta result button. -->
+      @if (showHoursInput()) {
+        <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Koľko hodín si strávil pri nákupe?</label>
+          <div class="flex items-center gap-2 mb-2">
+            <button (click)="adjustHours(-0.5)" type="button"
+                    class="touch-target w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-700 text-2xl font-bold text-slate-900 dark:text-white active:bg-slate-200 dark:active:bg-slate-600">
+              −
+            </button>
+            <div class="flex-1 text-center text-2xl font-bold text-slate-900 dark:text-white tabular-nums">{{ hoursWorked() }} h</div>
+            <button (click)="adjustHours(0.5)" type="button"
+                    class="touch-target w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-700 text-2xl font-bold text-slate-900 dark:text-white active:bg-slate-200 dark:active:bg-slate-600">
+              +
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            @for (h of hoursPresets; track h) {
+              <button type="button" (click)="setHours(h)"
+                      [class]="hoursWorked() === h ? 'bg-amber-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200'"
+                      class="touch-target px-3 py-1.5 rounded-md text-sm font-medium">
+                {{ h }} h
+              </button>
+            }
+          </div>
+        </div>
+      }
+
+      <button (click)="pickGeneralStock()"
+              class="touch-target w-full p-5 rounded-xl border-2 border-dashed border-slate-400 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-amber-100 dark:active:bg-amber-900/30 text-left">
+        <div class="text-lg font-semibold text-slate-900 dark:text-white">Inventár</div>
+        <div class="text-sm text-slate-500 dark:text-slate-400">Materiál nepatrí konkrétnej stavbe</div>
+      </button>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        @for (loc of locations(); track loc.id) {
+          @if (loc.isActive) {
+            <button (click)="pickLocation(loc.id)"
+                    class="touch-target p-4 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 active:bg-amber-100 dark:active:bg-amber-900/30 text-left">
+              <div class="text-base font-semibold text-slate-900 dark:text-white">{{ loc.name }}</div>
+              @if (loc.address) {
+                <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ loc.address }}</div>
+              }
+            </button>
+          }
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ══ Položky ════════════════════════════════════════════════════ -->
+  @if (step() === 'lines') {
+    <div class="flex-1 flex flex-col max-w-3xl mx-auto w-full">
+      <!-- Sticky header (location + back) -->
+      <div class="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 p-4">
+        <div class="flex items-center justify-between">
+          <button (click)="step.set('location')" class="text-slate-600 dark:text-slate-300 active:text-amber-500 px-2 py-1">
+            ← Späť
+          </button>
+          <h2 class="text-xl font-bold text-slate-900 dark:text-white">Položky</h2>
+          <button (click)="done()" class="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm underline">
+            Zrušiť
+          </button>
+        </div>
+        <div class="text-sm text-slate-500 dark:text-slate-400 mt-1">
+          Pracovisko: <span class="font-semibold text-slate-700 dark:text-slate-200">{{ selectedLocationName() }}</span>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-auto p-4 space-y-3">
+        @if (lines().length === 0) {
+          <div class="text-center py-10 text-slate-500 dark:text-slate-400">
+            Zatiaľ žiadne položky. Pridaj prvú.
+          </div>
+        }
+
+        @for (l of lines(); track l.uid) {
+          <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+            <div class="flex items-start justify-between gap-2 mb-3">
+              <div>
+                <div class="font-semibold text-slate-900 dark:text-white">{{ l.materialNameRaw }}</div>
+                <div class="text-xs text-slate-500 dark:text-slate-400">{{ l.unit }}</div>
+              </div>
+              <button (click)="removeLine(l.uid)"
+                      class="text-red-600 dark:text-red-400 hover:text-red-800 text-sm px-2 py-1 active:bg-red-100 dark:active:bg-red-900/30 rounded">
+                Vymazať
+              </button>
+            </div>
+
+            <!-- Qty -->
+            <div class="flex items-center gap-2 mb-2">
+              <button (click)="adjustLineQty(l.uid, -1)"
+                      class="touch-target w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-700 text-2xl font-bold text-slate-900 dark:text-white active:bg-slate-200 dark:active:bg-slate-600">
+                −
+              </button>
+              <input type="number" min="0" step="0.001"
+                     [ngModel]="l.quantity"
+                     (ngModelChange)="setLineQty(l.uid, $event)"
+                     class="flex-1 text-center text-2xl font-bold py-2 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white" />
+              <button (click)="adjustLineQty(l.uid, 1)"
+                      class="touch-target w-12 h-12 rounded-lg bg-slate-100 dark:bg-slate-700 text-2xl font-bold text-slate-900 dark:text-white active:bg-slate-200 dark:active:bg-slate-600">
+                +
+              </button>
+            </div>
+            <div class="flex flex-wrap gap-2 mb-3">
+              @for (preset of qtyPresets; track preset) {
+                <button (click)="setLineQty(l.uid, preset)"
+                        class="touch-target px-3 py-1.5 rounded-md bg-slate-100 dark:bg-slate-700 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 active:bg-amber-100 dark:active:bg-amber-900/30">
+                  {{ preset }}
+                </button>
+              }
+            </div>
+
+            <!-- Unit price -->
+            <div class="grid grid-cols-2 gap-2 mb-2 items-center">
+              <label class="text-sm text-slate-600 dark:text-slate-300">Cena za {{ l.unit }}</label>
+              <div class="flex items-center gap-1">
+                <input type="number" min="0" step="0.01"
+                       [ngModel]="l.unitPrice"
+                       (ngModelChange)="setLineUnitPrice(l.uid, $event)"
+                       class="w-full text-right text-lg font-semibold py-2 px-2 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white" />
+                <span class="text-slate-500 dark:text-slate-400">€</span>
+              </div>
+            </div>
+
+            <!-- Line total -->
+            <div class="flex items-center justify-between border-t border-slate-200 dark:border-slate-700 pt-2 mt-2">
+              <span class="text-sm text-slate-500 dark:text-slate-400">Spolu</span>
+              <span class="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">{{ fmtEur(lineTotal(l)) }}</span>
+            </div>
+          </div>
+        }
+
+        @if (!addingLine()) {
+          <button (click)="openAddLine()"
+                  class="touch-target w-full py-4 rounded-xl border-2 border-dashed border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400 font-semibold text-lg active:bg-amber-50 dark:active:bg-amber-900/20">
+            + Pridať položku
+          </button>
+        }
+
+        <!-- Inline add-line picker -->
+        @if (addingLine()) {
+          <div class="bg-white dark:bg-slate-800 rounded-xl border-2 border-amber-400 dark:border-amber-500 p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-bold text-slate-900 dark:text-white">Vyber materiál</h3>
+              <button (click)="cancelAddLine()" class="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm">
+                Zrušiť
+              </button>
+            </div>
+
+            @if (!newMaterialOpen()) {
+              <input type="search" [(ngModel)]="pickerSearch" placeholder="Hľadaj v katalógu..."
+                     class="w-full px-3 py-3 mb-3 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-base" />
+
+              <div class="max-h-72 overflow-auto space-y-1 mb-3">
+                @if (catalogueLoaded() && filteredCatalogue().length === 0) {
+                  <div class="text-center py-4 text-slate-500 dark:text-slate-400 text-sm">
+                    Žiadny materiál nenájdený. Pridaj nový nižšie.
+                  </div>
+                }
+                @for (m of filteredCatalogue(); track m.id) {
+                  <button (click)="addCatalogueLine(m)"
+                          class="touch-target w-full text-left p-3 rounded-lg bg-slate-50 dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 active:bg-amber-100 dark:active:bg-amber-900/30">
+                    <div class="flex justify-between items-baseline">
+                      <span class="font-semibold text-slate-900 dark:text-white">{{ m.name }}</span>
+                      <span class="text-xs text-slate-500 dark:text-slate-400 ml-2">{{ m.unit }}</span>
+                    </div>
+                    @if (m.pricePerUnit > 0) {
+                      <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ fmtEur(m.pricePerUnit) }} / {{ m.unit }}</div>
+                    }
+                  </button>
+                }
+              </div>
+
+              <button (click)="newMaterialOpen.set(true)"
+                      class="touch-target w-full py-3 rounded-lg border border-dashed border-amber-400 dark:border-amber-500 text-amber-600 dark:text-amber-400 font-medium text-sm active:bg-amber-50 dark:active:bg-amber-900/20">
+                + Nový materiál (nie je v katalógu)
+              </button>
+            } @else {
+              <div class="space-y-3">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Názov</label>
+                  <input type="text" [(ngModel)]="newMaterialName" placeholder="napr. Skrutky 6×80"
+                         class="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-base" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Jednotka</label>
+                  <input type="text" [(ngModel)]="newMaterialUnit" placeholder="napr. ks, kg, m²"
+                         class="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-base" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Cena za jednotku (€)</label>
+                  <input type="number" min="0" step="0.01" [(ngModel)]="newMaterialPrice"
+                         class="w-full px-3 py-3 rounded-lg bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white text-base" />
+                </div>
+                <div class="flex gap-2">
+                  <button (click)="newMaterialOpen.set(false)" class="flex-1 py-3 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium">
+                    Späť
+                  </button>
+                  <button (click)="addCustomLine()" [disabled]="!newMaterialName.trim() || !newMaterialUnit.trim()"
+                          class="flex-1 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold">
+                    Pridať
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+
+        @if (saveError()) {
+          <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg">
+            {{ saveError() }}
+          </div>
+        }
+      </div>
+
+      <!-- Sticky footer with grand total + continue -->
+      <div class="sticky bottom-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 p-4 safe-bottom">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-base text-slate-600 dark:text-slate-300">Spolu</span>
+          <span class="text-2xl font-bold text-green-600 dark:text-green-400 tabular-nums">{{ fmtEur(totalCost()) }}</span>
+        </div>
+        <button (click)="goToReceipt()" [disabled]="lines().length === 0"
+                class="touch-target w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold text-lg">
+          Pokračovať
+        </button>
+      </div>
+    </div>
+  }
+
+  <!-- ══ Účtenka ════════════════════════════════════════════════════ -->
+  @if (step() === 'receipt') {
+    <div class="flex-1 flex flex-col max-w-2xl mx-auto w-full p-4">
+      <div class="flex items-center justify-between mb-4">
+        <button (click)="goBackToLines()" class="text-slate-600 dark:text-slate-300 active:text-amber-500 px-2 py-1">
+          ← Späť
+        </button>
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white">Účtenka</h2>
+        <button (click)="done()" class="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm underline">
+          Zrušiť
+        </button>
+      </div>
+
+      @if (!receiptPreview()) {
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <label class="touch-target flex flex-col items-center justify-center gap-2 py-6 rounded-xl border-2 border-dashed border-amber-400 dark:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer">
+            <span class="text-3xl">📷</span>
+            <span class="font-semibold text-amber-600 dark:text-amber-400">Odfotiť účtenku</span>
+            <input type="file" accept="image/*" capture="environment" (change)="onReceiptSelected($event)" class="hidden" />
+          </label>
+          <label class="touch-target flex flex-col items-center justify-center gap-2 py-6 rounded-xl border-2 border-dashed border-blue-400 dark:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer">
+            <span class="text-3xl">🖼️</span>
+            <span class="font-semibold text-blue-600 dark:text-blue-400">Z galérie</span>
+            <input type="file" accept="image/*" (change)="onReceiptSelected($event)" class="hidden" />
+          </label>
+        </div>
+      } @else {
+        <div class="relative mb-4">
+          <img [src]="receiptPreview()" alt="Náhľad účtenky" class="w-full max-h-[60vh] object-contain rounded-xl border border-slate-200 dark:border-slate-700" />
+          <button (click)="removeReceipt()"
+                  class="absolute top-2 right-2 px-3 py-1.5 rounded-lg bg-red-500/90 hover:bg-red-600 text-white text-sm font-medium">
+            Vymazať
+          </button>
+        </div>
+      }
+
+      @if (receiptUploadError()) {
+        <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg mb-3">
+          {{ receiptUploadError() }}
+        </div>
+      }
+
+      <div class="mt-auto safe-bottom space-y-2">
+        @if (receiptPreview()) {
+          <button (click)="submit()" class="touch-target w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg">
+            Uložiť s účtenkou
+          </button>
+        } @else {
+          <button (click)="skipReceiptAndSave()" class="touch-target w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg">
+            Uložiť bez účtenky
+          </button>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ══ Saving ═════════════════════════════════════════════════════ -->
+  @if (step() === 'saving') {
+    <div class="flex-1 flex flex-col items-center justify-center gap-4">
+      <div class="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+      <p class="text-slate-700 dark:text-slate-200 font-medium">Ukladám nákup...</p>
+    </div>
+  }
+
+  <!-- ══ Result ═════════════════════════════════════════════════════ -->
+  @if (step() === 'result' && resultPurchase(); as p) {
+    <div class="flex-1 flex flex-col items-center justify-center p-6 gap-5 max-w-md mx-auto w-full text-center">
+      <div class="text-6xl">✓</div>
+      <h2 class="text-2xl sm:text-3xl font-bold text-green-600 dark:text-green-400">Uložené</h2>
+
+      @if (p.receiptPhotoUrl) {
+        <p class="text-slate-700 dark:text-slate-200">Účtenka prijatá.</p>
+      } @else if (receiptUploadFailed()) {
+        <div class="bg-amber-100 dark:bg-amber-900/30 border border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-300 rounded-lg p-3 w-full">
+          <div class="font-semibold mb-1">Účtenka sa nenahrala.</div>
+          <div class="text-sm">Nákup je uložený, ale fotka účtenky nešla nahrať. Šéf ju môže pridať neskôr cez admina.</div>
+        </div>
+      }
+
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 w-full">
+        <div class="flex justify-between items-baseline mb-2">
+          <span class="text-slate-500 dark:text-slate-400">Položky</span>
+          <span class="font-semibold text-slate-900 dark:text-white">{{ p.lines.length }}</span>
+        </div>
+        @if (p.locationName) {
+          <div class="flex justify-between items-baseline mb-2">
+            <span class="text-slate-500 dark:text-slate-400">Pracovisko</span>
+            <span class="font-semibold text-slate-900 dark:text-white">{{ p.locationName }}</span>
+          </div>
+        } @else {
+          <div class="flex justify-between items-baseline mb-2">
+            <span class="text-slate-500 dark:text-slate-400">Pracovisko</span>
+            <span class="text-slate-500 dark:text-slate-400 italic">Inventár</span>
+          </div>
+        }
+        <div class="flex justify-between items-baseline pt-2 border-t border-slate-200 dark:border-slate-700">
+          <span class="text-slate-500 dark:text-slate-400">Spolu</span>
+          <span class="text-2xl font-bold text-green-600 dark:text-green-400 tabular-nums">{{ fmtEur(p.totalCost) }}</span>
+        </div>
+      </div>
+
+      <button (click)="done()" class="touch-target w-full py-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg">
+        Hotovo
+      </button>
+    </div>
+  }
+</div>

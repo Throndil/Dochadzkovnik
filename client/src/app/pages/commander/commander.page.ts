@@ -557,6 +557,20 @@ export class CommanderPage implements OnInit, OnDestroy {
         // in the meantime — otherwise we'd flash the wrong polyline.
         if (this.selectedRideId() === rideId) this.selectedRideSnapped.set(snap);
       });
+    // Smooth-scroll the map into view. On phones and narrow viewports the
+    // user has scrolled down to the rides list to pick a ride; without this,
+    // the map updates above the fold and they'd have to scroll back up by
+    // hand to see it. block:'nearest' is a no-op on wide viewports where
+    // the map is already on screen, so desktop UX is unchanged.
+    // setTimeout(0) defers past the change-detection cycle that may swap
+    // the map's @if branch from "live coords" to "ride coords", keeping
+    // the viewChild ref valid.
+    setTimeout(() => {
+      this.mapDetailContainer()?.nativeElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }, 0);
   }
 
   clearRide() {
@@ -590,6 +604,15 @@ export class CommanderPage implements OnInit, OnDestroy {
   }
 
   setView(v: ViewMode) {
+    // Switching to Prehlad while a ride is selected: drop the ride so the
+    // shared map renders the selected vehicle's live position instead of
+    // staying parked on a ride pin the user is no longer looking at.
+    // Switching back to Detail keeps state untouched — if the user wants
+    // the same ride they had open, they can re-pick from the rides list.
+    if (v === 'prehlad') {
+      this.selectedRideId.set(null);
+      this.selectedRideSnapped.set(null);
+    }
     this.view.set(v);
   }
 

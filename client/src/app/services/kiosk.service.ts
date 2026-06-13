@@ -81,8 +81,39 @@ export class KioskService {
     return this.http.post<KioskResponse>(`${this.url}/clock-out`, { pin, note });
   }
 
-  logHours(pin: string, locationId: number, hoursWorked: number, note?: string, date?: string, carId?: number) {
-    return this.http.post<KioskResponse>(`${this.url}/log-hours`, { pin, locationId, hoursWorked, note, date, carId });
+  logHours(pin: string, locationId: number, hoursWorked: number, note?: string, date?: string, carId?: number, proofOfWorkSkipped?: boolean) {
+    return this.http.post<KioskResponse>(`${this.url}/log-hours`, { pin, locationId, hoursWorked, note, date, carId, proofOfWorkSkipped });
+  }
+
+  /**
+   * Auto-skip check for the kiosk proof-of-work step. Asks the backend whether
+   * the worker already has a recent proof (photo or diary) for this Location
+   * and Date in the past hour. Used to skip the proof-pick step entirely.
+   * Returns { exists, source: 'photo' | 'diary' | null, at: ISO local | null }.
+   * Behind the ProofOfWorkChoices feature flag.
+   */
+  checkProofExists(pin: string, locationId: number, date?: string) {
+    return this.http.post<{ exists: boolean; source: string | null; at: string | null }>(
+      `${this.url}/proof-exists`,
+      { pin, locationId, date }
+    );
+  }
+
+  /**
+   * Today's TimeEntry roll-up at a Location — who already clocked here today,
+   * how many hours, and what they wrote in the note. PIN-gated. Read-only.
+   * Shown on the kiosk hours step so the next worker has site context.
+   */
+  getTodayAtLocation(pin: string, locationId: number) {
+    return this.http.post<Array<{
+      employeeId: number;
+      employeeName: string;
+      clockIn: string;
+      hoursWorked: number | null;
+      note: string | null;
+      diaryBody: string | null;
+      isMine: boolean;
+    }>>(`${this.url}/today-at-location`, { pin, locationId });
   }
 
   manualEntry(pin: string, locationId: number, clockIn: string, clockOut: string, note?: string) {

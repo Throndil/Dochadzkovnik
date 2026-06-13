@@ -22,6 +22,8 @@ export class EmployeeDetailPage implements OnInit {
   address = '';
   city = '';
   isActive = true;
+  /** Hourly wage in EUR. Blank string means "no rate set yet". */
+  hourlyWage: number | null = null;
   currentPin = signal<string | null>(null);
   showCurrentPin = signal(false);
   newPin = '';
@@ -48,6 +50,7 @@ export class EmployeeDetailPage implements OnInit {
       this.address = emp.address ?? '';
       this.city = emp.city ?? '';
       this.isActive = emp.isActive;
+      this.hourlyWage = emp.hourlyWage ?? null;
       this.photoPreview.set(emp.photoUrl ?? null);
       this.currentPin.set(emp.pinPlain ?? null);
     });
@@ -60,7 +63,8 @@ export class EmployeeDetailPage implements OnInit {
       phoneNumber: this.phoneNumber || undefined,
       address: this.address || undefined,
       city: this.city || undefined,
-      isActive: this.isActive
+      isActive: this.isActive,
+      hourlyWage: this.hourlyWage
     }).subscribe(() => this.router.navigate(['/admin/employees']));
   }
 

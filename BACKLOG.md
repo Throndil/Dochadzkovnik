@@ -148,9 +148,14 @@ not marketing copy. When in doubt, write less.
 
 ## 💶 Financial management (parked — customer's "back pocket")
 
-- [ ] **Hourly wage per employee** — add `Employee.HourlyWage` (EUR/hr). Combined with TimeEntries, this enables full per-site financial management (labour cost + material cost = total spend per Lokácia). Customer asked to keep this in their back pocket on 2026-04-26 — flag/build only when they confirm.
-- [ ] **Per-location P&L view** — once both wages and material prices are in place, surface a single "Náklady na pracovisko" panel showing labour + material breakdown, optionally with a contract value field for margin tracking.
-- [ ] **Historical wage snapshotting** — same inflation-protection pattern used for `MaterialUsage.UnitPriceAtTime`: store the wage on each `TimeEntry` row at the moment it's logged, so retroactive raises don't rewrite payroll history.
+> **Scoped 2026-05-25** — the three items below are now bundled into
+> `PAYROLL_AND_PNL_PLAN.md`, together with the Mzdy view and Per-workplace
+> net profit view from the 2026-05-24 call. Customer confirmed on
+> 2026-05-24 by asking for Mzdy concretely. Read the plan before starting.
+
+- [ ] **Hourly wage per employee** — add `Employee.HourlyWage` (EUR/hr). Combined with TimeEntries, this enables full per-site financial management (labour cost + material cost = total spend per Lokácia). Customer asked to keep this in their back pocket on 2026-04-26 — flag/build only when they confirm. *See `PAYROLL_AND_PNL_PLAN.md` §Schema.*
+- [ ] **Per-location P&L view** — once both wages and material prices are in place, surface a single "Náklady na pracovisko" panel showing labour + material breakdown, optionally with a contract value field for margin tracking. *See `PAYROLL_AND_PNL_PLAN.md` §Admin UX — `/admin/locations/:id`.*
+- [ ] **Historical wage snapshotting** — same inflation-protection pattern used for `MaterialUsage.UnitPriceAtTime`: store the wage on each `TimeEntry` row at the moment it's logged, so retroactive raises don't rewrite payroll history. *See `PAYROLL_AND_PNL_PLAN.md` §Design decision (a).*
 
 ---
 
@@ -273,7 +278,88 @@ not marketing copy. When in doubt, write less.
 
 ---
 
+## 🗓️ Customer call (2026-05-24)
+
+> Raw notes captured during the 2026-05-24 call. Not yet scoped — each item below
+> needs a short brief / plan file before implementation starts, same pattern as
+> `MATERIAL_PURCHASES_PLAN.md`. Cross-references to existing parked items noted
+> where they overlap.
+
+- [ ] **Block / deactivate an employee from a single place**
+  - Customer wants a clear way to block an employee (stop them from clocking in, hide them from kiosk tiles, keep their history intact).
+  - Today there is an `IsActive` flag and inactive employees are filtered out of the kiosk PIN resolver + admin add-entry dropdown (see V1 fixes around 2026-04-21), but there is no obvious "block" action surfaced in the admin UI.
+  - Clarify: should "blocked" be the same as `IsActive = false`, or a separate state (e.g. `IsBlocked`) that also disables WhatsApp / push notifications and the missing-hours banner? Confirm with customer before adding a column.
+
+- [ ] **Mzdy (payroll) view — monthly per-employee summary** — *scoped in `PAYROLL_AND_PNL_PLAN.md` 2026-05-25.*
+  - New admin page or sub-tab. One row per employee for the selected month with columns:
+    `Meno | Hodiny v mesiaci | Hodinová sadzba | Zálohy | Výplata`
+  - "Výplata" = `Hodiny × Sadzba − Zálohy`.
+  - Default month = previous calendar month (customer's phrasing "vyjde apríl" = the moment April ends, you open this and pay people for April).
+  - Depends on the parked **Hourly wage per employee** item in the Financial management section + a new `EmployeeAdvance` (záloha) table (date, amount, note). Snapshot the wage on each `TimeEntry` at log time so retroactive raises don't rewrite history — same pattern as `MaterialUsage.UnitPriceAtTime`.
+  - This is the customer's first concrete ask that unblocks the parked Financial management section. Build the wage + advance schema first, then the payroll view on top.
+
+- [ ] **Construction diary (stavebný denník) as an alternative to the work photo** — *scoped in `PROOF_OF_WORK_UX_PLAN.md` 2026-05-25.*
+  - Today the kiosk hours flow nudges the worker towards a photo (camera / gallery / "Nenahrať" if we ship the toggle below).
+  - Customer wants a second proof type: a **stavebný denník** entry (free-text day log, possibly with a PDF / scanned page attachment). When the worker submits a denník, the system must NOT also demand a photo.
+  - UI: two equal-weight tiles in the kiosk after hours are entered — "Fotografia" or "Stavebný denník". Picking either satisfies the proof-of-work requirement.
+  - Data model: probably a new `WorkDiary` table (or reuse `WorkPhotos` with a `Type` enum: Photo / Diary). Diary rows carry text + optional file blob.
+
+- [ ] **Expandable per-site roll-up of today's logged hours + notes**
+  - On the kiosk (and admin Lokácia detail), show a collapsible list per site for the current day: each worker who already clocked hours appears as a row, with their hours and their note stacked underneath.
+  - Purpose: when the next worker arrives at a site and starts clocking in, they can see what colleagues already did there today and write their own note in context (avoid duplicate notes, see ongoing tasks).
+  - Read-only roll-up — workers can only edit / append to their own row.
+
+- [ ] **Show site / workplace names inside the Material view**
+  - In the admin Materiál page (catalogue side), each material's detail / row should surface the list of sites where it was consumed in the selected period.
+  - Roughly an inverse of the current per-location `MaterialUsage` panel — instead of "site → materials" it's "material → sites + quantities".
+  - Confirm with customer whether they want this as a column on the catalogue list, a drawer on row click, or a separate "Material by site" report.
+
+- [ ] **Receipt (blocek) OCR — scan a receipt image and pre-fill purchase line** — *scoped in `INVOICE_SCANNING_PLAN.md` 2026-05-25.*
+  - Worker takes a photo of the till receipt in the Nákup materiálu flow (already scoped in `MATERIAL_PURCHASES_PLAN.md`). Goal: extract supplier name, line items, quantities, unit prices, total from the image so the worker doesn't retype them.
+  - Provider options to evaluate: Google Cloud Vision / Document AI, Azure Document Intelligence (receipts model), Mindee, or a local Tesseract pipeline. SK-language receipt accuracy is the deciding factor — pilot with real Stavebniny / OBI / Hornbach receipts before choosing.
+  - Surface as a non-blocking enhancement: if OCR confidence is low, fall back to manual entry. Keep the original photo on the `MaterialPurchase` regardless.
+
+- [ ] **Auto-fill current price from the most recent receipt when adding material to a workplace** — *partially scoped in `INVOICE_SCANNING_PLAN.md` 2026-05-25 (line price preserved at scan time; auto-fill on later entry is a separate small follow-up).*
+  - When a worker selects a catalogue material in the šichta / Nákup flow for site X, default the unit price to the most recent `MaterialPurchase.UnitPrice` (or OCR-extracted price) for that material, not `Material.PricePerUnit`.
+  - Keep `Material.PricePerUnit` as the manually-curated reference; never auto-update it from a worker entry (locked-in decision in `MATERIAL_PURCHASES_PLAN.md` — admin promotes prices via the "Aktualizovať katalógovú cenu" button).
+  - This item is purely about the *default* shown in the input — the worker can always override.
+
+- [ ] **PDF / multi-photo document scanning** — *scoped in `INVOICE_SCANNING_PLAN.md` 2026-05-25 (same OCR pipeline as receipt scan).*
+  - Generalisation of the receipt OCR item: also accept PDF (e.g. supplier invoice, scanned construction diary page) and multi-page photo sets.
+  - Likely shared service layer between the receipt-scan flow and the stavebný denník flow above.
+
+- [ ] **Speed up hour logging (zrýchliť buchovanie hodín)** — *scoped in `PROOF_OF_WORK_UX_PLAN.md` 2026-05-25.*
+  - Customer feedback: the current kiosk hour-logging flow has too many steps. Goal is fewer taps from "I want to clock 8h today" to confirmation.
+  - Ideas to evaluate, do not implement blindly:
+    - Skip the photo step when the worker has already attached a denník / photo earlier today for the same site.
+    - Remember the most recent site + car selection per PIN and prefill them.
+    - One-tap presets ("Celý deň 8h na X, žiadna poznámka") on the worker's tile.
+  - Profile a real session with the customer (timed run-through) before redesigning — the bottleneck might be the photo upload, not the form.
+
+- [ ] **Option to NOT upload a photo when logging hours** — *scoped in `PROOF_OF_WORK_UX_PLAN.md` 2026-05-25.*
+  - Add a "Nenahrať fotografiu" tile / button alongside "Fotoaparát" / "Galéria" in the kiosk hours modal.
+  - Backend already tolerates entries with no photo (the "Nahral / Nenahral" badges exist) — this is purely a UI affordance so workers stop feeling forced to take a photo every time.
+  - Pair with the **Construction diary** item above so the proof-of-work expectation is "photo OR diary OR explicit skip", not "photo or guilt".
+
+- [ ] **Per-workplace net profit view (Náklady → Čistý zisk)** — *scoped in `PAYROLL_AND_PNL_PLAN.md` 2026-05-25.*
+  - Full P&L per `Location`: `Príjem (contract value) − (Mzdové náklady + Materiálové náklady) = Čistý zisk`.
+  - Direct continuation of the parked **Per-location P&L view** + **Historical wage snapshotting** items in the Financial management section. Cannot ship before:
+    - `Employee.HourlyWage` (parked) is added,
+    - `TimeEntry.WageAtTime` snapshot is added,
+    - The Mzdy view above is in place (proves the wage pipeline works),
+    - `MaterialPurchase` is shipped per `MATERIAL_PURCHASES_PLAN.md` so material spend is captured at *purchase* price, not just consumption price.
+  - Add a `Location.ContractValue` field (EUR, nullable) for the income side. If empty, show only the cost side and label profit as "—".
+  - Lives on the same future "financial & statistics" sub-site mentioned in `MATERIAL_PURCHASES_PLAN.md` §"Long-term direction" — do not bolt it onto the main admin nav.
+
+---
+
 ## ❓ To Clarify / Investigate
+
+- [ ] **"Firma" location workaround — what does the customer envision?** (parked 2026-05-06)
+  - The customer currently uses a `Location` row called "Firma" the same way they use "Nákup materiálu" — as a catch-all for time spent at the company / shop / office rather than at a real construction site.
+  - During the 2026-05-06 conversation that scoped `MATERIAL_PURCHASES_PLAN.md`, the customer raised "Firma" as the next workaround they want addressed but did not say what the new flow should capture (admin tasks? travel? maintenance? meetings?).
+  - **Do not start implementing anything for Firma until the customer describes what they want recorded against it.** Once they clarify, give it its own brief (e.g. `FIRMA_PLAN.md`) following the same pattern as `MATERIAL_PURCHASES_PLAN.md` — schema, kiosk vs. admin surface, feature flag, mobile/tablet rules, open questions.
+  - Likely shape (do not assume yet): keep "Firma" as a Location, add a Location-triggered capture in the kiosk šichta flow same as the materials path, behind its own feature flag.
 
 - [x] **Red tile for employees with no hours today**
   - Employee tiles on the kiosk main view turn red (border + background tint) when that employee has no completed entries for today

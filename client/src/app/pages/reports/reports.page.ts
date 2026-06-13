@@ -71,7 +71,7 @@ export class ReportsPage implements OnInit {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'time-report.csv';
+      a.download = 'vykaz-hodin.csv';
       a.click();
       window.URL.revokeObjectURL(url);
     });

@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Security.Claims;
 using API.Data;
 using API.DTOs;
+using API.Filters;
 using API.Models;
 using API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -20,12 +21,14 @@ public class LocationsController : ControllerBase
     private readonly IConfiguration _config;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IMaterialExcelExportService _excelExport;
+    private readonly IPayrollExcelExportService _payrollExcelExport;
 
     public LocationsController(
         AppDbContext db,
         IConfiguration config,
         IHttpClientFactory httpClientFactory,
         IMaterialExcelExportService excelExport,
+        IPayrollExcelExportService payrollExcelExport,
         IBlobStorageService? blobStorage = null)
     {
         _db = db;
@@ -33,6 +36,7 @@ public class LocationsController : ControllerBase
         _config = config;
         _httpClientFactory = httpClientFactory;
         _excelExport = excelExport;
+        _payrollExcelExport = payrollExcelExport;
     }
 
     [HttpGet]
@@ -425,7 +429,8 @@ public class LocationsController : ControllerBase
         if (adminEmployee == null)
             return StatusCode(500, "System admin employee not found. Please restart the API.");
 
-        var folder = $"work-photos/{id}/{photoDate:yyyy-MM}";
+        var locationName = (await _db.Locations.FindAsync(id))?.Name;
+        var folder = CloudinaryFolders.WorkPhotos(id, locationName, photoDate);
         using var stream = file.OpenReadStream();
         var photoUrl = await _blobStorage.UploadAsync(stream, file.FileName, folder);
 
@@ -464,34 +469,8 @@ public class LocationsController : ControllerBase
         if (loc == null) return NotFound();
 
         var (f, t) = ParseDateRange(from, to);
-
-        var q = _db.MaterialUsages
-            .Include(u => u.Material)
-            .Include(u => u.Employee)
-            .Where(u => u.LocationId == id);
-        if (f.HasValue) q = q.Where(u => u.Date >= f.Value);
-        if (t.HasValue) q = q.Where(u => u.Date <  t.Value);
-
-        return await q
-            .OrderByDescending(u => u.Date)
-            .ThenByDescending(u => u.Id)
-            .Select(u => new MaterialUsageDto
-            {
-                Id              = u.Id,
-                LocationId      = u.LocationId,
-                MaterialId      = u.MaterialId,
-                MaterialName    = u.Material.Name,
-                Unit            = u.Material.Unit,
-                Quantity        = u.Quantity,
-                UnitPriceAtTime = u.UnitPriceAtTime,
-                LineCost        = u.Quantity * u.UnitPriceAtTime,
-                Date            = u.Date,
-                EmployeeId      = u.EmployeeId,
-                EmployeeName    = u.Employee != null ? (u.Employee.FirstName + " " + u.Employee.LastName) : null,
-                Note            = u.Note,
-                PhotoUrl        = u.PhotoUrl
-            })
-            .ToListAsync();
+        var combined = await BuildUnifiedMaterialEntriesAsync(id, f, t);
+        return combined;
     }
 
     // GET /api/locations/{id}/materials/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -502,28 +481,127 @@ public class LocationsController : ControllerBase
         if (loc == null) return NotFound();
 
         var (f, t) = ParseDateRange(from, to);
+        var combined = await BuildUnifiedMaterialEntriesAsync(id, f, t);
 
-        var q = _db.MaterialUsages
-            .Include(u => u.Material)
-            .Where(u => u.LocationId == id);
-        if (f.HasValue) q = q.Where(u => u.Date >= f.Value);
-        if (t.HasValue) q = q.Where(u => u.Date <  t.Value);
-
-        return await q
-            .GroupBy(u => new { u.MaterialId, u.Material.Name, u.Material.Unit })
+        return combined
+            .GroupBy(e => new { e.MaterialId, e.MaterialName, e.Unit })
             .Select(g => new MaterialSummaryRowDto
             {
                 MaterialId    = g.Key.MaterialId,
-                MaterialName  = g.Key.Name,
+                MaterialName  = g.Key.MaterialName,
                 Unit          = g.Key.Unit,
                 TotalQuantity = g.Sum(x => x.Quantity),
-                // Use snapshot price (UnitPriceAtTime) — inflation-protected
-                TotalCost     = g.Sum(x => x.Quantity * x.UnitPriceAtTime),
+                TotalCost     = g.Sum(x => x.LineCost),
                 EntryCount    = g.Count(),
                 LastEntryDate = g.Max(x => (DateTime?)x.Date)
             })
             .OrderBy(r => r.MaterialName)
-            .ToListAsync();
+            .ToList();
+    }
+
+    /// <summary>
+    /// Builds the unified per-location material entries list — real <c>MaterialUsage</c>
+    /// rows AND read-side syntheses from <c>MaterialPurchaseLine</c> rows that target
+    /// this location and have a linked <c>MaterialId</c> (post-promotion). Free-typed
+    /// orphan lines (MaterialId == null) are excluded by design; promoting them in the
+    /// admin Neidentifikované tab makes them appear here automatically.
+    ///
+    /// Synthetic rows carry FromPurchase=true and PurchaseId; the slide-over panel
+    /// disables per-row edit/delete on those, sending the admin to the Nákupy tab
+    /// for any changes.
+    /// </summary>
+    private async Task<List<MaterialUsageDto>> BuildUnifiedMaterialEntriesAsync(int locationId, DateTime? f, DateTime? t)
+    {
+        // ── Real MaterialUsage rows ──
+        var uq = _db.MaterialUsages
+            .Include(u => u.Material)
+            .Include(u => u.Employee)
+            .Where(u => u.LocationId == locationId);
+        if (f.HasValue) uq = uq.Where(u => u.Date >= f.Value);
+        if (t.HasValue) uq = uq.Where(u => u.Date <  t.Value);
+
+        var usages = await uq.ToListAsync();
+
+        // Lines that are already represented by a real MaterialUsage (Option A
+        // flow: an invoice was committed and minted usages back-pointing to
+        // their MaterialPurchaseLines). The pseudo-row builder below skips
+        // these so we don't show the same physical purchase twice.
+        var consumedLineIds = usages
+            .Where(u => u.SourceMaterialPurchaseLineId.HasValue)
+            .Select(u => u.SourceMaterialPurchaseLineId!.Value)
+            .ToHashSet();
+
+        var usageRows = usages.Select(u => new MaterialUsageDto
+        {
+            Id              = u.Id,
+            LocationId      = u.LocationId,
+            MaterialId      = u.MaterialId,
+            MaterialName    = u.Material.Name,
+            Unit            = u.Material.Unit,
+            Quantity        = u.Quantity,
+            UnitPriceAtTime = u.UnitPriceAtTime,
+            LineCost        = u.Quantity * u.UnitPriceAtTime,
+            Date            = u.Date,
+            EmployeeId      = u.EmployeeId,
+            EmployeeName    = u.Employee != null ? (u.Employee.FirstName + " " + u.Employee.LastName) : null,
+            Note            = u.Note,
+            PhotoUrl        = u.PhotoUrl,
+            FromPurchase    = false,
+            PurchaseId      = null,
+            IsService       = u.IsService
+        }).ToList();
+
+        // ── Synthesised rows from MaterialPurchase lines targeting this location ──
+        // The MaterialId filter (l.MaterialId != null) means promoted lines appear here
+        // automatically — admin merges "Cemnt" into Cement and the merged line shows up
+        // under the canonical material from then on.
+        var pq = _db.MaterialPurchases
+            .Include(p => p.Employee)
+            .Include(p => p.Lines).ThenInclude(l => l.Material)
+            .Where(p => p.LocationId == locationId);
+        if (f.HasValue) pq = pq.Where(p => p.PurchaseDate >= f.Value);
+        if (t.HasValue) pq = pq.Where(p => p.PurchaseDate <  t.Value);
+
+        var purchases = await pq.ToListAsync();
+
+        var purchaseRows = purchases.SelectMany(p => p.Lines
+            .Where(l => l.MaterialId != null && l.Material != null)
+            .Where(l => !consumedLineIds.Contains(l.Id))
+            .Select(l => new MaterialUsageDto
+            {
+                // Negate the line id so synthetic ids never collide with real ones.
+                // UI uses FromPurchase, not the sign of Id, but disjoint ids make
+                // *track-by* loops behave even when the same value would otherwise
+                // appear twice (which it never should in practice — but safer).
+                Id              = -l.Id,
+                LocationId      = locationId,
+                MaterialId      = l.MaterialId!.Value,
+                MaterialName    = l.Material!.Name,
+                Unit            = l.Material.Unit,
+                Quantity        = l.Quantity,
+                // Snapshot the price the worker actually paid at purchase time.
+                UnitPriceAtTime = l.UnitPrice,
+                LineCost        = l.LineTotal,
+                // Use the purchase date — that's when the material entered the site.
+                Date            = p.PurchaseDate.Date,
+                EmployeeId      = p.EmployeeId,
+                EmployeeName    = $"{p.Employee.FirstName} {p.Employee.LastName}",
+                // Surface a hint so the manager can see this came from a Nákup, plus
+                // any free-text the worker entered on the receipt.
+                Note            = string.IsNullOrWhiteSpace(p.Note) ? "Z nákupu" : $"Z nákupu — {p.Note}",
+                // Map receipt photo to PhotoUrl so the existing Excel hyperlink + UI
+                // thumbnail conventions just work without further changes.
+                PhotoUrl        = p.ReceiptPhotoUrl,
+                FromPurchase    = true,
+                PurchaseId      = p.Id,
+                IsService       = l.IsService
+            }))
+            .ToList();
+
+        return usageRows.Concat(purchaseRows)
+            .OrderByDescending(x => x.Date)
+            .ThenByDescending(x => x.Id)
+            .ToList();
     }
 
     // POST /api/locations/{id}/materials
@@ -580,7 +658,8 @@ public class LocationsController : ControllerBase
             EmployeeId      = saved.EmployeeId,
             EmployeeName    = saved.Employee != null ? (saved.Employee.FirstName + " " + saved.Employee.LastName) : null,
             Note            = saved.Note,
-            PhotoUrl        = saved.PhotoUrl
+            PhotoUrl        = saved.PhotoUrl,
+            IsService       = saved.IsService
         });
     }
 
@@ -588,6 +667,13 @@ public class LocationsController : ControllerBase
     [HttpPut("{id}/materials/{usageId}")]
     public async Task<ActionResult> UpdateMaterialUsage(int id, int usageId, UpdateMaterialUsageDto dto)
     {
+        // Synthetic rows from MaterialPurchase lines use negated ids on the wire;
+        // they are not editable through this endpoint — admin edits them via the
+        // Nákupy admin tab. Be explicit so the slide-over panel can surface a
+        // helpful message instead of a generic 404.
+        if (usageId < 0)
+            return BadRequest("Tento záznam vznikol z nákupu materiálu. Uprav ho cez Materiál → Nákupy.");
+
         var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
         if (usage == null) return NotFound();
 
@@ -618,6 +704,9 @@ public class LocationsController : ControllerBase
     [HttpDelete("{id}/materials/{usageId}")]
     public async Task<ActionResult> DeleteMaterialUsage(int id, int usageId)
     {
+        if (usageId < 0)
+            return BadRequest("Tento záznam vznikol z nákupu materiálu. Vymaž ho cez Materiál → Nákupy.");
+
         var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
         if (usage == null) return NotFound();
 
@@ -635,6 +724,9 @@ public class LocationsController : ControllerBase
     [HttpPost("{id}/materials/{usageId}/photo")]
     public async Task<ActionResult<string>> UploadMaterialPhoto(int id, int usageId, IFormFile file)
     {
+        if (usageId < 0)
+            return BadRequest("Účtenku k nákupu nahraj cez Materiál → Nákupy.");
+
         var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
         if (usage == null) return NotFound();
 
@@ -658,6 +750,9 @@ public class LocationsController : ControllerBase
     [HttpDelete("{id}/materials/{usageId}/photo")]
     public async Task<ActionResult> DeleteMaterialPhoto(int id, int usageId)
     {
+        if (usageId < 0)
+            return BadRequest("Účtenka patrí k nákupu — uprav ho cez Materiál → Nákupy.");
+
         var usage = await _db.MaterialUsages.FirstOrDefaultAsync(u => u.Id == usageId && u.LocationId == id);
         if (usage == null) return NotFound();
         if (string.IsNullOrEmpty(usage.PhotoUrl)) return NoContent();
@@ -678,32 +773,13 @@ public class LocationsController : ControllerBase
 
         var (f, t) = ParseDateRange(from, to);
 
-        var entriesQuery = _db.MaterialUsages
-            .Include(u => u.Material)
-            .Include(u => u.Employee)
-            .Where(u => u.LocationId == id);
-        if (f.HasValue) entriesQuery = entriesQuery.Where(u => u.Date >= f.Value);
-        if (t.HasValue) entriesQuery = entriesQuery.Where(u => u.Date <  t.Value);
-
-        var entries = await entriesQuery
-            .OrderByDescending(u => u.Date)
-            .Select(u => new MaterialUsageDto
-            {
-                Id              = u.Id,
-                LocationId      = u.LocationId,
-                MaterialId      = u.MaterialId,
-                MaterialName    = u.Material.Name,
-                Unit            = u.Material.Unit,
-                Quantity        = u.Quantity,
-                UnitPriceAtTime = u.UnitPriceAtTime,
-                LineCost        = u.Quantity * u.UnitPriceAtTime,
-                Date            = u.Date,
-                EmployeeId      = u.EmployeeId,
-                EmployeeName    = u.Employee != null ? (u.Employee.FirstName + " " + u.Employee.LastName) : null,
-                Note            = u.Note,
-                PhotoUrl         = u.PhotoUrl
-            })
-            .ToListAsync();
+        // Same union as the slide-over panel (real usages + synthesised purchase lines)
+        // so the Excel artefact the customer hands to their accountant matches what they
+        // see in the admin UI exactly. Receipt URLs are mapped to PhotoUrl by the helper,
+        // so the existing "Foto" hyperlink column in the export naturally lights up for
+        // purchase-derived rows too — exactly the "exported with the excel like Záznamy"
+        // behaviour requested on 2026-05-06.
+        var entries = await BuildUnifiedMaterialEntriesAsync(id, f, t);
 
         var summary = entries
             .GroupBy(e => new { e.MaterialId, e.MaterialName, e.Unit })
@@ -736,5 +812,214 @@ public class LocationsController : ControllerBase
         var fileName = $"Spotreba_{safeName}_{rangeTag}.xlsx";
 
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    // GET /api/locations/materials/export-all?from=YYYY-MM-DD&to=YYYY-MM-DD
+    // Cross-Pracoviská Excel report: every active location's material consumption
+    // at the SNAPSHOTTED unit price (UnitPriceAtTime / line.UnitPrice), so later
+    // catalogue price edits don't rewrite the report. Synthesised purchase
+    // pseudo-rows are included for Pracoviská that haven't been promoted via
+    // Option A — same unified view the per-location panel shows.
+    [HttpGet("materials/export-all")]
+    public async Task<ActionResult> ExportAllLocationsMaterialsExcel(
+        [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var (f, t) = ParseDateRange(from, to);
+
+        var locations = await _db.Locations
+            .Where(l => l.IsActive)
+            .OrderBy(l => l.Name)
+            .ToListAsync();
+
+        var perLocation = new List<(string LocationName, IEnumerable<MaterialUsageDto> Entries)>();
+        foreach (var loc in locations)
+        {
+            var entries = await BuildUnifiedMaterialEntriesAsync(loc.Id, f, t);
+            // Skip locations with nothing in this range — keeps the report tidy.
+            if (entries.Count == 0) continue;
+            perLocation.Add((loc.Name, entries));
+        }
+
+        var bytes = _excelExport.BuildAllLocationsMaterialReport(
+            f,
+            t.HasValue ? t.Value.AddDays(-1) : (DateTime?)null,
+            perLocation);
+
+        var rangeTag = f.HasValue && t.HasValue
+            ? $"{f.Value:yyyy-MM-dd}_{t.Value.AddDays(-1):yyyy-MM-dd}"
+            : DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var fileName = $"Spotreba_vsetky_pracoviska_{rangeTag}.xlsx";
+
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Náklady a zisk (per-location P&L) — PAYROLL_AND_PNL_PLAN.md
+    //  Flagged at action level (not class level) because this controller owns
+    //  existing actions that must stay reachable when the flag is off.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // GET /api/locations/{id}/pnl?from=YYYY-MM-DD&to=YYYY-MM-DD
+    [HttpGet("{id}/pnl")]
+    [RequireFeatureOrSuperAdmin("PayrollAndPnL")]
+    public async Task<ActionResult<LocationPnlDto>> GetPnl(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        var (f, t) = ParseDateRange(from, to);
+        return await BuildPnlDtoAsync(loc, f, t);
+    }
+
+    // GET /api/locations/{id}/pnl/export?from=YYYY-MM-DD&to=YYYY-MM-DD
+    // Same computation path as GetPnl, streamed as a Slovak XLSX workbook
+    // mirroring the Náklady a zisk card.
+    [HttpGet("{id}/pnl/export")]
+    [RequireFeatureOrSuperAdmin("PayrollAndPnL")]
+    public async Task<ActionResult> ExportPnlExcel(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        var (f, t) = ParseDateRange(from, to);
+        var pnl = await BuildPnlDtoAsync(loc, f, t);
+
+        var bytes = _payrollExcelExport.BuildLocationPnlReport(
+            pnl, f, t.HasValue ? t.Value.AddDays(-1) : (DateTime?)null);
+
+        // Sanitise filename — strip diacritics and spaces (same as the material export)
+        var safeName = string.Concat(
+            loc.Name
+                .Normalize(System.Text.NormalizationForm.FormD)
+                .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c)
+                            != System.Globalization.UnicodeCategory.NonSpacingMark)
+        ).Replace(' ', '_');
+
+        var rangeTag = f.HasValue && t.HasValue
+            ? $"{f.Value:yyyy-MM-dd}_{t.Value.AddDays(-1):yyyy-MM-dd}"
+            : DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var fileName = $"Naklady_a_zisk_{safeName}_{rangeTag}.xlsx";
+
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
+
+    // Shared P&L computation for GetPnl and ExportPnlExcel — keep the math in
+    // exactly one place.
+    private async Task<LocationPnlDto> BuildPnlDtoAsync(Location loc, DateTime? f, DateTime? t)
+    {
+        var id = loc.Id;
+
+        // ── Labour: closed TimeEntries priced at the WageAtTime snapshot.
+        // Never the live Employee.HourlyWage — that would rewrite history
+        // (same inflation-protection rule as the Mzdy view).
+        var teQuery = _db.TimeEntries
+            .Where(e => e.LocationId == id && e.ClockOut != null);
+        if (f.HasValue) teQuery = teQuery.Where(e => e.ClockIn >= f.Value);
+        if (t.HasValue) teQuery = teQuery.Where(e => e.ClockIn <  t.Value);
+
+        var rawEntries = await teQuery
+            .Select(e => new
+            {
+                e.EmployeeId,
+                EmployeeName = e.Employee.FirstName + " " + e.Employee.LastName,
+                e.ClockIn,
+                e.ClockOut,
+                e.WageAtTime
+            })
+            .ToListAsync();
+
+        var labourRows = rawEntries
+            .GroupBy(e => new { e.EmployeeId, e.EmployeeName })
+            .Select(g =>
+            {
+                var hours = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours);
+                var cost  = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours * x.WageAtTime);
+                return new PnlLabourRowDto
+                {
+                    EmployeeId   = g.Key.EmployeeId,
+                    EmployeeName = g.Key.EmployeeName,
+                    Hours        = Math.Round(hours, 2, MidpointRounding.AwayFromZero),
+                    AvgWage      = hours == 0m ? null : Math.Round(cost / hours, 4, MidpointRounding.AwayFromZero),
+                    Cost         = Math.Round(cost, 2, MidpointRounding.AwayFromZero)
+                };
+            })
+            .OrderByDescending(r => r.Cost)
+            .ToList();
+
+        var labour = new PnlLabourDto
+        {
+            HoursWorked         = labourRows.Sum(r => r.Hours),
+            Cost                = labourRows.Sum(r => r.Cost),
+            BreakdownByEmployee = labourRows
+        };
+
+        // ── Material: same unified view as the Spotreba materiálu panel
+        // (real MaterialUsage rows at UnitPriceAtTime + purchase-line
+        // syntheses). Null when the MaterialPurchases flag is off for the
+        // caller — the card then hides the row per plan §(g).
+        PnlMaterialDto? material = null;
+        var materialsOn = User.HasClaim("isSuperAdmin", "true")
+            || await _db.FeatureFlags.AnyAsync(ff => ff.Key == "MaterialPurchases" && ff.Enabled);
+        if (materialsOn)
+        {
+            var matEntries = await BuildUnifiedMaterialEntriesAsync(id, f, t);
+            var matRows = matEntries
+                .GroupBy(e => new { e.MaterialId, e.MaterialName, e.Unit })
+                .Select(g =>
+                {
+                    var qty  = g.Sum(x => x.Quantity);
+                    var cost = g.Sum(x => x.LineCost);
+                    return new PnlMaterialRowDto
+                    {
+                        MaterialId   = g.Key.MaterialId,
+                        MaterialName = g.Key.MaterialName,
+                        Unit         = g.Key.Unit,
+                        Quantity     = qty,
+                        AvgUnitPrice = qty == 0m ? null : Math.Round(cost / qty, 4, MidpointRounding.AwayFromZero),
+                        Cost         = Math.Round(cost, 2, MidpointRounding.AwayFromZero)
+                    };
+                })
+                .OrderByDescending(r => r.Cost)
+                .ToList();
+
+            material = new PnlMaterialDto
+            {
+                Cost                = matRows.Sum(r => r.Cost),
+                BreakdownByMaterial = matRows
+            };
+        }
+
+        // ── Revenue / profit. Empty contract value → revenue "—", profit
+        // hidden (null), cost side still shown. When the material section is
+        // hidden by the flag, profit carries on without it per plan UX.
+        var revenue = loc.ContractValue;
+        decimal? profit = revenue.HasValue
+            ? revenue.Value - labour.Cost - (material?.Cost ?? 0m)
+            : null;
+
+        return new LocationPnlDto
+        {
+            Location = new PnlLocationDto { Id = loc.Id, Name = loc.Name, ContractValue = loc.ContractValue },
+            Labour   = labour,
+            Material = material,
+            Revenue  = revenue,
+            Profit   = profit
+        };
+    }
+
+    // PUT /api/locations/{id}/contract-value   body { contractValue: decimal? }
+    [HttpPut("{id}/contract-value")]
+    [RequireFeatureOrSuperAdmin("PayrollAndPnL")]
+    public async Task<ActionResult> UpdateContractValue(int id, UpdateContractValueDto dto)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        if (dto.ContractValue is decimal v && v < 0)
+            return BadRequest("Zmluvná hodnota nemôže byť záporná.");
+
+        loc.ContractValue = dto.ContractValue;
+        await _db.SaveChangesAsync();
+        return NoContent();
     }
 }

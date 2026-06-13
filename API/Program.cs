@@ -123,10 +123,39 @@ builder.Services.AddScoped<IImageProcessingService, ImageProcessingService>();
 
 // Material consumption Excel export (ClosedXML)
 builder.Services.AddScoped<IMaterialExcelExportService, MaterialExcelExportService>();
+builder.Services.AddScoped<IPayrollExcelExportService, PayrollExcelExportService>();
+
+// Material purchases Excel export (ClosedXML) — admin Materiál → Nákupy tab
+builder.Services.AddScoped<IMaterialPurchasesExcelExportService, MaterialPurchasesExcelExportService>();
+
+// Invoice scanning — Google Document AI Invoice Parser. Singleton because the
+// client holds a long-lived gRPC channel; per-request scope would tear that
+// down on every upload. Construction throws if credentials are missing, so
+// the API fails loud on the InvoiceScanning code path (controllers only
+// resolve this when the flag is on).
+// Registered when EITHER credentials option is set:
+//   - Google:DocumentAi:CredentialsPath (file path — local dev)
+//   - Google:DocumentAi:CredentialsJson (inline — Railway env var)
+// When neither is set, registration is skipped and the InvoicesController
+// surfaces a Slovak "OCR not configured" error instead of crashing.
+{
+    var hasPath = !string.IsNullOrWhiteSpace(builder.Configuration["Google:DocumentAi:CredentialsPath"]);
+    var hasJson = !string.IsNullOrWhiteSpace(builder.Configuration["Google:DocumentAi:CredentialsJson"]);
+    if (hasPath || hasJson)
+    {
+        builder.Services.AddSingleton<IDocumentAiClient, DocumentAiClient>();
+    }
+}
+// InvoiceParser is the SK-specific mapper from Document AI output to our
+// domain shape (header + delivery lists + lines). Pure logic, no I/O,
+// scoped lifetime is fine. Always registered — the controller decides
+// whether OCR is available and gates accordingly.
+builder.Services.AddScoped<IInvoiceParser, InvoiceParser>();
 
 // App services
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPinHasher, PinHasher>();
+builder.Services.AddScoped<IWageService, WageService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 
 // Notification services (push only)
@@ -581,6 +610,264 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
+    // Self-heal: MaterialPurchases + MaterialPurchaseLines (PostgreSQL).
+    // Backstop for the AddMaterialPurchases EF migration. Idempotent — does
+    // nothing on a fresh DB where the migration created the tables first.
+    // See MATERIAL_PURCHASES_PLAN.md for the schema rationale.
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'MaterialPurchases') THEN
+                    CREATE TABLE ""MaterialPurchases"" (
+                        ""Id""              SERIAL PRIMARY KEY,
+                        ""PurchaseDate""    TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                        ""EmployeeId""      INTEGER NOT NULL REFERENCES ""Employees""(""Id"")  ON DELETE RESTRICT,
+                        ""LocationId""      INTEGER NULL     REFERENCES ""Locations""(""Id"")  ON DELETE SET NULL,
+                        ""TimeEntryId""     INTEGER NULL     REFERENCES ""TimeEntries""(""Id"") ON DELETE SET NULL,
+                        ""SupplierName""    VARCHAR(200)  NULL,
+                        ""ReceiptPhotoUrl"" VARCHAR(1000) NULL,
+                        ""Note""            VARCHAR(500)  NULL,
+                        ""TotalCost""       NUMERIC(14,4) NOT NULL DEFAULT 0,
+                        ""CreatedAt""       TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""UpdatedAt""       TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialPurchases_PurchaseDate""              ON ""MaterialPurchases"" (""PurchaseDate"");
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialPurchases_EmployeeId_PurchaseDate""   ON ""MaterialPurchases"" (""EmployeeId"", ""PurchaseDate"");
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialPurchases_LocationId""                ON ""MaterialPurchases"" (""LocationId"");
+                END IF;
+
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'MaterialPurchaseLines') THEN
+                    CREATE TABLE ""MaterialPurchaseLines"" (
+                        ""Id""              SERIAL PRIMARY KEY,
+                        ""PurchaseId""      INTEGER NOT NULL REFERENCES ""MaterialPurchases""(""Id"") ON DELETE CASCADE,
+                        ""MaterialId""      INTEGER NULL     REFERENCES ""Materials""(""Id"")        ON DELETE SET NULL,
+                        ""MaterialNameRaw"" VARCHAR(200)  NOT NULL,
+                        ""Unit""            VARCHAR(50)   NOT NULL,
+                        ""Quantity""        NUMERIC(12,3) NOT NULL,
+                        ""UnitPrice""       NUMERIC(12,4) NOT NULL,
+                        ""LineTotal""       NUMERIC(14,4) NOT NULL,
+                        ""CreatedAt""       TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialPurchaseLines_PurchaseId"" ON ""MaterialPurchaseLines"" (""PurchaseId"");
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialPurchaseLines_MaterialId"" ON ""MaterialPurchaseLines"" (""MaterialId"");
+                END IF;
+
+                -- NOTE: do NOT add the ""CREATE SEQUENCE + ALTER COLUMN SET DEFAULT nextval""
+                -- safety net here. That pattern is only correct for the older
+                -- Materials/MaterialUsages tables whose 2026-04-26 migration was generated
+                -- with SQLite annotations and left no Id-generation strategy on PostgreSQL.
+                -- The AddMaterialPurchases migration is Postgres-native and creates Id as
+                -- ""GENERATED BY DEFAULT AS IDENTITY"". Running ALTER ... SET DEFAULT on top
+                -- of an identity column raises Postgres error 42601 — see git log of this
+                -- file on 2026-05-06 for the full story.
+                -- For the same reason, the self-heal CREATE TABLE branch above uses SERIAL,
+                -- which auto-creates an implicit sequence and works without further fixup.
+            END $$;
+        ");
+    }
+
+    // Self-heal: WorkDiaries table + TimeEntries.ProofOfWorkSkipped column (PostgreSQL).
+    // Backstop for the AddProofOfWorkChoices EF migration. Idempotent — does
+    // nothing on a fresh DB where the migration created the table + column first.
+    // See PROOF_OF_WORK_UX_PLAN.md for the schema rationale.
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'WorkDiaries') THEN
+                    CREATE TABLE ""WorkDiaries"" (
+                        ""Id""            SERIAL PRIMARY KEY,
+                        ""EmployeeId""    INTEGER NULL     REFERENCES ""Employees""(""Id"")  ON DELETE SET NULL,
+                        ""LocationId""    INTEGER NOT NULL REFERENCES ""Locations""(""Id"")  ON DELETE RESTRICT,
+                        ""TimeEntryId""   INTEGER NULL     REFERENCES ""TimeEntries""(""Id"") ON DELETE SET NULL,
+                        ""Date""          TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+                        ""BodyText""      TEXT          NOT NULL,
+                        ""AttachmentUrl"" VARCHAR(1000) NULL,
+                        ""CreatedAt""     TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""UpdatedAt""     TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_WorkDiaries_LocationId_Date"" ON ""WorkDiaries"" (""LocationId"", ""Date"");
+                    CREATE INDEX IF NOT EXISTS ""IX_WorkDiaries_EmployeeId_Date"" ON ""WorkDiaries"" (""EmployeeId"", ""Date"");
+                    CREATE INDEX IF NOT EXISTS ""IX_WorkDiaries_TimeEntryId""     ON ""WorkDiaries"" (""TimeEntryId"");
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'TimeEntries' AND column_name = 'ProofOfWorkSkipped'
+                ) THEN
+                    ALTER TABLE ""TimeEntries"" ADD COLUMN ""ProofOfWorkSkipped"" BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+            END $$;
+        ");
+    }
+
+    // Self-heal: InvoiceDocuments table + new columns on MaterialPurchases /
+    // MaterialPurchaseLines (PostgreSQL). Backstop for the AddInvoiceScanning
+    // EF migration. Idempotent — does nothing on a fresh DB where the migration
+    // created the table + columns first. See INVOICE_SCANNING_PLAN.md §Schema.
+    if (!string.IsNullOrEmpty(databaseUrl))
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            DO $$
+            BEGIN
+                -- ── InvoiceDocuments table ─────────────────────────
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'InvoiceDocuments') THEN
+                    CREATE TABLE ""InvoiceDocuments"" (
+                        ""Id""                  SERIAL PRIMARY KEY,
+                        ""InvoiceNumber""       VARCHAR(100)  NOT NULL,
+                        ""SupplierName""        VARCHAR(200)  NOT NULL,
+                        ""SupplierIco""         VARCHAR(50)   NULL,
+                        ""SupplierIcDph""       VARCHAR(50)   NULL,
+                        ""SupplierIban""        VARCHAR(50)   NULL,
+                        ""IssueDate""           DATE          NOT NULL,
+                        ""DeliveryDate""        DATE          NULL,
+                        ""DueDate""             DATE          NULL,
+                        ""PeriodFrom""          DATE          NULL,
+                        ""PeriodTo""            DATE          NULL,
+                        ""Currency""            VARCHAR(3)    NOT NULL DEFAULT 'EUR',
+                        ""TotalExclVat""        NUMERIC(14,2) NOT NULL DEFAULT 0,
+                        ""TotalVat""            NUMERIC(14,2) NOT NULL DEFAULT 0,
+                        ""TotalInclVat""        NUMERIC(14,2) NOT NULL DEFAULT 0,
+                        ""PdfUrl""              VARCHAR(1000) NOT NULL,
+                        ""RawOcrJson""          TEXT          NOT NULL,
+                        ""Status""              VARCHAR(30)   NOT NULL,
+                        ""ReconciliationOk""    BOOLEAN       NOT NULL DEFAULT FALSE,
+                        ""ReconciliationNote""  VARCHAR(500)  NULL,
+                        ""UploadedBy""          VARCHAR(100)  NOT NULL,
+                        ""UploadedAt""          TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+                        ""CommittedBy""         VARCHAR(100)  NULL,
+                        ""CommittedAt""         TIMESTAMP WITHOUT TIME ZONE NULL,
+                        ""Note""                VARCHAR(2000) NULL
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS ""IX_InvoiceDocuments_InvoiceNumber_SupplierIco"" ON ""InvoiceDocuments"" (""InvoiceNumber"", ""SupplierIco"");
+                    CREATE INDEX IF NOT EXISTS ""IX_InvoiceDocuments_Status""                          ON ""InvoiceDocuments"" (""Status"");
+                    CREATE INDEX IF NOT EXISTS ""IX_InvoiceDocuments_UploadedAt""                      ON ""InvoiceDocuments"" (""UploadedAt"");
+                    CREATE INDEX IF NOT EXISTS ""IX_InvoiceDocuments_SupplierName_IssueDate""          ON ""InvoiceDocuments"" (""SupplierName"", ""IssueDate"");
+                END IF;
+
+                -- ── MaterialPurchases new columns ───────────────────
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchases' AND column_name = 'InvoiceDocumentId') THEN
+                    ALTER TABLE ""MaterialPurchases"" ADD COLUMN ""InvoiceDocumentId"" INTEGER NULL REFERENCES ""InvoiceDocuments""(""Id"") ON DELETE SET NULL;
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialPurchases_InvoiceDocumentId"" ON ""MaterialPurchases"" (""InvoiceDocumentId"");
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchases' AND column_name = 'DeliveryNoteRef') THEN
+                    ALTER TABLE ""MaterialPurchases"" ADD COLUMN ""DeliveryNoteRef"" VARCHAR(100) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchases' AND column_name = 'PickedUpBy') THEN
+                    ALTER TABLE ""MaterialPurchases"" ADD COLUMN ""PickedUpBy"" VARCHAR(200) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchases' AND column_name = 'DeliveryNote') THEN
+                    ALTER TABLE ""MaterialPurchases"" ADD COLUMN ""DeliveryNote"" VARCHAR(2000) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchases' AND column_name = 'SubtotalExclVat') THEN
+                    ALTER TABLE ""MaterialPurchases"" ADD COLUMN ""SubtotalExclVat"" NUMERIC(14,2) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchases' AND column_name = 'SubtotalVat') THEN
+                    ALTER TABLE ""MaterialPurchases"" ADD COLUMN ""SubtotalVat"" NUMERIC(14,2) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchases' AND column_name = 'AkciaName') THEN
+                    ALTER TABLE ""MaterialPurchases"" ADD COLUMN ""AkciaName"" VARCHAR(200) NULL;
+                    -- Self-heal already added the column. Mark the matching EF
+                    -- migration as applied so MigrateAsync at startup doesn't
+                    -- try to ALTER TABLE a second time and crash with
+                    -- ""column already exists"". Matches the AddWorkPhotos pattern.
+                    INSERT INTO ""__EFMigrationsHistory"" (""MigrationId"", ""ProductVersion"")
+                    VALUES ('20260526083440_AddMaterialPurchaseAkciaName', '9.0.0')
+                    ON CONFLICT DO NOTHING;
+                END IF;
+
+                -- ── MaterialPurchaseLines new columns ───────────────
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'SupplierItemCode') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""SupplierItemCode"" VARCHAR(50) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'ListPriceExclVat') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""ListPriceExclVat"" NUMERIC(12,4) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'DiscountPercent') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""DiscountPercent"" NUMERIC(5,2) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'UnitPriceInclVat') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""UnitPriceInclVat"" NUMERIC(12,4) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'VatRate') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""VatRate"" NUMERIC(5,2) NOT NULL DEFAULT 23;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'IsReverseCharge') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""IsReverseCharge"" BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'IsService') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""IsService"" BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialPurchaseLines' AND column_name = 'LineEditHistory') THEN
+                    ALTER TABLE ""MaterialPurchaseLines"" ADD COLUMN ""LineEditHistory"" TEXT NULL;
+                END IF;
+
+                -- ── MaterialUsages.SourceMaterialPurchaseLineId (Option A) ─
+                -- Origin tag on auto-created usages so a discarded invoice
+                -- cascades cleanly. Matches INVOICE_SCANNING_PLAN.md ""Option A"".
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialUsages' AND column_name = 'SourceMaterialPurchaseLineId') THEN
+                    ALTER TABLE ""MaterialUsages"" ADD COLUMN ""SourceMaterialPurchaseLineId"" INTEGER NULL REFERENCES ""MaterialPurchaseLines""(""Id"") ON DELETE CASCADE;
+                    CREATE INDEX IF NOT EXISTS ""IX_MaterialUsages_SourceMaterialPurchaseLineId"" ON ""MaterialUsages"" (""SourceMaterialPurchaseLineId"");
+                END IF;
+
+                -- ── MaterialUsages.IsService (Item C of INVOICE_SCANNING_V1_FOLLOWUPS.md) ─
+                -- Mirror of MaterialPurchaseLine.IsService so the per-Pracovisko
+                -- Spotreba view can render a 'Faktúra (služba)' badge on rentals
+                -- without joining back through SourceMaterialPurchaseLineId.
+                -- Default FALSE: all historical usages were materials.
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'MaterialUsages' AND column_name = 'IsService') THEN
+                    ALTER TABLE ""MaterialUsages"" ADD COLUMN ""IsService"" BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+
+                -- ── InvoiceDocuments.ScanSource / ScanPageCount (V1.1 camera scan) ─
+                -- Provenance for whether the invoice arrived via file-picker
+                -- ('file') or in-app camera ('camera'). Page count populated only
+                -- on camera uploads. See INVOICE_SCANNING_CAMERA_PLAN.md.
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'InvoiceDocuments' AND column_name = 'ScanSource') THEN
+                    ALTER TABLE ""InvoiceDocuments"" ADD COLUMN ""ScanSource"" VARCHAR(20) NOT NULL DEFAULT 'file';
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'InvoiceDocuments' AND column_name = 'ScanPageCount') THEN
+                    ALTER TABLE ""InvoiceDocuments"" ADD COLUMN ""ScanPageCount"" INTEGER NULL;
+                END IF;
+
+                -- ── Payroll: Employee.HourlyWage / TimeEntry.WageAtTime / EmployeeAdvance ─
+                -- PAYROLL_AND_PNL_PLAN.md schema. HourlyWage NULL means not set yet;
+                -- new TimeEntry rows snapshot the value at insert time so past
+                -- payroll calculations stay correct after wage changes.
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Employees' AND column_name = 'HourlyWage') THEN
+                    ALTER TABLE ""Employees"" ADD COLUMN ""HourlyWage"" NUMERIC(12,4) NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'TimeEntries' AND column_name = 'WageAtTime') THEN
+                    ALTER TABLE ""TimeEntries"" ADD COLUMN ""WageAtTime"" NUMERIC(12,4) NOT NULL DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'EmployeeAdvances') THEN
+                    CREATE TABLE ""EmployeeAdvances"" (
+                        ""Id""          SERIAL PRIMARY KEY,
+                        ""EmployeeId""  INTEGER NOT NULL REFERENCES ""Employees""(""Id"") ON DELETE RESTRICT,
+                        ""Date""        TIMESTAMP NOT NULL,
+                        ""Amount""      NUMERIC(12,2) NOT NULL,
+                        ""Note""        VARCHAR(500) NULL,
+                        ""CreatedAt""   TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                        ""UpdatedAt""   TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC'),
+                        ""CreatedBy""   VARCHAR(100) NULL
+                    );
+                    CREATE INDEX IF NOT EXISTS ""IX_EmployeeAdvances_EmployeeId_Date"" ON ""EmployeeAdvances"" (""EmployeeId"", ""Date"");
+                END IF;
+
+                -- ── P&L: Location.ContractValue (Príjem / zmluvná hodnota) ─
+                -- PAYROLL_AND_PNL_PLAN.md schema. NULL = no contract recorded;
+                -- the Náklady a zisk card shows the revenue row as ""—"" and
+                -- hides the profit total.
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Locations' AND column_name = 'ContractValue') THEN
+                    ALTER TABLE ""Locations"" ADD COLUMN ""ContractValue"" NUMERIC(14,2) NULL;
+                END IF;
+            END $$;
+        ");
+    }
+
     // Self-heal: add notification columns to Employees (PostgreSQL)
     if (!string.IsNullOrEmpty(databaseUrl))
     {
@@ -868,7 +1155,7 @@ using (var scope = app.Services.CreateScope())
     // hidden features invisible. The superadmin flips them on via the Funkcie card on
     // the Account page; the dev environment has its own DB so devs can keep them on.
     {
-        var knownFlags = new[] { "Notifications", "CommanderIntegration" };
+        var knownFlags = new[] { "Notifications", "CommanderIntegration", "MaterialPurchases", "ProofOfWorkChoices", "InvoiceScanning", "InvoiceCameraScan", "PayrollAndPnL" };
         foreach (var key in knownFlags)
         {
             if (!await db.FeatureFlags.AnyAsync(f => f.Key == key))

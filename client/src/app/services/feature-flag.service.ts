@@ -19,6 +19,21 @@ export class FeatureFlagService {
   private commanderIntegrationSignal = signal(false);
   commanderIntegration = computed(() => this.commanderIntegrationSignal());
 
+  private materialPurchasesSignal = signal(false);
+  materialPurchases = computed(() => this.materialPurchasesSignal());
+
+  private proofOfWorkChoicesSignal = signal(false);
+  proofOfWorkChoices = computed(() => this.proofOfWorkChoicesSignal());
+
+  private invoiceScanningSignal = signal(false);
+  invoiceScanning = computed(() => this.invoiceScanningSignal());
+
+  private invoiceCameraScanSignal = signal(false);
+  invoiceCameraScan = computed(() => this.invoiceCameraScanSignal());
+
+  private payrollAndPnLSignal = signal(false);
+  payrollAndPnL = computed(() => this.payrollAndPnLSignal());
+
   constructor(private http: HttpClient) {}
 
   /**
@@ -35,9 +50,19 @@ export class FeatureFlagService {
       );
       this.notificationsSignal.set(!!flags?.['notifications']);
       this.commanderIntegrationSignal.set(!!flags?.['commanderIntegration']);
+      this.materialPurchasesSignal.set(!!flags?.['materialPurchases']);
+      this.proofOfWorkChoicesSignal.set(!!flags?.['proofOfWorkChoices']);
+      this.invoiceScanningSignal.set(!!flags?.['invoiceScanning']);
+      this.invoiceCameraScanSignal.set(!!flags?.['invoiceCameraScan']);
+      this.payrollAndPnLSignal.set(!!flags?.['payrollAndPnL']);
     } catch {
       this.notificationsSignal.set(false);
       this.commanderIntegrationSignal.set(false);
+      this.materialPurchasesSignal.set(false);
+      this.proofOfWorkChoicesSignal.set(false);
+      this.invoiceScanningSignal.set(false);
+      this.invoiceCameraScanSignal.set(false);
+      this.payrollAndPnLSignal.set(false);
     }
   }
 

@@ -9,7 +9,16 @@ not marketing copy. When in doubt, write less.
 # Warehouse + Financial Tracking — Plan & Handoff
 
 > Created 2026-05-01 at the end of the materials / mobile-UX session.
-> Status: **Not started. This file is the brief for the next session.**
+> Status: **Not started.**
+>
+> **2026-05-06 update.** The customer reopened the purchases side of Phase 1
+> with a kiosk-first flavour (workers select / create materials and upload
+> receipts during clock-in, not via an admin page). The schema and UX for
+> that work live in `MATERIAL_PURCHASES_PLAN.md` and supersede the
+> `MaterialPurchase` section below. The plans / budget side
+> (`MaterialPlan`) and the longer-term P&L direction in this file remain
+> current. Read `MATERIAL_PURCHASES_PLAN.md` first if you are starting
+> implementation.
 >
 > The customer asked for a "warehouse" concept, either a sibling of `Location` or
 > directly tied to it. They want to plan how much material a site will need,

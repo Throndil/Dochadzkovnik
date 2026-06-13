@@ -1,35 +1,66 @@
 <nav class="sticky top-0 z-30 bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-lg border-b border-slate-200 dark:border-slate-700"
      style="padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);">
   <div class="max-w-7xl mx-auto px-4">
-    <div class="flex justify-between h-14 items-center">
-      <a routerLink="/admin/dashboard" class="flex items-center gap-2 text-lg font-bold tracking-wide">
-        <img src="/profistav_logo.png" alt="Profistav logo" class="h-10 w-auto object-contain" />
-        Šichtovnica
+    <div class="flex h-14 items-center gap-4">
+      <a routerLink="/admin/dashboard" class="flex items-center gap-2 text-lg font-bold tracking-wide shrink-0">
+        <img src="/profistav_logo.png" alt="Profistav logo" class="h-10 w-auto object-contain shrink-0" />
+        <span class="whitespace-nowrap">Šichtovnica</span>
       </a>
 
-      <!-- Desktop nav -->
-      <div class="hidden md:flex gap-4 items-center">
+      <!-- Desktop primary nav: shared Prehľad + side switcher + the active
+           side's links. Shown from lg up; below that the hamburger menu takes
+           over so the (now two-context) nav never crowds on tablets. -->
+      <div class="hidden lg:flex items-center gap-3">
         <a routerLink="/admin/dashboard" routerLinkActive="text-amber-500 dark:text-amber-400"
            class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Prehľad</a>
-        <a routerLink="/admin/employees" routerLinkActive="text-amber-500 dark:text-amber-400"
-           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Zamestnanci</a>
-        <a routerLink="/admin/locations" routerLinkActive="text-amber-500 dark:text-amber-400"
-           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Pracoviská</a>
-        <a routerLink="/admin/cars" routerLinkActive="text-amber-500 dark:text-amber-400"
-           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Autá</a>
-        <a routerLink="/admin/materials" routerLinkActive="text-amber-500 dark:text-amber-400"
-           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Materiál</a>
-        @if (flags.notifications() || auth.isSuperAdmin()) {
-          <a routerLink="/admin/notifikacie" routerLinkActive="text-amber-500 dark:text-amber-400"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Notifikácie</a>
+
+        <!-- Side switcher (Prevádzka | Financie) -->
+        <div class="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-700 p-0.5">
+          <button type="button" (click)="switchSide('operations')" [class]="segClass(side() === 'operations')">
+            Prevádzka
+          </button>
+          <button type="button" (click)="switchSide('finance')" [class]="segClass(side() === 'finance')">
+            Financie
+          </button>
+        </div>
+
+        @if (side() === 'operations') {
+          <a routerLink="/admin/employees" routerLinkActive="text-amber-500 dark:text-amber-400"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Zamestnanci</a>
+          <a routerLink="/admin/locations" routerLinkActive="text-amber-500 dark:text-amber-400"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Pracoviská</a>
+          <a routerLink="/admin/cars" routerLinkActive="text-amber-500 dark:text-amber-400"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Autá</a>
+          @if (flags.commanderIntegration() || auth.isSuperAdmin()) {
+            <a routerLink="/admin/commander" routerLinkActive="text-amber-500 dark:text-amber-400"
+               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Commander</a>
+          }
+          @if (flags.notifications() || auth.isSuperAdmin()) {
+            <a routerLink="/admin/notifikacie" routerLinkActive="text-amber-500 dark:text-amber-400"
+               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Notifikácie</a>
+          }
+          <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Záznamy</a>
+        } @else {
+          <a routerLink="/admin/finance" routerLinkActive="text-amber-500 dark:text-amber-400"
+             [routerLinkActiveOptions]="{ exact: true }"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Súhrn</a>
+          <a routerLink="/admin/materials" routerLinkActive="text-amber-500 dark:text-amber-400"
+             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Materiál</a>
+          @if (flags.invoiceScanning() || auth.isSuperAdmin()) {
+            <a routerLink="/admin/invoices" routerLinkActive="text-amber-500 dark:text-amber-400"
+               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Faktúry</a>
+          }
+          @if (flags.payrollAndPnL() || auth.isSuperAdmin()) {
+            <a routerLink="/admin/mzdy" routerLinkActive="text-amber-500 dark:text-amber-400"
+               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Mzdy</a>
+          }
         }
-        @if (flags.commanderIntegration() || auth.isSuperAdmin()) {
-          <a routerLink="/admin/commander" routerLinkActive="text-amber-500 dark:text-amber-400"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Commander</a>
-        }
-        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400"
-           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Záznamy</a>
-        <span class="text-slate-500 dark:text-slate-400 ml-4">{{ auth.displayName() }}</span>
+      </div>
+
+      <!-- Desktop account cluster, pushed to the right edge. -->
+      <div class="hidden lg:flex items-center gap-2 ml-auto">
+        <span class="text-slate-500 dark:text-slate-400">{{ auth.displayName() }}</span>
 
         <!-- Theme toggle -->
         <button (click)="theme.toggleTheme()"
@@ -59,8 +90,8 @@
         </button>
       </div>
 
-      <!-- Mobile right side: theme toggle + hamburger -->
-      <div class="md:hidden flex items-center gap-1">
+      <!-- Mobile/tablet right side: theme toggle + hamburger -->
+      <div class="lg:hidden flex items-center gap-1 ml-auto">
         <button (click)="theme.toggleTheme()"
                 class="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300">
           @if (theme.isDark()) {
@@ -89,29 +120,45 @@
       </div>
     </div>
 
-    <!-- Mobile menu -->
+    <!-- Mobile/tablet menu. Vertical space is cheap here, so rather than a
+         switcher we show both sides at once under section labels. -->
     @if (menuOpen()) {
-      <div class="md:hidden pb-4 border-t border-slate-200 dark:border-slate-700 mt-1 pt-3 space-y-1">
+      <div class="lg:hidden pb-4 border-t border-slate-200 dark:border-slate-700 mt-1 pt-3 space-y-1">
         <a routerLink="/admin/dashboard" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
            class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Prehľad</a>
+
+        <div class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Prevádzka</div>
         <a routerLink="/admin/employees" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
            class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Zamestnanci</a>
         <a routerLink="/admin/locations" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
            class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Pracoviská</a>
         <a routerLink="/admin/cars" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
            class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Autá</a>
-        <a routerLink="/admin/materials" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Materiál</a>
-        @if (flags.notifications() || auth.isSuperAdmin()) {
-          <a routerLink="/admin/notifikacie" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Notifikácie</a>
-        }
         @if (flags.commanderIntegration() || auth.isSuperAdmin()) {
           <a routerLink="/admin/commander" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
              class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Commander</a>
         }
+        @if (flags.notifications() || auth.isSuperAdmin()) {
+          <a routerLink="/admin/notifikacie" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Notifikácie</a>
+        }
         <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
            class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Záznamy</a>
+
+        <div class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Financie</div>
+        <a routerLink="/admin/finance" routerLinkActive="text-amber-500 dark:text-amber-400" [routerLinkActiveOptions]="{ exact: true }" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Súhrn</a>
+        <a routerLink="/admin/materials" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Materiál</a>
+        @if (flags.invoiceScanning() || auth.isSuperAdmin()) {
+          <a routerLink="/admin/invoices" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Faktúry</a>
+        }
+        @if (flags.payrollAndPnL() || auth.isSuperAdmin()) {
+          <a routerLink="/admin/mzdy" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
+             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Mzdy</a>
+        }
+
         <div class="border-t border-slate-200 dark:border-slate-700 mt-2 pt-2 px-3 flex items-center gap-3">
           <span class="text-slate-500 dark:text-slate-400 text-sm">{{ auth.displayName() }}</span>
           <a routerLink="/admin/account" (click)="menuOpen.set(false)"
