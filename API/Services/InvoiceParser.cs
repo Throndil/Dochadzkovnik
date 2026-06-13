@@ -101,6 +101,7 @@ public sealed class InvoiceParser : IInvoiceParser
     // ─── Supplier-specific dispatch ────────────────────────────────
     // IČO of suppliers whose invoice layout has a dedicated parser.
     private const string IcoBauArticel = "35919175";   // SunSoft.EcoSun layout
+    private const string IcoHektrans   = "36055140";   // Doklado.sk transport layout
 
     // A "quantity unit" token, e.g. "6,30 t" / "1 234,5 kg". Comma decimals
     // only, so a weighbridge "1.65 t" (dot) on an extra page is ignored.
@@ -169,7 +170,73 @@ public sealed class InvoiceParser : IInvoiceParser
         return digits switch
         {
             IcoBauArticel => ParseSunSoftDeliveryLists(text, entities, header),
+            IcoHektrans   => ParseHektransDeliveryLists(text, entities, header),
             _ => null
+        };
+    }
+
+    /// <summary>
+    /// HEKTRANS / Doklado.sk transport layout (IČO 36055140). Columns are
+    /// Názov | Počet | MJ | J.cena | Cena | DPH% | DPH | Celkom. Document AI
+    /// reads quantity + unit_price correctly, but its "amount" is the WITH-VAT
+    /// Celkom (e.g. 369,00), not the excl total — and it emits phantom
+    /// line_items for description fragments and the grand total. So we keep
+    /// only line_items that have a quantity AND a unit price, and compute the
+    /// excl line total as qty × unit price. Falls back to the general parser
+    /// when nothing usable is found.
+    /// </summary>
+    private IReadOnlyList<ParsedDeliveryList> ParseHektransDeliveryLists(
+        string text, IReadOnlyList<DocumentAiEntity> entities, ParsedInvoiceHeader header)
+    {
+        var items = entities
+            .Where(e => string.Equals(e.Type, "line_item", StringComparison.OrdinalIgnoreCase))
+            .Select(e => new
+            {
+                Name = string.Join(" ", new[] { Prop(e, "product_code"), Prop(e, "description") }
+                           .Where(s => !string.IsNullOrWhiteSpace(s))).Trim(),
+                Qty = SlovakNumberHelper.TryParse(Prop(e, "quantity")),
+                UnitPrice = SlovakNumberHelper.TryParse(Prop(e, "unit_price")),
+                Unit = Prop(e, "unit")
+            })
+            .Where(x => x.Qty is { } q && q != 0m && x.UnitPrice.HasValue)
+            .ToList();
+
+        if (items.Count == 0)
+            return ParseDeliveryLists(text, entities);
+
+        var lines = items.Select(x =>
+        {
+            var total = Math.Round(x.Qty!.Value * x.UnitPrice!.Value, 2, MidpointRounding.AwayFromZero);
+            return new ParsedLine(
+                SupplierItemCode: null,
+                Description: string.IsNullOrWhiteSpace(x.Name) ? "(bez popisu)" : x.Name,
+                Quantity: x.Qty,
+                Unit: string.IsNullOrWhiteSpace(x.Unit) ? "ks" : x.Unit!.Trim(),
+                ListPriceExclVat: x.UnitPrice,
+                DiscountPercent: null,
+                UnitPriceExclVat: x.UnitPrice,
+                UnitPriceInclVat: null,
+                LineTotalExclVat: total,
+                VatRate: 23m,
+                IsReverseCharge: false,
+                IsService: true,   // transport / rental service, not stock material
+                Confidence: 0.5f);
+        }).ToList();
+
+        var subtotalExcl = lines.Sum(l => l.LineTotalExclVat ?? 0m);
+        var subtotalVat  = Math.Round(subtotalExcl * 0.23m, 2, MidpointRounding.AwayFromZero);
+
+        return new List<ParsedDeliveryList>
+        {
+            new ParsedDeliveryList(
+                DeliveryNoteRef: null,
+                AkciaName: null,
+                PickedUpBy: null,
+                Note: null,
+                DeliveryDate: header.DeliveryDate,
+                SubtotalExclVat: subtotalExcl,
+                SubtotalVat: subtotalVat,
+                Lines: lines)
         };
     }
 
