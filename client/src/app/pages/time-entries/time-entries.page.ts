@@ -10,6 +10,7 @@ import { ReportService } from '../../services/report.service';
 import { EmployeeService, Employee } from '../../services/employee.service';
 import { LocationService, Location } from '../../services/location.service';
 import { CarService, Car } from '../../services/car.service';
+import { ToastService } from '../../services/toast.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
@@ -72,6 +73,7 @@ export class TimeEntriesPage implements OnInit {
     private employeeService: EmployeeService,
     private locationService: LocationService,
     private carService: CarService,
+    private toast: ToastService,
     private route: ActivatedRoute
   ) {}
 
@@ -173,7 +175,10 @@ export class TimeEntriesPage implements OnInit {
 
   onDelete(entry: TimeEntry) {
     if (confirm('Odstrániť záznam dochádzky pre ' + entry.employeeName + '?')) {
-      this.timeEntryService.delete(entry.id).subscribe(() => this.load());
+      this.timeEntryService.delete(entry.id).subscribe({
+        next: () => { this.toast.success('Záznam dochádzky odstránený'); this.load(); },
+        error: () => this.toast.error('Záznam sa nepodarilo odstrániť')
+      });
     }
   }
 
@@ -260,10 +265,14 @@ export class TimeEntriesPage implements OnInit {
     const entry = this.editingEntry();
     if (!entry) return;
     if (!confirm('Odstrániť túto fotku?')) return;
-    this.timeEntryService.deletePhoto(entry.id, url).subscribe(() => {
-      const remaining = this.parsePhotoUrls(entry.photoUrl).filter(u => u !== url);
-      this.editingEntry.set({ ...entry, photoUrl: remaining.length ? remaining.join(',') : undefined });
-      this.load();
+    this.timeEntryService.deletePhoto(entry.id, url).subscribe({
+      next: () => {
+        const remaining = this.parsePhotoUrls(entry.photoUrl).filter(u => u !== url);
+        this.editingEntry.set({ ...entry, photoUrl: remaining.length ? remaining.join(',') : undefined });
+        this.toast.success('Fotka odstránená');
+        this.load();
+      },
+      error: () => this.toast.error('Fotku sa nepodarilo odstrániť')
     });
   }
 
@@ -325,7 +334,7 @@ export class TimeEntriesPage implements OnInit {
   onCreate() {
     if (!this.newEntry.employeeId || !this.newEntry.locationId || !this.newEntry.date) return;
     if (!this.newEntry.hoursWorked || this.newEntry.hoursWorked <= 0) {
-      alert('Zadajte počet hodín.');
+      this.toast.error('Zadajte počet hodín.');
       return;
     }
     const { clockIn, clockOut } = this.buildClockWindow(this.newEntry.date, this.newEntry.hoursWorked);
@@ -349,6 +358,7 @@ export class TimeEntriesPage implements OnInit {
       this.newPhotoFiles.set([]);
       this.newPhotoPreviews.set([]);
       this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: '', hoursWorked: 8, note: '' };
+      this.toast.success('Záznam dochádzky pridaný');
       this.load();
     });
   }
@@ -379,7 +389,7 @@ export class TimeEntriesPage implements OnInit {
     const entry = this.editingEntry();
     if (!entry || !this.editForm.date) return;
     if (!this.editForm.hoursWorked || this.editForm.hoursWorked <= 0) {
-      alert('Zadajte počet hodín.');
+      this.toast.error('Zadajte počet hodín.');
       return;
     }
     const { clockIn, clockOut } = this.buildClockWindow(this.editForm.date, this.editForm.hoursWorked);
@@ -398,6 +408,7 @@ export class TimeEntriesPage implements OnInit {
       this.editingEntry.set(null);
       this.editPhotoFiles.set([]);
       this.editPhotoPreviews.set([]);
+      this.toast.success('Záznam dochádzky upravený');
       this.load();
     });
   }

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { CarService, Car, CreateCar } from '../../services/car.service';
+import { ToastService } from '../../services/toast.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
@@ -20,7 +21,7 @@ export class CarsPage implements OnInit {
   photoPreview = signal<string | null>(null);
   isDragOver = signal(false);
 
-  constructor(private carService: CarService) {}
+  constructor(private carService: CarService, private toast: ToastService) {}
 
   ngOnInit() { this.load(); }
 
@@ -68,6 +69,7 @@ export class CarsPage implements OnInit {
     this.carService.create({ name: this.newCar.name, licensePlate: this.newCar.licensePlate || undefined }).subscribe(car => {
       const finish = () => {
         this.cancelForm();
+        this.toast.success('Vozidlo pridané');
         this.load();
       };
       if (this.newCarPhoto) {
@@ -82,12 +84,18 @@ export class CarsPage implements OnInit {
   }
 
   onToggleActive(car: Car) {
-    this.carService.toggleActive(car.id).subscribe(() => this.load());
+    this.carService.toggleActive(car.id).subscribe(() => {
+      this.toast.success(car.isActive ? 'Vozidlo deaktivované' : 'Vozidlo aktivované');
+      this.load();
+    });
   }
 
   onDelete(car: Car) {
     if (confirm(`Natrvalo odstrániť vozidlo "${car.name}"? Záznamy dochádzky zostanú, ale budú bez vozidla.`)) {
-      this.carService.delete(car.id).subscribe(() => this.load());
+      this.carService.delete(car.id).subscribe({
+        next: () => { this.toast.success('Vozidlo odstránené'); this.load(); },
+        error: () => this.toast.error('Vozidlo sa nepodarilo odstrániť')
+      });
     }
   }
 }

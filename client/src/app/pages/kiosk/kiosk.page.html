@@ -1074,12 +1074,20 @@
           <p class="text-slate-500 dark:text-slate-400 text-sm mb-4 text-center">Kde ste dnes pracovali?</p>
           <div class="grid grid-cols-2 gap-3">
             @for (loc of locations(); track loc.id) {
-              <button (click)="selectLocation(loc)"
-                      class="bg-slate-100 dark:bg-slate-700 hover:bg-amber-900/40 hover:border-amber-500 border border-slate-300 dark:border-slate-600 text-white font-medium py-5 px-3 rounded-xl transition-all text-center active:scale-95">
+              <button (click)="selectLocation(loc)" [disabled]="locationLoading()"
+                      class="relative bg-slate-100 dark:bg-slate-700 hover:bg-amber-900/40 hover:border-amber-500 border border-slate-300 dark:border-slate-600 text-white font-medium py-5 px-3 rounded-xl transition-all text-center active:scale-95 disabled:opacity-60">
                 @if (loc.photoUrl) {
                   <img [src]="loc.photoUrl" [alt]="loc.name" class="w-10 h-10 rounded-lg object-cover mx-auto mb-2" />
                 }
                 <span class="text-sm leading-tight">{{ loc.name }}</span>
+                @if (locationLoading() && selectedLocation()?.id === loc.id) {
+                  <span class="absolute inset-0 flex items-center justify-center bg-slate-900/40 rounded-xl">
+                    <svg class="w-6 h-6 animate-spin text-white" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                  </span>
+                }
               </button>
             }
           </div>

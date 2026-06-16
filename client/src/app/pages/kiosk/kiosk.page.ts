@@ -72,6 +72,10 @@ export class KioskPage implements OnInit, OnDestroy {
   pinError = signal('');
   status = signal<KioskStatus | null>(null);
   selectedLocation = signal<Location | null>(null);
+  /** True while the today-at-location roll-up is loading on the way straight
+   *  to the hours step. Lets the tapped location tile show a spinner and the
+   *  hours step render with the roll-up already in place (no late layout shift). */
+  locationLoading = signal(false);
   selectedCar = signal<Car | null | 'none'>('none'); // null = not chosen yet, 'none' = no car
   hoursWorked = 8.0;
   selectedDate = '';   // YYYY-MM-DD, defaults to today when location is picked
@@ -502,6 +506,7 @@ export class KioskPage implements OnInit, OnDestroy {
     // fires, closeModal never ran. Without this reset the next worker would
     // briefly see the previous worker's today roll-up / selected location.
     this.todayAtLocation.set([]);
+    this.locationLoading.set(false);
     this.selectedLocation.set(null);
     this.selectedCar.set('none');
     this.clockStep.set('pin');
@@ -540,6 +545,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.proofResult.set(null);
     this.autoSkipHint.set(null);
     this.todayAtLocation.set([]);
+    this.locationLoading.set(false);
     this.myMissingDays.set([]);
     this.pendingTimeEntryIdForNakup.set(null);
     // Refresh the public Treba pripomenúť list — the worker may have just filled hours.
@@ -673,12 +679,23 @@ export class KioskPage implements OnInit, OnDestroy {
     // Fetch today's roll-up so the hours step can show peer notes. Best-effort —
     // failures leave the card empty rather than blocking the flow.
     this.todayAtLocation.set([]);
+    const hasCars = this.cars().length > 0;
+    // When we go via the car step, the roll-up loads in the background and is
+    // ready by the time the worker reaches hours. When we skip straight to
+    // hours, wait for the roll-up first so it doesn't pop in late and shove
+    // the hours form down (the "bump"). The tapped tile shows a spinner.
+    this.locationLoading.set(!hasCars);
     this.kioskService.getTodayAtLocation(this.pin, loc.id).subscribe({
-      next: rows => this.todayAtLocation.set(rows ?? []),
-      error: () => this.todayAtLocation.set([])
+      next: rows => {
+        this.todayAtLocation.set(rows ?? []);
+        if (!hasCars) { this.locationLoading.set(false); this.clockStep.set('hours'); }
+      },
+      error: () => {
+        this.todayAtLocation.set([]);
+        if (!hasCars) { this.locationLoading.set(false); this.clockStep.set('hours'); }
+      }
     });
-    // Go to car step if there are active cars, otherwise skip straight to hours
-    this.clockStep.set(this.cars().length > 0 ? 'car' : 'hours');
+    if (hasCars) this.clockStep.set('car');
   }
 
   selectCar(car: Car | null) {

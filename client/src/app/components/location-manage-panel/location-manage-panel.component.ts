@@ -10,6 +10,7 @@ import {
   UpdateMaterialUsage
 } from '../../services/material.service';
 import { Location as Pracovisko } from '../../services/location.service';
+import { ToastService } from '../../services/toast.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 
 /**
@@ -71,7 +72,7 @@ export class LocationManagePanelComponent implements OnDestroy {
   editingId = signal<number | null>(null);
   editForm: UpdateMaterialUsage = { materialId: 0, quantity: 0, date: '', note: '' };
 
-  constructor(private materialSvc: MaterialService) {
+  constructor(private materialSvc: MaterialService, private toast: ToastService) {
     // Whenever the date range changes (and we have a location), reload data.
     effect(() => {
       const loc = this._location();
@@ -280,6 +281,7 @@ export class LocationManagePanelComponent implements OnDestroy {
           date: this.newEntry.date || this.defaultEntryDate(),
           note: ''
         };
+        this.toast.success('Materiál zaznamenaný');
         this.load();
       },
       error: e => this.errorMsg.set(e?.error ?? 'Uloženie zlyhalo.')
@@ -305,6 +307,7 @@ export class LocationManagePanelComponent implements OnDestroy {
       next: created => {
         this.showAddMaterial.set(false);
         this.newMaterial = { name: '', unit: '', pricePerUnit: 0 };
+        this.toast.success('Materiál pridaný do katalógu');
         // Refresh catalogue and pre-select the newly created material in the entry form
         this.materialSvc.getCatalogue(true).subscribe({
           next: cat => {
@@ -333,7 +336,7 @@ export class LocationManagePanelComponent implements OnDestroy {
     const id = this.editingId();
     if (!loc || !id) return;
     this.materialSvc.updateUsage(loc.id, id, this.editForm).subscribe({
-      next: () => { this.editingId.set(null); this.load(); },
+      next: () => { this.editingId.set(null); this.toast.success('Záznam upravený'); this.load(); },
       error: e => this.errorMsg.set(e?.error ?? 'Úprava zlyhala.')
     });
   }
@@ -342,7 +345,10 @@ export class LocationManagePanelComponent implements OnDestroy {
     const loc = this._location();
     if (!loc) return;
     if (!confirm(`Odstrániť záznam "${u.materialName} – ${u.quantity} ${u.unit}" z ${this.formatDate(u.date)}?`)) return;
-    this.materialSvc.deleteUsage(loc.id, u.id).subscribe({ next: () => this.load() });
+    this.materialSvc.deleteUsage(loc.id, u.id).subscribe({
+      next: () => { this.toast.success('Záznam odstránený'); this.load(); },
+      error: () => this.toast.error('Záznam sa nepodarilo odstrániť')
+    });
   }
 
   // ── Excel export ───────────────────────────────────────────────

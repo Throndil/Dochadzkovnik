@@ -5,6 +5,7 @@ import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { LocationService, Location, CreateLocation } from '../../services/location.service';
 import { MaterialService } from '../../services/material.service';
+import { ToastService } from '../../services/toast.service';
 import { LocationManagePanelComponent } from '../../components/location-manage-panel/location-manage-panel.component';
 
 @Component({
@@ -45,6 +46,8 @@ export class LocationsPage implements OnInit {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
+
+  private toast = inject(ToastService);
 
   constructor(private locationService: LocationService) {}
 
@@ -128,6 +131,7 @@ export class LocationsPage implements OnInit {
     this.locationService.create(this.newLocation).subscribe(loc => {
       const finish = () => {
         this.cancelForm();
+        this.toast.success('Pracovisko pridané');
         this.load();
       };
       if (this.newLocationPhoto) {
@@ -142,12 +146,18 @@ export class LocationsPage implements OnInit {
   }
 
   onToggleActive(loc: Location) {
-    this.locationService.toggleActive(loc.id).subscribe(() => this.load());
+    this.locationService.toggleActive(loc.id).subscribe(() => {
+      this.toast.success(loc.isActive ? 'Pracovisko deaktivované' : 'Pracovisko aktivované');
+      this.load();
+    });
   }
 
   onHardDelete(loc: Location) {
     if (confirm('Natrvalo odstrániť pracovisko ' + loc.name + ' a VŠETKY jeho záznamy dochádzky? Toto sa nedá vrátiť.')) {
-      this.locationService.hardDelete(loc.id).subscribe(() => this.load());
+      this.locationService.hardDelete(loc.id).subscribe({
+        next: () => { this.toast.success('Pracovisko odstránené'); this.load(); },
+        error: () => this.toast.error('Pracovisko sa nepodarilo odstrániť')
+      });
     }
   }
 }
