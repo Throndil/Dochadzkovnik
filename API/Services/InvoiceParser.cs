@@ -176,8 +176,11 @@ public sealed class InvoiceParser : IInvoiceParser
 
         // DEK súhrnná faktúra: re-derive per-line totals from the text (matched
         // per delivery list by its DL ref) to repair Document AI's scrambled
-        // price/total mapping. Keeps the reliable codes/descriptions/quantities.
-        if ((header.SupplierName ?? string.Empty).Contains("dek", StringComparison.OrdinalIgnoreCase))
+        // price/total mapping. Recognised by its delivery-list structure rather
+        // than the supplier name — Document AI sometimes mislabels the buyer as
+        // the supplier on these. Safe for non-DEK invoices: it only touches
+        // delivery lists whose DL ref is found and whose cell count lines up.
+        if (text.Contains("za dodací list", StringComparison.OrdinalIgnoreCase))
             deliveryLists = FixDekLineTotals(deliveryLists, text);
 
         return new ParsedInvoice(header, deliveryLists);
@@ -553,7 +556,11 @@ public sealed class InvoiceParser : IInvoiceParser
             supplierName.Contains("ďakujem", StringComparison.OrdinalIgnoreCase)
             || supplierName.Length < 8                          // single short word, e.g. "DEK"
             || !supplierName.Any(char.IsLetter)
-            || !supplierName.Contains(' '));                     // no space → not a real company name
+            || !supplierName.Contains(' ')                       // no space → not a real company name
+            // Document AI sometimes returns the buyer as the supplier. The
+            // buyer here is always "AZ Profistav", so that can never be the
+            // supplier — treat it as noise and fall back to the block scan.
+            || supplierName.Contains("profistav", StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrWhiteSpace(supplierName) || looksLikeNoise)
         {
             // Block-scan approach: look in the text between "dodávateľ" and

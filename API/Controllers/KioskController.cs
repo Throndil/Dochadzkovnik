@@ -238,6 +238,17 @@ public class KioskController : ControllerBase
         // ClockOut = current time for today, or 17:00 for a past date
         var clockOut = today == Now.Date ? Now : today.AddHours(17);
         var clockIn  = clockOut.AddHours(-dto.HoursWorked);
+        // Guard: a long shift logged early in the day (e.g. 8h at 04:00) would
+        // roll ClockIn back past midnight, attributing the entry — and its
+        // hours — to the previous calendar day. Both the weekly grid and the
+        // today-at-location roll-up bucket by ClockIn.Date, so it would never
+        // turn the tile green or appear in the roll-up. Anchor it to the start
+        // of `today` and keep the full hours instead.
+        if (clockIn < today)
+        {
+            clockIn  = today;
+            clockOut = today.AddHours(dto.HoursWorked);
+        }
 
         // Validate car if provided
         if (dto.CarId.HasValue)
