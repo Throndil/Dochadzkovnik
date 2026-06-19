@@ -6,6 +6,7 @@ import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { EmployeeService, Employee, CreateEmployee } from '../../services/employee.service';
 import { TimeEntryService } from '../../services/time-entry.service';
+import { ToastService } from '../../services/toast.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 
@@ -39,7 +40,8 @@ export class EmployeesPage implements OnInit {
 
   constructor(
     private employeeService: EmployeeService,
-    private timeEntryService: TimeEntryService
+    private timeEntryService: TimeEntryService,
+    private toast: ToastService
   ) {}
 
   ngOnInit() {
@@ -130,6 +132,7 @@ export class EmployeesPage implements OnInit {
       next: emp => {
         const finish = () => {
           this.cancelForm();
+          this.toast.success('Zamestnanec pridaný');
           this.load();
           this.loadSummary();
         };
@@ -141,7 +144,9 @@ export class EmployeesPage implements OnInit {
       },
       error: err => {
         if (err.status === 409) {
-          alert('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+          this.toast.error('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+        } else {
+          this.toast.error('Zamestnanca sa nepodarilo pridať');
         }
       }
     });
@@ -154,11 +159,14 @@ export class EmployeesPage implements OnInit {
   onSetPin(emp: Employee) {
     const pin = prompt(`Nový PIN pre ${emp.firstName} ${emp.lastName} (4-6 číslic):`);
     if (pin === null) return;
-    if (!/^\d{4,6}$/.test(pin)) { alert('PIN musí mať 4-6 číslic (iba čísla).'); return; }
+    if (!/^\d{4,6}$/.test(pin)) { this.toast.error('PIN musí mať 4-6 číslic (iba čísla).'); return; }
     this.employeeService.setPin(emp.id, pin).subscribe({
+      next: () => this.toast.success('PIN aktualizovaný'),
       error: err => {
         if (err.status === 409) {
-          alert('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+          this.toast.error('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+        } else {
+          this.toast.error('PIN sa nepodarilo zmeniť');
         }
       }
     });
@@ -166,6 +174,7 @@ export class EmployeesPage implements OnInit {
 
   onToggleActive(emp: Employee) {
     this.employeeService.toggleActive(emp.id).subscribe(() => {
+      this.toast.success(emp.isActive ? 'Zamestnanec deaktivovaný' : 'Zamestnanec aktivovaný');
       this.load();
       this.loadSummary();
     });
@@ -173,7 +182,10 @@ export class EmployeesPage implements OnInit {
 
   onHardDelete(emp: Employee) {
     if (confirm('Natrvalo odstrániť ' + emp.firstName + ' ' + emp.lastName + ' a VŠETKY ich záznamy dochádzky? Toto sa nedá vrátiť.')) {
-      this.employeeService.hardDelete(emp.id).subscribe(() => this.load());
+      this.employeeService.hardDelete(emp.id).subscribe({
+        next: () => { this.toast.success('Zamestnanec odstránený'); this.load(); },
+        error: () => this.toast.error('Zamestnanca sa nepodarilo odstrániť')
+      });
     }
   }
 

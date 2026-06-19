@@ -119,12 +119,15 @@ public sealed class InvoiceParser : IInvoiceParser
     private static readonly Regex DekQtyRx = new(
         @"(\d{1,4}(?:,\d+)?)\s+(ks|bal\.?|doska|vrece|pár|rol|kus|m2|m3|kg|t|l|bm|pal|sada|hod|cm|m)\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    // A money cell: a 2-decimal number that isn't a percentage (zľava).
+    // A money cell: a 2-decimal number that isn't a percentage (zľava) and
+    // isn't an "… EUR" subtotal / list-total (those aren't per-line columns).
     private static readonly Regex DekPriceRx = new(
-        @"(?<![\d,])(\d{1,4},\d{2})(?![\d])(?!\s*%)",
-        RegexOptions.Compiled);
-    private static readonly Regex DekSubtotalLineRx = new(
-        @"základ\s+DPH\s*(\d+)\s*%\s*([\d.,\s]+?)\s*EUR\s*\|\s*DPH\s*\d+\s*%\s*([\d.,\s]+?)\s*EUR",
+        @"(?<![\d,])(\d{1,4},\d{2})(?![\d])(?!\s*%)(?!\s*EUR)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    // Marks where a delivery list's line data ends — the first subtotal
+    // ("základ DPH …") or the invoice grand-total block ("cena bez DPH").
+    private static readonly Regex DekSegmentEndRx = new(
+        @"(?:základ\s+DPH|cena\s+bez\s+DPH)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public ParsedInvoice Parse(DocumentAiResult ocr)
@@ -198,29 +201,43 @@ public sealed class InvoiceParser : IInvoiceParser
         var result = new List<ParsedDeliveryList>(dls.Count);
         foreach (var dl in dls)
         {
-            if (string.IsNullOrEmpty(dl.DeliveryNoteRef) || dl.Lines.Count == 0)
+            // Drop phantom lines — a footnote paragraph Document AI mistook for
+            // a line has neither a product code nor a real quantity. (A real
+            // line missing only its code still has qty > 0, so it's kept.)
+            var lines = dl.Lines
+                .Where(l => !string.IsNullOrEmpty(l.SupplierItemCode) || (l.Quantity ?? 0m) > 0m)
+                .ToList();
+
+            if (string.IsNullOrEmpty(dl.DeliveryNoteRef) || lines.Count == 0)
             {
-                result.Add(dl);
+                result.Add(lines.Count == dl.Lines.Count ? dl : dl with { Lines = lines });
                 continue;
             }
 
-            // Isolate this delivery list's text: from its DL ref up to the next
-            // "za dodací list", then cut at its printed subtotal (line numbers
-            // precede it).
+            // Isolate this delivery list's line data: from just after its DL ref
+            // up to the next "za dodací list", then cut at the first subtotal /
+            // grand-total marker (the line numbers all precede it).
             var idx = text.IndexOf(dl.DeliveryNoteRef, StringComparison.Ordinal);
-            if (idx < 0) { result.Add(dl); continue; }
-            var nextIdx = text.IndexOf("za dodací list", idx + dl.DeliveryNoteRef.Length, StringComparison.OrdinalIgnoreCase);
-            var seg = nextIdx > idx ? text[idx..nextIdx] : text[idx..];
-            var subM = DekSubtotalLineRx.Match(seg);
-            if (subM.Success) seg = seg[..subM.Index];
+            if (idx < 0) { result.Add(dl with { Lines = lines }); continue; }
+            var afterRef = idx + dl.DeliveryNoteRef.Length;
+            var nextIdx = text.IndexOf("za dodací list", afterRef, StringComparison.OrdinalIgnoreCase);
+            var seg = nextIdx > afterRef ? text[afterRef..nextIdx] : text[afterRef..];
+            var endM = DekSegmentEndRx.Match(seg);
+            if (endM.Success) seg = seg[..endM.Index];
 
-            var totals = ExtractDekLineTotals(seg, dl.Lines.Count);
-            if (totals.Count != dl.Lines.Count) { result.Add(dl); continue; }
-
-            var newLines = new List<ParsedLine>(dl.Lines.Count);
-            for (var i = 0; i < dl.Lines.Count; i++)
+            var totals = ExtractDekLineTotals(seg, lines.Count);
+            if (totals.Count != lines.Count)
             {
-                var line = dl.Lines[i];
+                // Phantom-filtered but totals not confidently re-derived — keep
+                // the (filtered) lines as the general parser produced them.
+                result.Add(dl with { Lines = lines });
+                continue;
+            }
+
+            var newLines = new List<ParsedLine>(lines.Count);
+            for (var i = 0; i < lines.Count; i++)
+            {
+                var line = lines[i];
                 var total = totals[i];
                 var qty = line.Quantity ?? 0m;
                 decimal? unitPrice = qty != 0m
@@ -241,47 +258,43 @@ public sealed class InvoiceParser : IInvoiceParser
 
     /// <summary>
     /// Extract a DEK delivery list's per-line totals (cena spolu bez DPH) from
-    /// its segment text. After each "qty unit" come 5 cells —
-    /// cenník · zľava% · cena po zľave · cena po zľave s DPH · spolu — so in the
-    /// row-contiguous layout the total is the 4th money cell (the % is skipped).
-    /// When Document AI groups the table by column instead (the quantities end
-    /// up adjacent), the money cells run [cenník×n, poZľave×n, sDPH×n, spolu×n]
-    /// and the totals are the last n.
+    /// its segment text. Every line prints 4 money cells:
+    ///   cenník · cena po zľave bez DPH · cena po zľave s DPH · spolu bez DPH.
+    /// (The zľava% and the "… EUR" subtotals are excluded by the cell regex.)
+    /// We expect 4·n cells. The layout is "line-grouped" (cells run line by
+    /// line) when in every 4-cell group the 3rd cell — cena po zľave *s DPH* —
+    /// equals the 2nd (0% VAT lines) or is at most ~25% above it (the VAT
+    /// uplift); the total is then the 4th cell of each group. Otherwise Document
+    /// AI grouped the table by *column* (cenník×n, poZľave×n, sDPH×n, spolu×n),
+    /// and the totals are simply the last n cells. Returns empty (→ leave the
+    /// general result) when the cell count doesn't line up.
     /// </summary>
-    private static IReadOnlyList<decimal> ExtractDekLineTotals(string seg, int expectedCount)
+    private static IReadOnlyList<decimal> ExtractDekLineTotals(string seg, int n)
     {
-        var qtys = DekQtyRx.Matches(seg)
-            .Select(m => (Pos: m.Index, End: m.Index + m.Length))
-            .ToList();
-        var n = qtys.Count;
-        if (n == 0) return Array.Empty<decimal>();
+        if (n <= 0) return Array.Empty<decimal>();
 
-        var nums = DekPriceRx.Matches(seg)
+        var qtySpans = DekQtyRx.Matches(seg).Select(m => (m.Index, End: m.Index + m.Length)).ToList();
+        var vals = DekPriceRx.Matches(seg)
             .Select(m => (Val: SlovakNumberHelper.TryParse(m.Value), Pos: m.Index))
-            .Where(x => x.Val.HasValue)
-            // Drop any money cell that's actually inside a quantity token.
-            .Where(x => !qtys.Any(q => x.Pos >= q.Pos && x.Pos < q.End))
+            .Where(x => x.Val.HasValue && !qtySpans.Any(q => x.Pos >= q.Index && x.Pos < q.End))
+            .Select(x => x.Val!.Value)
             .ToList();
+
+        if (vals.Count != 4 * n) return Array.Empty<decimal>();
+
+        var lineGrouped = true;
+        for (var k = 0; k < n && lineGrouped; k++)
+        {
+            var poZlave = vals[4 * k + 1];
+            var sDph    = vals[4 * k + 2];
+            if (sDph < poZlave - 0.01m || sDph > poZlave * 1.25m + 0.05m) lineGrouped = false;
+        }
 
         var totals = new List<decimal>(n);
-        var columnMode = n >= 2 && !nums.Any(x => x.Pos > qtys[0].End && x.Pos < qtys[1].Pos);
-
-        if (!columnMode)
-        {
-            for (var i = 0; i < n; i++)
-            {
-                var start = qtys[i].End;
-                var end = i + 1 < n ? qtys[i + 1].Pos : int.MaxValue;
-                var cells = nums.Where(x => x.Pos >= start && x.Pos < end).Select(x => x.Val!.Value).ToList();
-                totals.Add(cells.Count >= 4 ? cells[3] : (cells.Count > 0 ? cells[^1] : 0m));
-            }
-        }
+        if (lineGrouped)
+            for (var k = 0; k < n; k++) totals.Add(vals[4 * k + 3]);
         else
-        {
-            var after = nums.Where(x => x.Pos > qtys[^1].End).Select(x => x.Val!.Value).ToList();
-            for (var i = 0; i < n; i++)
-                totals.Add(after.Count >= n ? after[after.Count - n + i] : 0m);
-        }
+            for (var i = 0; i < n; i++) totals.Add(vals[vals.Count - n + i]);
         return totals;
     }
 

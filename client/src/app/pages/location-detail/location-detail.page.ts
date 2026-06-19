@@ -11,6 +11,7 @@ import { MaterialService, MaterialUsage } from '../../services/material.service'
 import { WorkDiaryService, WorkDiary } from '../../services/work-diary.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import { AuthService } from '../../services/auth.service';
+import { ToastService } from '../../services/toast.service';
 
 export interface PhotoGroup {
   key: string;            // unique: date__employeeName
@@ -96,9 +97,10 @@ export class LocationDetailPage implements OnInit {
 
     const handleError = (err: unknown) => {
       console.error('Delete photo failed', err);
-      alert('Odstránenie fotky zlyhalo. Skúste znova.');
+      this.toast.error('Odstránenie fotky zlyhalo. Skúste znova.');
     };
     const afterDelete = () => {
+      this.toast.success('Fotka odstránená');
       // Optimistically remove the deleted photo so the lightbox updates immediately
       // (loadGallery below will sync with fresh server data once the HTTP call returns)
       const remaining = group.photos.filter(p => p !== photo);
@@ -221,11 +223,13 @@ export class LocationDetailPage implements OnInit {
     this.workDiaryService.delete(d.id).then(() => {
       this.diaries.update(arr => arr.filter(x => x.id !== d.id));
       if (this.expandedDiaryId() === d.id) this.expandedDiaryId.set(null);
-    });
+      this.toast.success('Záznam z denníka odstránený');
+    }).catch(() => this.toast.error('Záznam sa nepodarilo odstrániť'));
   }
 
   // ─── Náklady a zisk / P&L (PayrollAndPnL flag) ──────────────────
   auth = inject(AuthService);
+  private toast = inject(ToastService);
   /** Card renders only for the flag or superadmin — same gate as the Mzdy link. */
   pnlVisible = computed(() => this.flags.payrollAndPnL() || this.auth.isSuperAdmin());
   pnl = signal<LocationPnl | null>(null);
@@ -283,7 +287,7 @@ export class LocationDetailPage implements OnInit {
     const raw = this.contractDraft.trim().replace(/\s/g, '').replace(',', '.');
     const value = raw === '' ? null : Number(raw);
     if (value !== null && (isNaN(value) || value < 0)) {
-      alert('Zadajte platnú sumu v €.');
+      this.toast.error('Zadajte platnú sumu v €.');
       return;
     }
     this.savingContract.set(true);
@@ -291,11 +295,12 @@ export class LocationDetailPage implements OnInit {
       next: () => {
         this.savingContract.set(false);
         this.editingContract.set(false);
+        this.toast.success('Zmluvná hodnota uložená');
         this.loadPnl();
       },
       error: () => {
         this.savingContract.set(false);
-        alert('Uloženie zmluvnej hodnoty zlyhalo. Skúste znova.');
+        this.toast.error('Uloženie zmluvnej hodnoty zlyhalo. Skúste znova.');
       }
     });
   }
@@ -356,9 +361,12 @@ export class LocationDetailPage implements OnInit {
       `⚠️ Pred odstránením si stiahnite archív (ZIP) — fotky budú nenávratne vymazané aj z úložiska.\n\n` +
       `Odstrániť všetky fotky z tohto pracoviska pred ${beforeDate}?`
     )) return;
-    this.locationService.bulkDeletePhotos(this.id, beforeDate).subscribe(count => {
-      alert(`Odstránených ${count} fotiek.`);
-      this.loadGallery();
+    this.locationService.bulkDeletePhotos(this.id, beforeDate).subscribe({
+      next: count => {
+        this.toast.success(`Odstránených ${count} fotiek.`);
+        this.loadGallery();
+      },
+      error: () => this.toast.error('Hromadné odstránenie zlyhalo')
     });
   }
 
