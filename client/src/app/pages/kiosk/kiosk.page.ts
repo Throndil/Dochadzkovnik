@@ -731,12 +731,6 @@ export class KioskPage implements OnInit, OnDestroy {
       this.submitHours();
       return;
     }
-    // Worker already took a photo on the hours step (legacy quick-attach flow)
-    // — skip the proof-of-work picker, submit directly.
-    if (this.photoFiles().length > 0) {
-      this.submitHours();
-      return;
-    }
     // New flag-on path: three-tile proof-of-work picker, with an auto-skip
     // ahead of it. If the worker already attached a proof at this site in
     // the past hour, skip the picker entirely and submit with a hint.
