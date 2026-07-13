@@ -49,13 +49,15 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
 {
     private readonly HttpClient _http;
     private readonly ILogger<GeminiInvoiceExtractor> _log;
+    private readonly ScanStatusService _status;
     private readonly string? _apiKey;
     private readonly string _model;
     private readonly bool _primary;
 
-    public GeminiInvoiceExtractor(HttpClient http, IConfiguration cfg, ILogger<GeminiInvoiceExtractor> log)
+    public GeminiInvoiceExtractor(HttpClient http, IConfiguration cfg, ScanStatusService status, ILogger<GeminiInvoiceExtractor> log)
     {
         _http = http;
+        _status = status;
         _log = log;
         _apiKey = cfg["Gemini:ApiKey"];
         // Flash-Lite default: reading a printed invoice is far below any
@@ -143,11 +145,26 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
                             .GetString();
                         if (string.IsNullOrWhiteSpace(json)) return null;
                         var dto = JsonSerializer.Deserialize<LlmInvoice>(json, JsonOpts);
+                        _status.MarkAiOk();
                         return dto == null ? null : Map(dto);
                     }
 
                     var overloaded = resp.StatusCode is System.Net.HttpStatusCode.ServiceUnavailable
                                                      or System.Net.HttpStatusCode.TooManyRequests;
+                    // 429 carrying a per-day quota marker = the FREE TIER is
+                    // spent for today — record it so the UI can show the
+                    // "beží v záložnom režime, obnoví sa zajtra" banner
+                    // instead of the customer wondering why photos parse
+                    // worse all afternoon.
+                    if (resp.StatusCode == System.Net.HttpStatusCode.TooManyRequests
+                        && respText.Contains("PerDay", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _status.MarkAiQuotaExhausted();
+                    }
+                    else if (overloaded)
+                    {
+                        _status.MarkAiTransientFailure();
+                    }
                     // 404 = the configured model name doesn't exist (typo /
                     // retired model) — move on to the fallback model instead
                     // of failing the document.

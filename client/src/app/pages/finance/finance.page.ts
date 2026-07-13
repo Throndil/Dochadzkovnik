@@ -62,6 +62,16 @@ export class FinancePage {
   reportRows = signal<LocationPnl[] | null>(null);
   reportLoading = signal(false);
 
+  /** Rows with any activity in the range — a site where nothing was worked,
+   *  bought or invoiced is noise for the customer. Totals still sum over
+   *  ALL rows (identical result; zero rows contribute zero). */
+  visibleReportRows = computed(() =>
+    (this.reportRows() ?? []).filter(r =>
+      (r.labour?.hoursWorked ?? 0) > 0
+      || (r.labour?.cost ?? 0) > 0
+      || (r.material?.cost ?? 0) > 0
+      || (r.invoicedInclVat ?? 0) > 0));
+
   reportTotals = computed(() => {
     const rows = this.reportRows() ?? [];
     return {

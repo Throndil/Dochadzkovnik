@@ -47,6 +47,7 @@ public class InvoicesController : ControllerBase
         IInvoiceParser parser,
         ILlmInvoiceExtractor ai,
         IHttpClientFactory httpFactory,
+        ScanStatusService scanStatus,
         ILogger<InvoicesController> log,
         IBlobStorageService? blob = null,
         IDocumentAiClient? ocr = null)
@@ -55,9 +56,35 @@ public class InvoicesController : ControllerBase
         _parser = parser;
         _ai = ai;
         _httpFactory = httpFactory;
+        _scanStatus = scanStatus;
         _log = log;
         _blob = blob;
         _ocr = ocr;
+    }
+
+    private readonly ScanStatusService _scanStatus;
+
+    /// <summary>
+    /// GET /api/invoices/scan-status — pipeline health for the client
+    /// banners. Modes: "ok" (both extractors healthy), "fallback" (AI quota
+    /// spent / AI down — Document AI carries, photos may parse worse),
+    /// "ai-only" (Document AI outage — AI carries), "down" (both out).
+    /// </summary>
+    [HttpGet("scan-status")]
+    public ActionResult<object> ScanStatus()
+    {
+        var aiOk = _ai.IsConfigured && !_scanStatus.AiExhausted && !_scanStatus.AiUnhealthy;
+        var ocrOk = _ocr != null && !_scanStatus.OcrUnhealthy;
+        var mode = aiOk && ocrOk ? "ok"
+                 : aiOk          ? "ai-only"
+                 : ocrOk         ? "fallback"
+                 :                 "down";
+        return Ok(new
+        {
+            mode,
+            aiConfigured = _ai.IsConfigured,
+            aiExhaustedUntil = _scanStatus.AiExhaustedUntilUtc
+        });
     }
 
     /// <summary>
@@ -146,11 +173,15 @@ public class InvoicesController : ControllerBase
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
                 ocr = await _ocr.ProcessAsync(bytes, mime, cts.Token);
+                _scanStatus.MarkOcrOk();
             }
             catch (Exception ex)
             {
+                _scanStatus.MarkOcrFailure();
                 _log.LogError(ex, "Document AI failed for upload");
-                return StatusCode(502, "Skenovanie zlyhalo. Skúste znova, alebo skontrolujte Google Document AI.");
+                // At this point the AI read has ALSO failed or not reconciled
+                // (it runs first) — this is a real outage for this document.
+                return StatusCode(502, "Rozpoznávanie dokladov je momentálne nedostupné (výpadok služby). Fotky si nechajte a skúste ich nahrať o pár minút znova.");
             }
         }
 

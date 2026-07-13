@@ -4,7 +4,7 @@ import { Router, RouterLink } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { ModalComponent } from '../../components/modal/modal.component';
-import { InvoiceService, InvoiceDocument } from '../../services/invoice.service';
+import { InvoiceService, InvoiceDocument, ScanStatus } from '../../services/invoice.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 
 /**
@@ -52,8 +52,21 @@ export class InvoicesPage implements OnInit {
   deleting = signal<InvoiceDocument | null>(null);
   deleteBusy = signal(false);
 
+  /** Pipeline health → persistent banner (quota spent / outage). */
+  scanStatus = signal<ScanStatus | null>(null);
+
+  scanStatusResetLabel = computed(() => {
+    const until = this.scanStatus()?.aiExhaustedUntil;
+    if (!until) return '';
+    const d = new Date(until);
+    const time = d.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
+    const today = new Date().toDateString() === d.toDateString();
+    return today ? `dnes o ${time}` : `zajtra o ${time}`;
+  });
+
   ngOnInit() {
     this.load();
+    this.svc.getScanStatus().then(s => this.scanStatus.set(s)).catch(() => {});
   }
 
   async load() {
@@ -84,8 +97,7 @@ export class InvoicesPage implements OnInit {
       await this.load();
       this.uploadedInvoice.set(created);
     } catch (e: any) {
-      const msg = e?.error ?? e?.message ?? 'Skenovanie zlyhalo.';
-      this.uploadError.set(typeof msg === 'string' ? msg : 'Skenovanie zlyhalo.');
+      this.uploadError.set(this.svc.friendlyError(e, 'Skenovanie zlyhalo.'));
     } finally {
       this.uploading.set(false);
     }
