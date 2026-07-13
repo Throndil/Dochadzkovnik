@@ -92,6 +92,8 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   private fullFrame: HTMLCanvasElement | null = null;
   /** Set by grabStill when the captured region is too small for reliable OCR. */
   private lastCaptureLowRes = false;
+  /** Rate limit for the degradation watchdog's camera restarts. */
+  private lastCameraRestart = 0;
 
   constructor() {
     // The <video #preview> lives inside @if(state === 'streaming'), so it is
@@ -220,6 +222,18 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     this.stopLumaSampling();
     this.lumaTimer = setInterval(() => {
       if (this.state() !== 'streaming') return;
+      // Degradation watchdog: WebKit silently DOWNSCALES a live camera
+      // track under memory pressure and never upgrades it back — liveness
+      // checks pass while the preview turns to mush. Detect it from the
+      // track's actual settings and re-acquire (rate-limited).
+      const set = this.stream?.getVideoTracks()[0]?.getSettings?.();
+      const edge = Math.max(set?.width ?? 0, set?.height ?? 0);
+      if (edge > 0 && edge < 1000 && Date.now() - this.lastCameraRestart > 10_000) {
+        this.lastCameraRestart = Date.now();
+        this.stopStream();
+        setTimeout(() => void this.startCamera(), 500);
+        return;
+      }
       const video = this.videoRef()?.nativeElement;
       if (!video || !video.videoWidth) return;
       this.lumaCanvas ??= document.createElement('canvas');
@@ -481,12 +495,16 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     return s;
   }
 
-  acceptPending() {
+  async acceptPending() {
     const p = this.pending();
     if (!p) return;
-    // The thumbUrl already renders `blob`, so hand it to the page as-is
-    // (don't revoke it — the page now owns it; ngOnDestroy/removePage will).
-    this.pages.update(arr => [...arr, { id: this.nextPageId++, blob: p.blob, thumbUrl: p.thumbUrl }]);
+    // The grid gets a SMALL thumbnail, never the full-resolution image —
+    // N full-res <img> bitmaps (~25 MB each decoded) were exactly the
+    // memory pressure that made WebKit throttle the camera stream after a
+    // few pages. The full blob is kept only for the upload.
+    const thumbUrl = await this.makeThumb(p.blob);
+    URL.revokeObjectURL(p.thumbUrl);
+    this.pages.update(arr => [...arr, { id: this.nextPageId++, blob: p.blob, thumbUrl }]);
     this.pending.set(null);
     // After the first accepted page, default to pages-list (lets the manager
     // decide: add another page or submit). Subsequent shutters drop them
@@ -502,6 +520,25 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     // The track (or its video layer) may have died during the heavy
     // crop/enhance work — make sure the preview is actually alive.
     this.ensureLiveStream();
+  }
+
+  /** ~480 px display thumbnail — the grid must never decode full pages. */
+  private async makeThumb(blob: Blob): Promise<string> {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const scale = Math.min(1, 480 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * scale));
+      c.height = Math.max(1, Math.round(bmp.height * scale));
+      c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close();
+      const thumb = await new Promise<Blob | null>(res => c.toBlob(b => res(b), 'image/jpeg', 0.8));
+      c.width = 0;
+      c.height = 0;
+      return URL.createObjectURL(thumb ?? blob);
+    } catch {
+      return URL.createObjectURL(blob);
+    }
   }
 
   /**
@@ -594,7 +631,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
         accepted.push({
           id: this.nextPageId++,
           blob,
-          thumbUrl: URL.createObjectURL(blob)
+          thumbUrl: await this.makeThumb(blob)
         });
       }
       this.pages.update(arr => [...arr, ...accepted]);

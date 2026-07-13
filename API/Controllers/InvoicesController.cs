@@ -219,9 +219,12 @@ public class InvoicesController : ControllerBase
             {
                 _log.LogWarning(ex, "[InvoiceScanning] Could not write rejected-scan dump.");
             }
+            // Both the deterministic parse AND the AI fallback failed at this
+            // point — the photo genuinely doesn't carry the information.
+            // Tell the customer what to actually do about it.
             if (string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber))
-                return BadRequest("Faktúra nemá rozpoznané číslo. Skontrolujte kvalitu skenu.");
-            return BadRequest("Faktúra nemá rozpoznanú celkovú sumu. Skontrolujte kvalitu skenu.");
+                return BadRequest("Nepodarilo sa rozpoznať číslo dokladu. Odfoťte doklad znova — vyplňte rámik celou stranou a zabezpečte lepšie osvetlenie (alebo zapnite svetlo kamery).");
+            return BadRequest("Nepodarilo sa rozpoznať celkovú sumu dokladu. Odfoťte doklad znova — vyplňte rámik celou stranou a zabezpečte lepšie osvetlenie (alebo zapnite svetlo kamery).");
         }
 
         // 2) Dedup check — invoice number + issue date. Supplier IČO is NOT
