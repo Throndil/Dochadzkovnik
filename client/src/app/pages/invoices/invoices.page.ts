@@ -38,11 +38,19 @@ export class InvoicesPage implements OnInit {
   uploadedInvoice = signal<InvoiceDocument | null>(null);
 
   statusFilter = signal<string>('');
+  /** '' (all) | 'invoice' | 'receipt' */
+  typeFilter = signal<string>('');
 
   filtered = computed(() => {
     const s = this.statusFilter();
-    return s ? this.invoices().filter(i => i.status === s) : this.invoices();
+    const t = this.typeFilter();
+    return this.invoices().filter(i =>
+      (!s || i.status === s) && (!t || (i.documentKind ?? 'invoice') === t));
   });
+
+  /** Row pending delete confirmation (null = modal closed). */
+  deleting = signal<InvoiceDocument | null>(null);
+  deleteBusy = signal(false);
 
   ngOnInit() {
     this.load();
@@ -88,6 +96,32 @@ export class InvoicesPage implements OnInit {
     const inv = this.uploadedInvoice();
     this.uploadedInvoice.set(null);
     if (inv) this.router.navigate(['/admin/invoices', inv.id]);
+  }
+
+  /** Message for the delete-confirm modal — stronger wording on committed docs. */
+  deleteMessage = computed(() => {
+    const inv = this.deleting();
+    if (!inv) return '';
+    const base = `Faktúra ${inv.invoiceNumber} (${this.formatMoney(inv.totalInclVat)} €) bude natrvalo vymazaná.`;
+    return inv.status === 'committed'
+      ? `${base} Je už uložená — vymazaním zmiznú aj jej materiálové nákupy z prehľadov.`
+      : base;
+  });
+
+  async confirmDelete() {
+    const inv = this.deleting();
+    if (!inv || this.deleteBusy()) return;
+    this.deleteBusy.set(true);
+    try {
+      await this.svc.discard(inv.id);
+      this.invoices.set(this.invoices().filter(i => i.id !== inv.id));
+      this.deleting.set(null);
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Vymazanie zlyhalo.');
+      this.deleting.set(null);
+    } finally {
+      this.deleteBusy.set(false);
+    }
   }
 
   statusLabel(status: string): string {

@@ -20,6 +20,10 @@ export interface InvoiceLine {
   vatRate: number;
   isReverseCharge: boolean;
   isService: boolean;
+  /** Per-line site override; null = inherits the delivery list's location. */
+  locationId: number | null;
+  /** Name of the line's own location when overridden; null when inheriting. */
+  locationName: string | null;
 }
 
 export interface InvoiceDeliveryList {
@@ -55,6 +59,8 @@ export interface InvoiceDocument {
   pdfUrl: string;
   /** 'parsing' | 'review' | 'committed' | 'discarded' */
   status: string;
+  /** 'invoice' | 'receipt' (pokladničný blok) */
+  documentKind: string;
   reconciliationOk: boolean;
   reconciliationNote: string | null;
   uploadedBy: string;
@@ -64,6 +70,8 @@ export interface InvoiceDocument {
   note: string | null;
   /** "file" (PDF/image picker) or "camera" (in-app scanner). */
   scanSource?: string;
+  /** Distinct Pracovisko names this document's lines were assigned to. */
+  locationNames?: string[];
   /** Number of photos in the camera scan; null on file uploads. */
   scanPageCount?: number | null;
   deliveryLists: InvoiceDeliveryList[];
@@ -77,8 +85,12 @@ export interface UpdateInvoiceLinePayload {
   unitPrice?: number;
   lineTotal?: number;
   vatRate?: number;
+  /** Informational zľava %; 0 clears it. */
+  discountPercent?: number;
   isReverseCharge?: boolean;
   isService?: boolean;
+  /** Per-line site: positive Location.Id assigns the row; -1 clears the override (row follows its delivery list). */
+  locationId?: number;
 }
 
 export interface UpdateInvoiceDeliveryListPayload {
@@ -172,6 +184,29 @@ export class InvoiceService {
   updatePrintedTotal(invoiceId: number, totalInclVat: number): Promise<InvoiceDocument> {
     return firstValueFrom(
       this.http.put<InvoiceDocument>(`${this.url}/${invoiceId}/printed-total`, { totalInclVat })
+    );
+  }
+
+  /** Correct the issue date ("dátum vyhotovenia") when the scan misread it —
+   *  drives which month the document lands in on the Financie overview. */
+  updateIssueDate(invoiceId: number, issueDate: string): Promise<InvoiceDocument> {
+    return firstValueFrom(
+      this.http.put<InvoiceDocument>(`${this.url}/${invoiceId}/issue-date`, { issueDate })
+    );
+  }
+
+  /** Correct the supplier name when OCR read a logo/stamp instead of the
+   *  printed company. Allowed on review and committed documents. */
+  updateSupplierName(invoiceId: number, supplierName: string): Promise<InvoiceDocument> {
+    return firstValueFrom(
+      this.http.put<InvoiceDocument>(`${this.url}/${invoiceId}/supplier-name`, { supplierName })
+    );
+  }
+
+  /** Delete a single (usually phantom/OCR-junk) line during review. */
+  deleteLine(invoiceId: number, lineId: number): Promise<InvoiceDocument> {
+    return firstValueFrom(
+      this.http.delete<InvoiceDocument>(`${this.url}/${invoiceId}/lines/${lineId}`)
     );
   }
 

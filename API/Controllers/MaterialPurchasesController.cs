@@ -558,6 +558,7 @@ public class MaterialPurchasesController : ControllerBase
         LocationId      = p.LocationId,
         LocationName    = p.Location?.Name,
         TimeEntryId     = p.TimeEntryId,
+        InvoiceDocumentId = p.InvoiceDocumentId,
         SupplierName    = p.SupplierName,
         ReceiptPhotoUrl = p.ReceiptPhotoUrl,
         Note            = p.Note,

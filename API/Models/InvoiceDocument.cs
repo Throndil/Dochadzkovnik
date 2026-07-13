@@ -65,6 +65,10 @@ public class InvoiceDocument
     /// <summary>parsing | review | committed | discarded.</summary>
     public string Status { get; set; } = "parsing";
 
+    /// <summary>"invoice" | "receipt" (pokladničný blok) — set at parse time
+    /// from eKasa markers so the list can filter invoices from receipts.</summary>
+    public string DocumentKind { get; set; } = "invoice";
+
     /// <summary>True only when server-side reconciliation succeeded.</summary>
     public bool ReconciliationOk { get; set; } = false;
 

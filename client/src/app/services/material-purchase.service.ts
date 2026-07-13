@@ -28,6 +28,8 @@ export interface MaterialPurchase {
   locationId: number | null;
   locationName: string | null;
   timeEntryId: number | null;
+  /** Set when the purchase came from a scanned invoice/receipt. */
+  invoiceDocumentId?: number | null;
   supplierName: string | null;
   receiptPhotoUrl: string | null;
   note: string | null;

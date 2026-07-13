@@ -163,13 +163,19 @@
         }
 
         <div class="flex flex-wrap gap-2 justify-between">
-          <button type="button" (click)="goAddAnother()"
-                  class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12h14"></path>
-            </svg>
-            Pridať ďalšiu stranu
-          </button>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" (click)="goAddAnother()"
+                    class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M5 12h14"></path>
+              </svg>
+              Pridať ďalšiu stranu
+            </button>
+            <button type="button" (click)="openFilePicker()"
+                    class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100">
+              Vybrať fotky zo zariadenia
+            </button>
+          </div>
           <button type="button" (click)="submit()" [disabled]="pages().length === 0"
                   class="touch-target inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold disabled:opacity-50">
             Odoslať na rozpoznanie

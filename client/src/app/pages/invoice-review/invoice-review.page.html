@@ -14,14 +14,30 @@
           <div class="min-w-0">
             <div class="text-xs text-slate-500 uppercase tracking-wider">Faktúra č.</div>
             <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ inv.invoiceNumber }}</div>
-            <div class="text-sm text-slate-700 dark:text-slate-300 mt-1">{{ inv.supplierName }}</div>
+            @if (isSupplierEditable()) {
+              <input type="text"
+                     [value]="inv.supplierName"
+                     (blur)="onSupplierNameChange($any($event.target).value)"
+                     title="Opravte meno dodávateľa, ak ho systém nesprávne načítal"
+                     class="text-sm w-full max-w-md mt-1 bg-transparent border-b border-dashed border-slate-400 dark:border-slate-500 focus:border-amber-500 focus:outline-none text-slate-700 dark:text-slate-300" />
+            } @else {
+              <div class="text-sm text-slate-700 dark:text-slate-300 mt-1">{{ inv.supplierName }}</div>
+            }
             @if (inv.supplierIco) {
               <div class="text-xs text-slate-500 dark:text-slate-400">IČO {{ inv.supplierIco }}<span *ngIf="inv.supplierIcDph"> · IČ DPH {{ inv.supplierIcDph }}</span></div>
             }
           </div>
           <div class="text-right shrink-0 space-y-1">
             <div class="text-xs text-slate-500">Dátum vyhotovenia</div>
-            <div class="text-sm text-slate-900 dark:text-white">{{ inv.issueDate | date:'dd.MM.yyyy' }}</div>
+            @if (isDateEditable()) {
+              <input type="date"
+                     [value]="(inv.issueDate || '').slice(0, 10)"
+                     (change)="onIssueDateChange($any($event.target).value)"
+                     title="Opravte dátum, ak ho systém nesprávne načítal — určuje mesiac v prehľade Financie"
+                     class="text-sm text-right tabular-nums bg-transparent border-b border-dashed border-slate-400 dark:border-slate-500 focus:border-amber-500 focus:outline-none text-slate-900 dark:text-white" />
+            } @else {
+              <div class="text-sm text-slate-900 dark:text-white">{{ inv.issueDate | date:'dd.MM.yyyy' }}</div>
+            }
             @if (inv.dueDate) {
               <div class="text-xs text-slate-500 mt-1">Splatnosť: {{ inv.dueDate | date:'dd.MM.yyyy' }}</div>
             }
@@ -79,6 +95,24 @@
             </div>
           </div>
         </div>
+
+        <!-- Where the money went: effective location per line, summed. -->
+        @if (locationBreakdown().length > 0) {
+          <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-200 dark:border-slate-700 mt-3">
+            <span class="text-xs text-slate-500">Pracoviská:</span>
+            @for (b of locationBreakdown(); track b.name) {
+              <span class="inline-flex items-baseline gap-1.5 text-xs px-2 py-1 rounded-full"
+                    [class]="b.name === 'Sklad / Inventár'
+                      ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'">
+                <span class="font-medium">{{ b.name }}</span>
+                <span class="tabular-nums">{{ formatMoney(b.excl) }} € bez DPH</span>
+                <span class="opacity-60">·</span>
+                <span class="tabular-nums">{{ formatMoney(b.incl) }} € s DPH</span>
+              </span>
+            }
+          </div>
+        }
       </div>
 
       @if (error()) {
@@ -139,7 +173,10 @@
                   <th class="text-right px-2 py-2 font-semibold" title="Zľava v %">Zľava</th>
                   <th class="text-center px-2 py-2 font-semibold">DPH</th>
                   <th class="text-center px-2 py-2 font-semibold" title="Prenesenie daňovej povinnosti">PDP</th>
-                  <th class="text-right px-2 py-2 font-semibold" title="Cena × (1 − zľava) × množstvo">Spolu</th>
+                  <th class="text-right px-2 py-2 font-semibold" title="Cena × (1 − zľava) × množstvo, bez DPH">Spolu bez DPH</th>
+                  <th class="text-right px-2 py-2 font-semibold" title="Spolu vrátane DPH">S DPH</th>
+                  <th class="text-left px-2 py-2 font-semibold" title="Pracovisko pre tento riadok — ak sa líši od dodacieho listu">Pracovisko</th>
+                  <th class="px-1 py-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -163,9 +200,17 @@
                              (blur)="onListPriceBlur(line, $any($event.target).value)"
                              class="w-24 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
                     </td>
-                    <!-- Zľava % (read-only display from extracted prices). -->
+                    <!-- Zľava % — editable during review (informational). -->
                     <td class="px-2 py-2 text-right tabular-nums">
-                      <span class="text-slate-700 dark:text-slate-300 text-sm">{{ formatPercent(line.discountPercent) }}</span>
+                      @if (isReview()) {
+                        <input type="text" inputmode="decimal"
+                               [value]="line.discountPercent ?? ''"
+                               (blur)="onDiscountBlur(line, $any($event.target).value)"
+                               placeholder="—" title="Zľava v % (informatívna)"
+                               class="w-14 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                      } @else {
+                        <span class="text-slate-700 dark:text-slate-300 text-sm">{{ formatPercent(line.discountPercent) }}</span>
+                      }
                     </td>
                     <td class="px-2 py-2 text-center">
                       <select [value]="vatRateString(line.vatRate)"
@@ -200,12 +245,54 @@
                         </div>
                       }
                     </td>
+                    <!-- Spolu s DPH — editable during review: receipts print
+                         GROSS per row, the net is back-computed on blur. -->
+                    <td class="px-2 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                      @if (isReview()) {
+                        <input type="text" inputmode="decimal"
+                               [value]="formatMoney(lineTotalInclVat(line))"
+                               (blur)="onLineInclBlur(line, $any($event.target).value)"
+                               title="Suma s DPH — zadajte hodnotu z bločku, cena bez DPH sa dopočíta"
+                               class="w-24 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                      } @else {
+                        {{ formatMoney(lineTotalInclVat(line)) }} €
+                      }
+                    </td>
+                    <!-- Per-row Pracovisko. Default "Podľa DL" = inherit the
+                         delivery list's site; pick a site to split this row off.
+                         Stays editable after commit (like the DL select) — the
+                         API moves the minted usage rows along. -->
+                    <td class="px-2 py-2">
+                      <select [disabled]="!isLocationEditable()"
+                              (change)="onLineLocationChange(line, $any($event.target).value ? +$any($event.target).value : null)"
+                              [class.text-amber-600]="line.locationId != null"
+                              [class.dark:text-amber-400]="line.locationId != null"
+                              class="w-40 px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                        <option value="" [selected]="line.locationId == null">— Podľa DL —</option>
+                        @for (loc of locations(); track loc.id) {
+                          <option [value]="loc.id" [selected]="line.locationId === loc.id">{{ loc.name }}</option>
+                        }
+                      </select>
+                    </td>
+                    <td class="px-1 py-2 text-center">
+                      @if (isReview()) {
+                        <button type="button" (click)="onDeleteLine(line)" title="Vymazať riadok"
+                                class="text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition-colors align-middle">
+                          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            <line x1="10" y1="11" x2="10" y2="17"></line>
+                            <line x1="14" y1="11" x2="14" y2="17"></line>
+                          </svg>
+                        </button>
+                      }
+                    </td>
                   </tr>
                 }
               </tbody>
               <tfoot class="border-t-2 border-slate-300 dark:border-slate-600">
                 <tr>
-                  <td colspan="7" class="px-2 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">
+                  <td colspan="9" class="px-2 py-2 text-right font-semibold text-slate-700 dark:text-slate-200">
                     Súčet bez DPH · DPH · Spolu s DPH:
                   </td>
                   <td class="px-2 py-2 text-right tabular-nums font-bold text-slate-900 dark:text-white whitespace-nowrap">
@@ -261,7 +348,7 @@
         <div class="bg-slate-100 dark:bg-slate-700 rounded-lg p-4 text-sm text-slate-600 dark:text-slate-300">
           Stav faktúry: <strong>{{ statusLabel(inv.status) }}</strong>.
           @if (isCommitted()) {
-            Pracovisko každého dodacieho listu môžete upraviť aj teraz — ostatné polia sú zafixované.
+            Pracovisko dodacích listov aj jednotlivých riadkov, dodávateľa a dátum môžete upraviť aj teraz — sumy sú zafixované.
             Hlbšie úpravy cez Materiál → Nákupy.
           }
         </div>

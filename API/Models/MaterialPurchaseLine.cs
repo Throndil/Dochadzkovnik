@@ -83,6 +83,16 @@ public class MaterialPurchaseLine
     public bool IsService { get; set; } = false;
 
     /// <summary>
+    /// Optional per-line site override. Null = inherit the parent delivery
+    /// list's <see cref="MaterialPurchase.LocationId"/> (the default; how every
+    /// line behaved before this field existed). Set to a specific Location when
+    /// one receipt / delivery list is split across sites — e.g. the worker buys
+    /// three things and drops two of them at two different pracoviská on the way.
+    /// Effective site of a line is therefore <c>LocationId ?? Purchase.LocationId</c>.
+    /// </summary>
+    public int? LocationId { get; set; }
+
+    /// <summary>
     /// JSON array of edit records for this line — the audit trail. Each entry
     /// is { field, oldValue, newValue, editedBy, editedAt }. Appended by the
     /// invoice review PUT endpoints. Null on kiosk-entered lines that have
@@ -94,4 +104,5 @@ public class MaterialPurchaseLine
 
     public MaterialPurchase Purchase { get; set; } = null!;
     public Material? Material { get; set; }
+    public Location? Location { get; set; }
 }

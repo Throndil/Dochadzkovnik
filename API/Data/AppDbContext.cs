@@ -230,6 +230,16 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 .HasForeignKey(x => x.PurchaseId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Optional per-line site override; null = inherit the delivery
+            // list's Location. SetNull so deleting a Location reverts affected
+            // lines to "inherit" rather than blocking the delete or cascading.
+            e.HasOne(x => x.Location)
+                .WithMany()
+                .HasForeignKey(x => x.LocationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            e.HasIndex(x => x.LocationId);
+
             // MaterialId is nullable — line starts unidentified and is
             // promoted to a catalogue row by the admin afterwards. SetNull
             // means deleting a Material does not wipe historical purchase

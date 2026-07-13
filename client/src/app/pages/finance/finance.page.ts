@@ -9,6 +9,7 @@ import { FeatureFlagService } from '../../services/feature-flag.service';
 import { PayrollService } from '../../services/payroll.service';
 import { MaterialPurchaseService } from '../../services/material-purchase.service';
 import { InvoiceService } from '../../services/invoice.service';
+import { LocationService, LocationPnl } from '../../services/location.service';
 
 /**
  * /admin/finance — landing/overview for the Finance ("Financie") side.
@@ -32,6 +33,7 @@ export class FinancePage {
   private payroll = inject(PayrollService);
   private purchases = inject(MaterialPurchaseService);
   private invoices = inject(InvoiceService);
+  private locations = inject(LocationService);
 
   /** Selected month as 'YYYY-MM'; defaults to the current month. */
   month = signal(new Date().toISOString().slice(0, 7));
@@ -45,20 +47,68 @@ export class FinancePage {
 
   canPayroll = computed(() => this.flags.payrollAndPnL() || this.auth.isSuperAdmin());
   canInvoices = computed(() => this.flags.invoiceScanning() || this.auth.isSuperAdmin());
+  canMaterial = computed(() => this.flags.materialPurchases() || this.auth.isSuperAdmin());
 
   monthLabel = computed(() => {
     const [y, m] = this.month().split('-').map(Number);
     return new Date(y, m - 1, 1).toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
   });
 
+  // ─── Spending report (Náklady podľa pracoviska) ───
+  // Own from/to range so the manager can report across any time frame,
+  // not just one calendar month. Defaults follow the selected month.
+  reportFrom = signal('');
+  reportTo = signal('');
+  reportRows = signal<LocationPnl[] | null>(null);
+  reportLoading = signal(false);
+
+  reportTotals = computed(() => {
+    const rows = this.reportRows() ?? [];
+    return {
+      hours: rows.reduce((s, r) => s + (r.labour?.hoursWorked ?? 0), 0),
+      wages: rows.reduce((s, r) => s + (r.labour?.cost ?? 0), 0),
+      material: rows.reduce((s, r) => s + (r.material?.cost ?? 0), 0),
+      invoiced: rows.reduce((s, r) => s + (r.invoicedInclVat ?? 0), 0),
+      total: rows.reduce((s, r) => s + (r.labour?.cost ?? 0) + (r.material?.cost ?? 0), 0)
+    };
+  });
+
   constructor() {
+    const { from, to } = this.monthRange();
+    this.reportFrom.set(from);
+    this.reportTo.set(to);
     this.load();
   }
 
   onMonthChange(value: string) {
     if (!value) return;
     this.month.set(value);
+    // Keep the report range in sync with the month until the manager
+    // overrides it explicitly via the range inputs.
+    const { from, to } = this.monthRange();
+    this.reportFrom.set(from);
+    this.reportTo.set(to);
     this.load();
+  }
+
+  onReportRangeChange(from: string, to: string) {
+    if (!from || !to) return;
+    this.reportFrom.set(from);
+    this.reportTo.set(to);
+    this.loadReport();
+  }
+
+  async loadReport() {
+    if (!this.canPayroll()) return;
+    this.reportLoading.set(true);
+    try {
+      const rows = await firstValueFrom(this.locations.getPnlSummary(this.reportFrom(), this.reportTo()));
+      this.reportRows.set(rows);
+    } catch {
+      this.reportRows.set(null);
+    } finally {
+      this.reportLoading.set(false);
+    }
   }
 
   /** First and last calendar day of the selected month, as 'YYYY-MM-DD'. */
@@ -73,15 +123,19 @@ export class FinancePage {
     const { from, to } = this.monthRange();
     const tasks: Promise<void>[] = [];
 
-    // Material spend — sum of purchase totals in the month.
-    tasks.push((async () => {
-      try {
-        const rows = await firstValueFrom(this.purchases.list({ from, to }));
-        this.materialSpend.set(rows.reduce((s, p) => s + (p.totalCost || 0), 0));
-      } catch {
-        this.materialSpend.set(null);
-      }
-    })());
+    // Material spend — sum of purchase totals in the month. Only fetched
+    // when the MaterialPurchases feature is on (the endpoint 403s otherwise
+    // and the card would show a dead "—").
+    if (this.canMaterial()) {
+      tasks.push((async () => {
+        try {
+          const rows = await firstValueFrom(this.purchases.list({ from, to }));
+          this.materialSpend.set(rows.reduce((s, p) => s + (p.totalCost || 0), 0));
+        } catch {
+          this.materialSpend.set(null);
+        }
+      })());
+    }
 
     if (this.canPayroll()) {
       tasks.push((async () => {
@@ -111,5 +165,7 @@ export class FinancePage {
 
     await Promise.all(tasks);
     this.loading.set(false);
+    // The per-location spending report loads independently of the cards.
+    this.loadReport();
   }
 }

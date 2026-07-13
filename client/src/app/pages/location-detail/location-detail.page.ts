@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { LocationManagePanelComponent } from '../../components/location-manage-panel/location-manage-panel.component';
 import { LocationService, Location, LocationPhoto, LocationPnl } from '../../services/location.service';
 import { normaliseFile, compressImage, cloudinaryThumb } from '../../utils/image-utils';
 import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
@@ -22,11 +23,22 @@ export interface PhotoGroup {
 
 @Component({
   selector: 'app-location-detail',
-  imports: [NavbarComponent, FormsModule, DatePipe, SpinnerComponent],
+  imports: [NavbarComponent, FormsModule, DatePipe, SpinnerComponent, LocationManagePanelComponent],
   templateUrl: './location-detail.page.html'
 })
 export class LocationDetailPage implements OnInit {
   location = signal<Location | null>(null);
+
+  /** Location shown in the material-management slide-over (null = closed).
+   *  The same panel the Pracoviská list opens via "Spravovať" — available
+   *  here too so managing materials doesn't require going back to the list. */
+  manageLocation = signal<Location | null>(null);
+
+  onManageMaterial() { this.manageLocation.set(this.location()); }
+  onManagePanelClose() {
+    this.manageLocation.set(null);
+    this.loadMaterials();   // the panel may have changed this month's usage
+  }
   name = '';
   address = '';
   isActive = true;

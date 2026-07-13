@@ -555,16 +555,20 @@ public class LocationsController : ControllerBase
         // The MaterialId filter (l.MaterialId != null) means promoted lines appear here
         // automatically — admin merges "Cemnt" into Cement and the merged line shows up
         // under the canonical material from then on.
+        // A line belongs to its EFFECTIVE site: its own LocationId override when
+        // set, otherwise the delivery list's. So pull purchases that target this
+        // site OR have any line individually assigned to it, then filter per line.
         var pq = _db.MaterialPurchases
             .Include(p => p.Employee)
             .Include(p => p.Lines).ThenInclude(l => l.Material)
-            .Where(p => p.LocationId == locationId);
+            .Where(p => p.LocationId == locationId || p.Lines.Any(l => l.LocationId == locationId));
         if (f.HasValue) pq = pq.Where(p => p.PurchaseDate >= f.Value);
         if (t.HasValue) pq = pq.Where(p => p.PurchaseDate <  t.Value);
 
         var purchases = await pq.ToListAsync();
 
         var purchaseRows = purchases.SelectMany(p => p.Lines
+            .Where(l => (l.LocationId ?? p.LocationId) == locationId)
             .Where(l => l.MaterialId != null && l.Material != null)
             .Where(l => !consumedLineIds.Contains(l.Id))
             .Select(l => new MaterialUsageDto
@@ -871,6 +875,107 @@ public class LocationsController : ControllerBase
         return await BuildPnlDtoAsync(loc, f, t);
     }
 
+    // GET /api/locations/pnl-summary?from=YYYY-MM-DD&to=YYYY-MM-DD
+    // Cross-location spending report for the Financie overview: one P&L row
+    // per active Pracovisko (identical math to the per-location card), so
+    // the manager sees wages + material per site for any time frame in one
+    // call. The literal segment wins over the "{id}" route — no conflict.
+    [HttpGet("pnl-summary")]
+    [RequireFeatureOrSuperAdmin("PayrollAndPnL")]
+    public async Task<ActionResult<List<LocationPnlDto>>> GetPnlSummary([FromQuery] string? from, [FromQuery] string? to)
+    {
+        var (f, t) = ParseDateRange(from, to);
+        var locs = await _db.Locations
+            .Where(l => l.IsActive)
+            .OrderBy(l => l.Name)
+            .ToListAsync();
+        var rows = new List<LocationPnlDto>(locs.Count);
+        foreach (var loc in locs)
+            rows.Add(await BuildPnlDtoAsync(loc, f, t));
+
+        // Invoice money assigned per location in the range (s DPH, any
+        // document status except discarded) — the manager sees what scanned
+        // invoices put on each site even before committing. Effective
+        // location = line override ?? delivery list; dated by PurchaseDate,
+        // consistent with the material view (the manual issue-date fix
+        // cascades there too).
+        var invLines = await (
+            from l in _db.MaterialPurchaseLines
+            join p in _db.MaterialPurchases on l.PurchaseId equals p.Id
+            join d in _db.InvoiceDocuments on p.InvoiceDocumentId equals (int?)d.Id
+            where d.Status != "discarded"
+                  && (f == null || p.PurchaseDate >= f.Value)
+                  && (t == null || p.PurchaseDate < t.Value)
+            select new { LocId = l.LocationId ?? p.LocationId, l.LineTotal, l.VatRate, DocId = d.Id, DocTotal = d.TotalInclVat })
+            .ToListAsync();
+
+        // The customer-facing number is the INVOICE total ("vytlačené
+        // spolu"), never our per-line arithmetic — per-line VAT rounding
+        // drifts a few cents (live: column 74,81 vs card 74,75). Allocate
+        // each document's printed total across its locations by line share
+        // and put the rounding residual on the largest share, so the
+        // column sums exactly to the Faktúry card.
+        var perLocIncl = new Dictionary<int, decimal>();   // key: Location.Id, 0 = unassigned/Sklad
+        foreach (var g in invLines.GroupBy(x => x.DocId))
+        {
+            var buckets = g
+                .GroupBy(x => x.LocId)
+                .Select(b => (LocId: b.Key ?? 0,
+                              Incl: b.Sum(x => Math.Round(x.LineTotal + x.LineTotal * x.VatRate / 100m, 2, MidpointRounding.AwayFromZero))))
+                .ToList();
+            if (g.First().DocTotal is { } printed)
+            {
+                var residual = Math.Round(printed - buckets.Sum(b => b.Incl), 2, MidpointRounding.AwayFromZero);
+                if (residual != 0m)
+                {
+                    var idx = 0;
+                    for (var i = 1; i < buckets.Count; i++)
+                        if (buckets[i].Incl > buckets[idx].Incl) idx = i;
+                    buckets[idx] = (buckets[idx].LocId, buckets[idx].Incl + residual);
+                }
+            }
+            foreach (var b in buckets)
+                perLocIncl[b.LocId] = perLocIncl.GetValueOrDefault(b.LocId) + b.Incl;
+        }
+        foreach (var row in rows)
+            row.InvoicedInclVat = perLocIncl.GetValueOrDefault(row.Location.Id);
+
+        // Purchases with NO pracovisko at all (neither the delivery list nor
+        // a row override) sit on Sklad and are invisible in the per-site rows
+        // — the report could then never add up to the month's Materiál card
+        // (live: PRESPOR 145 assigned 48,06 + HORNBACH 815 on Sklad 12,73 →
+        // card 60,79 vs rows 48,06). Surface them as one synthetic row so
+        // the manager sees what's still left to assign. Id 0 = not a real
+        // location (the client renders it non-clickable). Manual purchases
+        // are included via the left join — the Materiál card counts them too.
+        var unassigned = await (
+            from l in _db.MaterialPurchaseLines
+            join p in _db.MaterialPurchases on l.PurchaseId equals p.Id
+            join d0 in _db.InvoiceDocuments on p.InvoiceDocumentId equals (int?)d0.Id into dj
+            from d in dj.DefaultIfEmpty()
+            where (l.LocationId ?? p.LocationId) == null
+                  && (d == null || d.Status != "discarded")
+                  && (f == null || p.PurchaseDate >= f.Value)
+                  && (t == null || p.PurchaseDate < t.Value)
+            select new { l.LineTotal })
+            .ToListAsync();
+        if (unassigned.Count > 0)
+        {
+            rows.Add(new LocationPnlDto
+            {
+                Location = new PnlLocationDto { Id = 0, Name = "Sklad / Nepriradené" },
+                Labour   = new PnlLabourDto(),
+                Material = rows.Any(r => r.Material != null)
+                    ? new PnlMaterialDto { Cost = unassigned.Sum(x => x.LineTotal) }
+                    : null,
+                // Same printed-total allocation as the real rows (bucket 0).
+                InvoicedInclVat = perLocIncl.GetValueOrDefault(0),
+            });
+        }
+
+        return rows;
+    }
+
     // GET /api/locations/{id}/pnl/export?from=YYYY-MM-DD&to=YYYY-MM-DD
     // Same computation path as GetPnl, streamed as a Slovak XLSX workbook
     // mirroring the Náklady a zisk card.
@@ -946,80 +1051,4 @@ public class LocationsController : ControllerBase
             .OrderByDescending(r => r.Cost)
             .ToList();
 
-        var labour = new PnlLabourDto
-        {
-            HoursWorked         = labourRows.Sum(r => r.Hours),
-            Cost                = labourRows.Sum(r => r.Cost),
-            BreakdownByEmployee = labourRows
-        };
-
-        // ── Material: same unified view as the Spotreba materiálu panel
-        // (real MaterialUsage rows at UnitPriceAtTime + purchase-line
-        // syntheses). Null when the MaterialPurchases flag is off for the
-        // caller — the card then hides the row per plan §(g).
-        PnlMaterialDto? material = null;
-        var materialsOn = User.HasClaim("isSuperAdmin", "true")
-            || await _db.FeatureFlags.AnyAsync(ff => ff.Key == "MaterialPurchases" && ff.Enabled);
-        if (materialsOn)
-        {
-            var matEntries = await BuildUnifiedMaterialEntriesAsync(id, f, t);
-            var matRows = matEntries
-                .GroupBy(e => new { e.MaterialId, e.MaterialName, e.Unit })
-                .Select(g =>
-                {
-                    var qty  = g.Sum(x => x.Quantity);
-                    var cost = g.Sum(x => x.LineCost);
-                    return new PnlMaterialRowDto
-                    {
-                        MaterialId   = g.Key.MaterialId,
-                        MaterialName = g.Key.MaterialName,
-                        Unit         = g.Key.Unit,
-                        Quantity     = qty,
-                        AvgUnitPrice = qty == 0m ? null : Math.Round(cost / qty, 4, MidpointRounding.AwayFromZero),
-                        Cost         = Math.Round(cost, 2, MidpointRounding.AwayFromZero)
-                    };
-                })
-                .OrderByDescending(r => r.Cost)
-                .ToList();
-
-            material = new PnlMaterialDto
-            {
-                Cost                = matRows.Sum(r => r.Cost),
-                BreakdownByMaterial = matRows
-            };
-        }
-
-        // ── Revenue / profit. Empty contract value → revenue "—", profit
-        // hidden (null), cost side still shown. When the material section is
-        // hidden by the flag, profit carries on without it per plan UX.
-        var revenue = loc.ContractValue;
-        decimal? profit = revenue.HasValue
-            ? revenue.Value - labour.Cost - (material?.Cost ?? 0m)
-            : null;
-
-        return new LocationPnlDto
-        {
-            Location = new PnlLocationDto { Id = loc.Id, Name = loc.Name, ContractValue = loc.ContractValue },
-            Labour   = labour,
-            Material = material,
-            Revenue  = revenue,
-            Profit   = profit
-        };
-    }
-
-    // PUT /api/locations/{id}/contract-value   body { contractValue: decimal? }
-    [HttpPut("{id}/contract-value")]
-    [RequireFeatureOrSuperAdmin("PayrollAndPnL")]
-    public async Task<ActionResult> UpdateContractValue(int id, UpdateContractValueDto dto)
-    {
-        var loc = await _db.Locations.FindAsync(id);
-        if (loc == null) return NotFound();
-
-        if (dto.ContractValue is decimal v && v < 0)
-            return BadRequest("Zmluvná hodnota nemôže byť záporná.");
-
-        loc.ContractValue = dto.ContractValue;
-        await _db.SaveChangesAsync();
-        return NoContent();
-    }
-}
+        var

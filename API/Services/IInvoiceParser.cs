@@ -38,7 +38,10 @@ public sealed record ParsedInvoiceHeader(
     decimal? TotalExclVat,
     decimal? TotalVat,
     decimal? TotalInclVat,
-    string Currency);
+    string Currency,
+    /// <summary>True for cash-register receipts (pokladničný blok) — detected
+    /// from eKasa markers (KP/KPEKK code, "NA ÚHRADU EUR"/"Spolu v EUR").</summary>
+    bool IsReceipt = false);
 
 public sealed record ParsedDeliveryList(
     /// <summary>e.g. "DL-100-26-015474" or null when no DL ref was found.</summary>

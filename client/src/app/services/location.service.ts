@@ -53,6 +53,9 @@ export interface LocationPnl {
   labour: { hoursWorked: number; cost: number; breakdownByEmployee: PnlLabourRow[] };
   /** Null when the MaterialPurchases flag is off for the caller. */
   material: { cost: number; breakdownByMaterial: PnlMaterialRow[] } | null;
+  /** Invoice money assigned to the location (s DPH, any status except
+   *  discarded). Only filled by the pnl-summary endpoint. */
+  invoicedInclVat?: number | null;
   revenue: number | null;
   profit: number | null;
 }
@@ -139,6 +142,12 @@ export class LocationService {
 
   getPnl(id: number, from: string, to: string) {
     return this.http.get<LocationPnl>(`${this.url}/${id}/pnl?from=${from}&to=${to}`);
+  }
+
+  /** Cross-location spending report (wages + material per active Pracovisko)
+   *  for a date range — powers the Financie overview table. */
+  getPnlSummary(from: string, to: string) {
+    return this.http.get<LocationPnl[]>(`${this.url}/pnl-summary?from=${from}&to=${to}`);
   }
 
   updateContractValue(id: number, contractValue: number | null) {

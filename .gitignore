@@ -502,3 +502,7 @@ $RECYCLE.BIN/
 #Claude
 claude.exe
 *.exe
+
+# Local scan artifacts (real customer documents — never commit)
+API/scans/
+API/rejected-scans/

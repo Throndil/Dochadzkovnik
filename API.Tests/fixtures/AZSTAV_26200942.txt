@@ -1,0 +1,92 @@
+AOZ STAV
+DÁVAME VECIAM DRUHÚ ŠANCU
+Dodávateľ':
+A-Z STAV, s.г.0.
+Biskupická 36 A
+821 06 Bratislava - mestská časť Podunajské Biskupice
+SK
+IČO: 35813393
+DIČ: 2020283815
+ICDPH: SK2020283815
+L
+L
+AZ Profistav, s. r. o.
+Tomášikova 30
+Faktúra
+26200942
+821 01 Bratislava - mestská časť Ružinov
+SK
+ㄱ
+Odberateľ'
+AZ Profistav, s. r. o.
+Tomášikova 30
+821 01 Bratislava - mestská časť Ružinov
+SK
+IČO: 47208368
+DIČ: 2023830160
+IČDPH: SK2023830160
+Faktúra ev. č.:
+OFO/2026/942
+Tento doklad je zároveň daňovým dokladom
+Dátum vystavenia:
+Dátum dodania:
+12.5.2026
+9.5.2026
+26.5.2026
+Bankovým prevodom
+26200942
+Tento symbol uvádzajte, prosím, pri platbe
+Dátum splatnosti:
+Spôsob platby:
+Variabilný symbol:
+Konštantný symbol:
+Banka:
+Účet/Kód banky:
+Zákazka:
+OFO/2026/931
+Spôsob odberu:
+Spôsob dopravy:
+Popis:
+Tatrabanka
+2625271950/1100
+Odpad 02.05. - 09.05.2026
+SWIFT:
+IBAN:
+SK75 1100 0000 0026 2527 1950
+Tovar
+Recyklované kamenivo hrubé
+(betónový recyklát) 10/22
+Množstvo
+Bez DPH/MJDaň %
+Cena bez DPH
+DPH
+Cena s DPH
+27,680 tona
+9,00 23
+249,12
+57,30
+306,42 EUR
+Základná sadzba DPH 23%
+Celkom:
+Daň %
+23
+Cena bez DPH
+249,12
+DPH Cena s DPH
+57,30
+249,12
+57,30
+306,42 EUR
+306,42 EUR
+Súpisy vážnych lístkov: OFO/2026/871
+Vystavil:
+Marianna Mihályová
+OR OS Bratislava Odiel sro, vl č. 24224/B
+A-Z STAV, s.r.o.
+Biskupická 36 A
+821 06 Bratislava
+CO: 35 813393
+CDPH: SK2020283815
+Dátum:
+Prevzal:
+Strana: 1/1

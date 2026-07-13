@@ -338,7 +338,12 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-baseline gap-2 flex-wrap">
                     <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
-                    <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
+                    @if (p.invoiceDocumentId) {
+                      <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
+                            title="Nákup vznikol zo skenovanej faktúry">faktúra</span>
+                    } @else {
+                      <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
+                    }
                     @if (p.supplierName) {
                       <span class="text-xs text-slate-500 dark:text-slate-400">· {{ p.supplierName }}</span>
                     }
@@ -511,7 +516,12 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-baseline gap-2 flex-wrap">
                     <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
-                    <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
+                    @if (p.invoiceDocumentId) {
+                      <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
+                            title="Nákup vznikol zo skenovanej faktúry">faktúra</span>
+                    } @else {
+                      <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
+                    }
                     @if (p.supplierName) {
                       <span class="text-xs text-slate-500 dark:text-slate-400">· {{ p.supplierName }}</span>
                     }

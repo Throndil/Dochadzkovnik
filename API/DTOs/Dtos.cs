@@ -299,6 +299,8 @@ public class InvoiceDocumentDto
     public decimal TotalInclVat { get; set; }
     public string PdfUrl { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    /// <summary>"invoice" | "receipt" (pokladničný blok).</summary>
+    public string DocumentKind { get; set; } = "invoice";
     public bool ReconciliationOk { get; set; }
     public string? ReconciliationNote { get; set; }
     public string UploadedBy { get; set; } = string.Empty;
@@ -311,6 +313,10 @@ public class InvoiceDocumentDto
     /// from photos taken in the in-app scanner. Drives the list-page icon.
     /// </summary>
     public string ScanSource { get; set; } = "file";
+
+    /// <summary>Distinct effective Pracovisko names across this document's
+    /// lines (line override ?? delivery list) — chips on the Faktúry list.</summary>
+    public List<string> LocationNames { get; set; } = new();
     /// <summary>Number of photos in the camera scan. Null on file uploads.</summary>
     public int? ScanPageCount { get; set; }
     public List<InvoiceDeliveryListDto> DeliveryLists { get; set; } = [];
@@ -348,6 +354,10 @@ public class InvoiceLineDto
     public decimal VatRate { get; set; }
     public bool IsReverseCharge { get; set; }
     public bool IsService { get; set; }
+    /// <summary>Per-line site override. Null = inherits the delivery list's Location.</summary>
+    public int? LocationId { get; set; }
+    /// <summary>Name of the line's own Location when overridden; null when inheriting.</summary>
+    public string? LocationName { get; set; }
 }
 
 public class UpdateInvoiceLineDto
@@ -359,8 +369,16 @@ public class UpdateInvoiceLineDto
     public decimal? UnitPrice { get; set; }
     public decimal? LineTotal { get; set; }
     public decimal? VatRate { get; set; }
+    /// <summary>Informational zľava %. 0 or negative clears it. Null = unchanged.</summary>
+    public decimal? DiscountPercent { get; set; }
     public bool? IsReverseCharge { get; set; }
     public bool? IsService { get; set; }
+    /// <summary>
+    /// Per-line site override. A positive Location.Id assigns this row to that
+    /// site; -1 / 0 clears the override so the row follows its delivery list
+    /// again. Null (omitted) leaves the current value unchanged.
+    /// </summary>
+    public int? LocationId { get; set; }
 }
 
 public class UpdateInvoiceDeliveryListDto
@@ -809,6 +827,9 @@ public class MaterialPurchaseDto
     public int? LocationId { get; set; }
     public string? LocationName { get; set; }
     public int? TimeEntryId { get; set; }
+    /// <summary>Set when this purchase came from a scanned invoice — the UI
+    /// then shows a "faktúra" badge instead of the placeholder employee.</summary>
+    public int? InvoiceDocumentId { get; set; }
     public string? SupplierName { get; set; }
     public string? ReceiptPhotoUrl { get; set; }
     public string? Note { get; set; }
@@ -1039,6 +1060,11 @@ public class LocationPnlDto
     public PnlLabourDto Labour { get; set; } = new();
     /// <summary>Null when the MaterialPurchases flag is off for the caller.</summary>
     public PnlMaterialDto? Material { get; set; }
+    /// <summary>Invoice money assigned to this location in the range, s DPH,
+    /// any document status except discarded (unlike Material, which counts
+    /// committed usages only). Computed by the pnl-summary endpoint; null on
+    /// the single-location P&amp;L.</summary>
+    public decimal? InvoicedInclVat { get; set; }
     /// <summary>= Location.ContractValue. Null when no contract is recorded.</summary>
     public decimal? Revenue { get; set; }
     /// <summary>Revenue − Labour.Cost − Material.Cost. Null when Revenue is null.</summary>

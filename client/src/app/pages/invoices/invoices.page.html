@@ -10,6 +10,12 @@
           <option value="review">Na kontrolu</option>
           <option value="committed">Uložené</option>
         </select>
+        <select [value]="typeFilter()" (change)="typeFilter.set($any($event.target).value)"
+                class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+          <option value="">Všetky typy</option>
+          <option value="invoice">Faktúry</option>
+          <option value="receipt">Bločky</option>
+        </select>
         @if (showCameraButton()) {
           <a routerLink="/admin/invoices/scan"
              class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-semibold transition-colors">
@@ -22,6 +28,12 @@
         }
         <label class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold cursor-pointer transition-colors"
                [class.opacity-50]="uploading()" [class.pointer-events-none]="uploading()">
+          @if (uploading()) {
+            <svg class="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+          }
           <span>{{ uploading() ? 'Skenujem...' : 'Nahrať faktúru' }}</span>
           <input type="file" accept="application/pdf,image/*" (change)="onFile($event)" class="hidden" [disabled]="uploading()" />
         </label>
@@ -63,8 +75,22 @@
           <tbody>
             @for (inv of filtered(); track inv.id) {
               <tr class="border-t border-slate-200 dark:border-slate-700">
-                <td class="px-4 py-3 text-slate-900 dark:text-white font-medium">{{ inv.invoiceNumber }}</td>
-                <td class="px-4 py-3 text-slate-700 dark:text-slate-200">{{ inv.supplierName }}</td>
+                <td class="px-4 py-3 text-slate-900 dark:text-white font-medium">
+                  {{ inv.invoiceNumber }}
+                  @if (inv.documentKind === 'receipt') {
+                    <span class="ml-1 inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300">Bloček</span>
+                  }
+                </td>
+                <td class="px-4 py-3 text-slate-700 dark:text-slate-200">
+                  {{ inv.supplierName }}
+                  @if (inv.locationNames?.length) {
+                    <div class="flex flex-wrap gap-1 mt-1">
+                      @for (n of inv.locationNames; track n) {
+                        <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">{{ n }}</span>
+                      }
+                    </div>
+                  }
+                </td>
                 <td class="px-4 py-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{ inv.issueDate | date:'dd.MM.yyyy' }}</td>
                 <td class="px-4 py-3 text-right font-semibold text-slate-900 dark:text-white tabular-nums whitespace-nowrap">{{ formatMoney(inv.totalInclVat) }} €</td>
                 <td class="px-4 py-3">
@@ -77,9 +103,18 @@
                     <span class="text-xs text-red-600 dark:text-red-400 font-medium">Nesedia</span>
                   }
                 </td>
-                <td class="px-4 py-3 text-right">
+                <td class="px-4 py-3 text-right whitespace-nowrap">
                   <a [routerLink]="['/admin/invoices', inv.id]"
                      class="text-amber-500 hover:text-amber-400 text-sm font-medium">Otvoriť</a>
+                  <button type="button" (click)="deleting.set(inv)" title="Vymazať faktúru"
+                          class="ml-3 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 align-middle transition-colors">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                      <line x1="10" y1="11" x2="10" y2="17"></line>
+                      <line x1="14" y1="11" x2="14" y2="17"></line>
+                    </svg>
+                  </button>
                 </td>
               </tr>
             }
@@ -100,22 +135,50 @@
       <!-- Mobile cards -->
       <div class="sm:hidden space-y-3">
         @for (inv of filtered(); track inv.id) {
-          <a [routerLink]="['/admin/invoices', inv.id]"
-             class="block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-            <div class="flex justify-between items-start">
-              <div class="min-w-0">
-                <div class="font-medium text-slate-900 dark:text-white truncate">{{ inv.invoiceNumber }}</div>
-                <div class="text-sm text-slate-500 dark:text-slate-400 truncate">{{ inv.supplierName }}</div>
-                <div class="text-xs text-slate-500 mt-1">{{ inv.issueDate | date:'dd.MM.yyyy' }}</div>
+          <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+            <a [routerLink]="['/admin/invoices', inv.id]" class="block">
+              <div class="flex justify-between items-start">
+                <div class="min-w-0">
+                  <div class="font-medium text-slate-900 dark:text-white truncate">
+                    {{ inv.invoiceNumber }}
+                    @if (inv.documentKind === 'receipt') {
+                      <span class="ml-1 inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300">Bloček</span>
+                    }
+                  </div>
+                  <div class="text-sm text-slate-500 dark:text-slate-400 truncate">{{ inv.supplierName }}</div>
+                  <div class="text-xs text-slate-500 mt-1">{{ inv.issueDate | date:'dd.MM.yyyy' }}</div>
+                  @if (inv.locationNames?.length) {
+                    <div class="flex flex-wrap gap-1 mt-1">
+                      @for (n of inv.locationNames; track n) {
+                        <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">{{ n }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+                <div class="text-right shrink-0 ml-3">
+                  <div class="font-semibold text-slate-900 dark:text-white tabular-nums">{{ formatMoney(inv.totalInclVat) }} €</div>
+                  <span [class]="statusClass(inv.status)" class="inline-block text-xs font-medium px-2 py-0.5 rounded-full mt-1">{{ statusLabel(inv.status) }}</span>
+                </div>
               </div>
-              <div class="text-right shrink-0 ml-3">
-                <div class="font-semibold text-slate-900 dark:text-white tabular-nums">{{ formatMoney(inv.totalInclVat) }} €</div>
-                <span [class]="statusClass(inv.status)" class="inline-block text-xs font-medium px-2 py-0.5 rounded-full mt-1">{{ statusLabel(inv.status) }}</span>
-              </div>
+            </a>
+            <div class="flex justify-end gap-4 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
+              <a [routerLink]="['/admin/invoices', inv.id]" class="text-amber-500 text-sm font-medium">Otvoriť</a>
+              <button type="button" (click)="deleting.set(inv)"
+                      class="text-sm font-medium text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400">Vymazať</button>
             </div>
-          </a>
+          </div>
         }
       </div>
     }
+
+    <!-- Delete-confirm modal -->
+    <app-modal
+      [open]="!!deleting()"
+      variant="danger"
+      title="Vymazať doklad"
+      [message]="deleteMessage()"
+      confirmLabel="Vymazať"
+      (confirm)="confirmDelete()"
+      (cancel)="deleting.set(null)" />
   </div>
 </div>

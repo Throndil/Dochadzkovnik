@@ -214,6 +214,14 @@ export class InvoiceCameraPage implements OnDestroy {
   // ─── Pages-list operations ────────────────────────────────────
 
   goAddAnother() {
+    // "Pridať ďalšiu stranu" can be pressed when no camera stream exists
+    // (PC / file-picker flow) — jumping to the streaming state would show a
+    // dead black preview. Start the camera properly; on failure the error
+    // state offers the file-picker fallback.
+    if (!this.stream) {
+      this.startCamera();
+      return;
+    }
     this.state.set('streaming');
   }
 
@@ -247,17 +255,21 @@ export class InvoiceCameraPage implements OnDestroy {
 
   async onFallbackFiles(event: Event) {
     const input = event.target as HTMLInputElement;
-    const fileList = input.files;
-    if (!fileList || fileList.length === 0) return;
+    // FileList is LIVE in Chrome: resetting input.value empties a previously
+    // captured reference too, so the loop below would see zero files and the
+    // page would land on "Naskenované strany: 0" with nothing sent. Snapshot
+    // the File objects into a real array BEFORE clearing the input.
+    const files = Array.from(input.files ?? []);
     input.value = '';
+    if (files.length === 0) return;
 
     // Normalise each (HEIC → PNG, anything else passes through), then run the
     // same auto-crop as live captures. Detection is best-effort per image —
     // a photo where no page is found keeps its normalised original.
     this.processing.set(true);
     const accepted: { id: number; blob: Blob; thumbUrl: string }[] = [];
-    for (let i = 0; i < fileList.length; i++) {
-      const normalised = await normaliseFile(fileList.item(i)!);
+    for (let i = 0; i < files.length; i++) {
+      const normalised = await normaliseFile(files[i]);
       let blob: Blob = normalised;
       if (this.autoCropEnabled()) {
         try {

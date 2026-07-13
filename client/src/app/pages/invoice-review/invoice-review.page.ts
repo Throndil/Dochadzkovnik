@@ -51,6 +51,41 @@ export class InvoiceReviewPage implements OnInit {
    *  Only discarded invoices are fully read-only. */
   isLocationEditable = computed(() => this.invoice()?.status !== 'discarded');
 
+  /** The issue date stays correctable even after commit — the API cascades
+   *  the change to inherited purchase/usage dates, so a mis-dated document
+   *  can be moved to the right month without re-uploading. */
+  isDateEditable = computed(() => this.invoice()?.status !== 'discarded');
+
+  /** Supplier name stays correctable even after commit — OCR sometimes reads
+   *  a logo or stamp instead of the printed company. */
+  isSupplierEditable = computed(() => this.invoice()?.status !== 'discarded');
+
+  /** Where this document's money went: line totals grouped by the EFFECTIVE
+   *  location (line override ?? delivery list ?? Sklad/Inventár). Rendered
+   *  as chips in the header for a quick glance — both bez DPH and s DPH. */
+  locationBreakdown = computed(() => {
+    const inv = this.invoice();
+    if (!inv) return [];
+    const sums = new Map<string, { excl: number; incl: number }>();
+    for (const dl of inv.deliveryLists) {
+      for (const l of dl.lines) {
+        const name = l.locationName ?? dl.locationName ?? 'Sklad / Inventár';
+        const acc = sums.get(name) ?? { excl: 0, incl: 0 };
+        acc.excl += l.lineTotal || 0;
+        acc.incl += (l.lineTotal || 0) + this.round2((l.lineTotal || 0) * l.vatRate / 100);
+        sums.set(name, acc);
+      }
+    }
+    return [...sums.entries()]
+      .map(([name, v]) => ({ name, excl: this.round2(v.excl), incl: this.round2(v.incl) }))
+      .sort((a, b) => b.excl - a.excl);
+  });
+
+  /** Line total incl. VAT for the read-only "S DPH" column. */
+  lineTotalInclVat(line: { lineTotal: number; vatRate: number }): number {
+    return this.round2((line.lineTotal || 0) + this.round2((line.lineTotal || 0) * line.vatRate / 100));
+  }
+
   /** Holds the purchaseId of the most recently saved delivery list so the
    *  template can flash a "✓ Uložené" hint next to its Pracovisko picker.
    *  Cleared after 2 seconds. */
@@ -122,6 +157,18 @@ export class InvoiceReviewPage implements OnInit {
     }
   }
 
+  /** Per-row Pracovisko override. locationId null = "Podľa DL" (inherit) →
+   *  send -1 so the backend clears the override and the row follows its
+   *  delivery list again. A positive id pins the row to that site. */
+  async onLineLocationChange(line: InvoiceLine, locationId: number | null) {
+    try {
+      const updated = await this.svc.updateLine(this.id, line.id, { locationId: locationId ?? -1 });
+      this.invoice.set(updated);
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Priradenie pracoviska riadku zlyhalo.');
+    }
+  }
+
   private flashSavedHint(purchaseId: number) {
     this.recentlySavedDlId.set(purchaseId);
     if (this.savedHintTimer) clearTimeout(this.savedHintTimer);
@@ -159,6 +206,67 @@ export class InvoiceReviewPage implements OnInit {
       this.invoice.set(await this.svc.updatePrintedTotal(this.id, n));
     } catch (e: any) {
       this.error.set(e?.error ?? 'Úprava vytlačenej sumy zlyhala.');
+    }
+  }
+
+  /** Zľava % edited — informational only (receipt prices are already
+   *  discounted), no total recomputation. */
+  async onDiscountBlur(line: { id: number; discountPercent: number | null }, val: string) {
+    const n = val.trim() === '' ? 0 : this.parseNum(val);
+    if (n == null || n < 0 || n > 100) return;
+    if (n === (line.discountPercent ?? 0)) return;
+    try {
+      this.invoice.set(await this.svc.updateLine(this.id, line.id, { discountPercent: n }));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Úprava zľavy zlyhala.');
+    }
+  }
+
+  /** S DPH edited — receipts print GROSS per row; back-compute the net
+   *  (Spolu bez DPH) from the entered gross and the row's VAT rate. */
+  async onLineInclBlur(line: { id: number; lineTotal: number; vatRate: number }, val: string) {
+    const gross = this.parseNum(val);
+    if (gross == null || gross < 0) return;
+    const net = this.round2(gross / (1 + line.vatRate / 100));
+    if (net === line.lineTotal) return;
+    try {
+      this.invoice.set(await this.svc.updateLine(this.id, line.id, { lineTotal: net }));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Úprava sumy s DPH zlyhala.');
+    }
+  }
+
+  /** Prune a phantom/OCR-junk line during review. Instant — no modal; the
+   *  row values are visible right next to the button and the whole document
+   *  can be re-uploaded if something real gets removed by mistake. */
+  async onDeleteLine(line: { id: number }) {
+    try {
+      this.invoice.set(await this.svc.deleteLine(this.id, line.id));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Vymazanie riadku zlyhalo.');
+    }
+  }
+
+  /** Manager corrected the supplier name ("just in case" fix for OCR misreads). */
+  async onSupplierNameChange(value: string) {
+    const inv = this.invoice();
+    const name = (value || '').trim();
+    if (!inv || !name || name === inv.supplierName) return;
+    try {
+      this.invoice.set(await this.svc.updateSupplierName(this.id, name));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Úprava dodávateľa zlyhala.');
+    }
+  }
+
+  /** Manager corrected the issue date — drives the month on the Financie overview. */
+  async onIssueDateChange(iso: string) {
+    const inv = this.invoice();
+    if (!iso || !inv || iso === (inv.issueDate || '').slice(0, 10)) return;
+    try {
+      this.invoice.set(await this.svc.updateIssueDate(this.id, iso));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Úprava dátumu zlyhala.');
     }
   }
 
