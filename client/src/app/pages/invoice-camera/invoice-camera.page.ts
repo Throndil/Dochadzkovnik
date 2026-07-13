@@ -95,6 +95,10 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   private lastCaptureLowRes = false;
   /** Rate limit for the degradation watchdog's camera restarts. */
   private lastCameraRestart = 0;
+  /** Which capture flow the manager chose — "Pridať ďalšiu stranu" follows
+   *  it (live viewfinder users stay in live mode even though the camera is
+   *  released between shots; native users get the native camera again). */
+  private preferLive = false;
 
   constructor() {
     // The <video #preview> lives inside @if(state === 'streaming'), so it is
@@ -126,6 +130,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   /** Primary capture: the phone's native camera app (input[capture]).
    *  Full-res stills, native night mode/flash, zero in-tab memory. */
   openNativeCamera() {
+    this.preferLive = false;
     this.cameraInputRef()?.nativeElement.click();
   }
 
@@ -150,13 +155,12 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          // QHD, deliberately NOT 4K: the 4K camera pipeline inside a browser
-          // tab was a major part of the memory pressure that crashed phones.
-          // The live viewfinder is the secondary flow — the native camera
-          // app (input[capture]) is the primary and shoots at full sensor
-          // resolution regardless.
-          width:  { ideal: 2560 },
-          height: { ideal: 1440 }
+          // 1080p on purpose: the in-tab camera pipeline's memory scales
+          // with resolution and was crashing phones at 4K/QHD. The live
+          // viewfinder is the secondary flow — the native camera button is
+          // the primary and shoots at full sensor resolution regardless.
+          width:  { ideal: 1920 },
+          height: { ideal: 1080 }
         },
         audio: false
       });
@@ -199,6 +203,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     } as any).catch(() => {});
 
     this.startLumaSampling();
+    this.preferLive = true;
     this.state.set('streaming');
   }
 
@@ -333,6 +338,11 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
           : null
       });
       this.state.set('review-page');
+      // Release the camera during review — the live pipeline is the single
+      // biggest memory consumer in the tab, and keeping it running under
+      // the review/encode work is what crashed phones after 2 captures.
+      // Retake / next page restarts it in ~half a second.
+      this.stopStream();
     } finally {
       // The overlay must NEVER survive the shutter — whatever went wrong.
       this.processing.set(false);
@@ -464,7 +474,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     if (!sctx) return null;
 
     let best = -1;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       sctx.drawImage(video, 0, 0, small.width, small.height);
       const score = InvoiceCameraPage.tenengrad(sctx.getImageData(0, 0, small.width, small.height));
       if (score > best) {
@@ -473,7 +483,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
         full.height = video.videoHeight;
         full.getContext('2d')!.drawImage(video, 0, 0);
       }
-      if (i < 2) await new Promise(r => setTimeout(r, 140));
+      if (i < 1) await new Promise(r => setTimeout(r, 140));
     }
     return best >= 0 ? full : null;
   }
@@ -586,14 +596,19 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   // ─── Pages-list operations ────────────────────────────────────
 
   goAddAnother() {
-    // With a live in-app viewfinder, go back to it; otherwise the next page
-    // comes from the native camera app (the primary, crash-proof flow).
+    // Follow the flow the manager chose: live-viewfinder users go back to
+    // the viewfinder (re-acquired — the camera is released between shots),
+    // native-camera users get the native camera app again.
     const live = this.stream?.getVideoTracks().some(t => t.readyState === 'live') ?? false;
     if (live) {
       this.state.set('streaming');
       return;
     }
     this.stopStream();
+    if (this.preferLive) {
+      void this.startCamera();
+      return;
+    }
     this.openNativeCamera();
   }
 
