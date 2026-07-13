@@ -775,8 +775,12 @@ public sealed class InvoiceParser : IInvoiceParser
 
         // DEK súhrnná faktúra: re-derive per-line totals from the text (matched
         // per delivery list by its DL ref) to repair Document AI's scrambled
-        // price/total mapping. Keeps the reliable codes/descriptions/quantities.
-        if ((header.SupplierName ?? string.Empty).Contains("dek", StringComparison.OrdinalIgnoreCase))
+        // price/total mapping. Recognised by its delivery-list structure rather
+        // than the supplier name (adopted from master) — Document AI sometimes
+        // mislabels the buyer as the supplier on these. Safe for non-DEK
+        // invoices: it only touches delivery lists whose DL ref is found and
+        // whose arithmetic lines up.
+        if (text.Contains("za dodací list", StringComparison.OrdinalIgnoreCase))
             deliveryLists = FixDekLineTotals(deliveryLists, text, header.InvoiceNumber);
 
         return new ParsedInvoice(header, deliveryLists);
