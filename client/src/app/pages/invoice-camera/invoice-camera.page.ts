@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnDestroy, signal, viewChild, inject } from '@angular/core';
+import { Component, ElementRef, OnDestroy, effect, signal, viewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
@@ -72,6 +72,24 @@ export class InvoiceCameraPage implements OnDestroy {
   private nextPageId = 1;
   private stream: MediaStream | null = null;
 
+  constructor() {
+    // The <video #preview> lives inside @if(state === 'streaming'), so it is
+    // (re)created AFTER startCamera() flips the state — and again every time
+    // the manager returns from the review step. Assigning srcObject before
+    // the element existed was the phone's black-preview bug (the shutter then
+    // saw videoWidth 0 and silently did nothing). Attach the live stream
+    // whenever the element (re)appears instead.
+    effect(() => {
+      const video = this.videoRef()?.nativeElement;
+      if (!video || !this.stream) return;
+      if (video.srcObject !== this.stream) {
+        video.srcObject = this.stream;
+        // Muted + playsinline → programmatic play is allowed on iOS.
+        video.play().catch(() => {});
+      }
+    });
+  }
+
   // ─── Lifecycle ────────────────────────────────────────────────
 
   ngOnDestroy() {
@@ -100,12 +118,8 @@ export class InvoiceCameraPage implements OnDestroy {
       this.state.set('error');
       return;
     }
-    const video = this.videoRef()?.nativeElement;
-    if (video) {
-      video.srcObject = this.stream;
-      // .play() returns a promise on some browsers; ignore the result.
-      video.play().catch(() => {});
-    }
+    // The stream is attached by the constructor effect once the <video>
+    // element renders (it doesn't exist until the state flips below).
     this.state.set('streaming');
   }
 
@@ -215,10 +229,13 @@ export class InvoiceCameraPage implements OnDestroy {
 
   goAddAnother() {
     // "Pridať ďalšiu stranu" can be pressed when no camera stream exists
-    // (PC / file-picker flow) — jumping to the streaming state would show a
-    // dead black preview. Start the camera properly; on failure the error
+    // (PC / file-picker flow), or when the phone killed the track after
+    // backgrounding the browser — jumping to the streaming state would show
+    // a dead black preview. Start the camera properly; on failure the error
     // state offers the file-picker fallback.
-    if (!this.stream) {
+    const live = this.stream?.getVideoTracks().some(t => t.readyState === 'live') ?? false;
+    if (!live) {
+      this.stopStream();
       this.startCamera();
       return;
     }
