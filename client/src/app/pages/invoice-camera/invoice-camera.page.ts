@@ -141,7 +141,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
    * User-gesture trigger from the "Povoliť kameru" button. iOS Safari
    * requires the getUserMedia call to be inside a click handler.
    */
-  async startCamera(allowRetry = true) {
+  async startCamera(allowRetry = true): Promise<void> {
     this.errorMsg.set(null);
     let stream: MediaStream;
     try {
