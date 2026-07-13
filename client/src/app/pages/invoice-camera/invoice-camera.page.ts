@@ -402,13 +402,30 @@ export class InvoiceCameraPage implements OnDestroy {
     if (!ctx) return null;
     ctx.drawImage(source as CanvasImageSource, cx, cy, cw, ch, 0, 0, canvas.width, canvas.height);
     if (source instanceof ImageBitmap) source.close();
+    // iOS Safari has a hard canvas-memory budget; exhausting it makes new
+    // canvases silently BLACK and toBlob return null. Release the big burst
+    // buffer immediately — it gets re-sized on the next shot anyway.
+    if (this.fullFrame) {
+      this.fullFrame.width = 0;
+      this.fullFrame.height = 0;
+    }
     // Consistency guard: below ~1500 px the small table print won't survive
     // OCR (happens with 3× digital zoom on a low-res stream) — the review
     // screen warns and nudges back to 1× + filling the guide frame.
     this.lastCaptureLowRes = Math.max(canvas.width, canvas.height) < 1500;
-    return await new Promise<Blob | null>(resolve =>
+    let blob = await new Promise<Blob | null>(resolve =>
       canvas.toBlob(b => resolve(b), 'image/jpeg', 0.95)
     );
+    if (!blob) {
+      // Encoder under memory pressure — one more try, slightly cheaper.
+      blob = await new Promise<Blob | null>(resolve =>
+        canvas.toBlob(b => resolve(b), 'image/jpeg', 0.85)
+      );
+    }
+    // Release the capture buffer too (~25 MB at 4K) — re-sized next shot.
+    canvas.width = 0;
+    canvas.height = 0;
+    return blob;
   }
 
   /**

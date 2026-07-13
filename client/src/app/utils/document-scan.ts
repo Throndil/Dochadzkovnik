@@ -128,6 +128,18 @@ function normaliseCanvasSize(src: HTMLCanvasElement): HTMLCanvasElement {
 }
 
 /**
+ * Return a canvas's backing buffer to the pool. iOS Safari has a hard
+ * canvas-memory budget — exhausting it makes new canvases silently BLACK
+ * and toBlob return null, so every big intermediate must be released the
+ * moment it's no longer needed.
+ */
+function releaseCanvas(c: HTMLCanvasElement | null | undefined): void {
+  if (!c) return;
+  c.width = 0;
+  c.height = 0;
+}
+
+/**
  * Light unsharp mask for OCR legibility: sharp = 1.6·img − 0.6·blur(σ=2).
  * Phone video frames are slightly soft (video pipeline, not the photo
  * pipeline) — this recovers the small-print edges Document AI needs without
@@ -397,25 +409,39 @@ export async function autoCropDocument(
       // BEFORE measuring and enhancing, so thresholds and the unsharp
       // radius mean the same thing on every camera.
       const result = normaliseCanvasSize(extracted);
+      if (result !== extracted) releaseCanvas(extracted);
       // Measure focus BEFORE enhancement (sharpening would inflate the
       // metric and mask genuine motion blur).
       const sharpness = laplacianSharpness(cv, result);
       flattenIllumination(cv, result);
       boostLocalContrast(cv, result);
       sharpenCanvas(cv, result);
-      return { blob: await canvasToJpeg(result, quality), cropped: true, sharpness };
+      const blob = await canvasToJpeg(result, quality);
+      releaseCanvas(result);
+      return { blob, cropped: true, sharpness };
     } finally {
       img?.delete?.();
       contour?.delete?.();
+      if (detCanvas !== srcCanvas) releaseCanvas(detCanvas);
     }
   };
 
   // Race detection against a timeout; either failure path falls back to the
   // untouched frame so a capture is never lost. detect() is wrapped so a late
   // rejection on the losing side can't become an unhandled rejection.
-  const safeDetect = detect().catch(async () => ({ blob: await original(), cropped: false }));
+  const safeDetect = detect()
+    .catch(async () => ({ blob: await original(), cropped: false }))
+    // If even the fallback encode fails (e.g. srcCanvas already released
+    // because the race settled long ago), swallow it — the result of a
+    // losing branch is never observed.
+    .catch(() => ({ blob: new Blob([], { type: 'image/jpeg' }), cropped: false }));
   const timeout = new Promise<AutoCropResult>(resolve =>
-    setTimeout(() => void original().then(blob => resolve({ blob, cropped: false })), SCAN_TIMEOUT_MS)
+    setTimeout(() => void original().then(blob => resolve({ blob, cropped: false })).catch(() => { /* raced out */ }), SCAN_TIMEOUT_MS)
   );
-  return Promise.race([safeDetect, timeout]);
+  const out = await Promise.race([safeDetect, timeout]);
+  // We own srcCanvas only when we created it from a Blob — release it then.
+  // (A late-losing detect branch may still touch it; its result is discarded
+  // and every path in it is wrapped, so the worst case is a silent no-op.)
+  if (!(source instanceof HTMLCanvasElement)) releaseCanvas(srcCanvas);
+  return out;
 }
