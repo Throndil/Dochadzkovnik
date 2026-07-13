@@ -60,13 +60,31 @@
     <!-- ── State: streaming (live preview + shutter) ──────────────── -->
     @if (state() === 'streaming') {
       <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-        <div class="relative bg-black">
-          <video #preview autoplay playsinline muted class="w-full max-h-[70dvh] object-contain"></video>
+        <div class="relative bg-black flex justify-center">
+          <!-- Document-shaped 3:4 viewfinder: no letterbox bars, and the
+               capture crops to exactly this region (WYSIWYG framing). -->
+          <div class="relative h-[70dvh] max-w-full aspect-[3/4] overflow-hidden">
+            <video #preview autoplay playsinline muted
+                   class="absolute inset-0 w-full h-full object-cover"
+                   [style.transform]="zoomNative() || zoom() === 1 ? null : 'scale(' + zoom() + ')'"></video>
+          </div>
           @if (pages().length > 0) {
             <div class="absolute top-2 left-2 px-2 py-1 rounded-md bg-black/60 text-xs">
               Strana {{ pages().length + 1 }}
             </div>
           }
+          <!-- Zoom: native camera zoom where the browser supports it,
+               otherwise digital (preview scales, capture crops the same). -->
+          <div class="absolute bottom-2 right-2 flex gap-1">
+            @for (z of zoomLevels; track z) {
+              <button type="button" (click)="setZoom(z)"
+                      class="touch-target px-2.5 py-1 rounded-full text-xs font-semibold transition-colors"
+                      [class.bg-amber-500]="zoom() === z"
+                      [class.text-white]="zoom() === z"
+                      [class.bg-black/60]="zoom() !== z"
+                      [class.text-slate-200]="zoom() !== z">{{ z }}×</button>
+            }
+          </div>
           @if (processing()) {
             <div class="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-3 text-sm">
               <app-spinner />

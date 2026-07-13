@@ -63,6 +63,16 @@ export class InvoiceCameraPage implements OnDestroy {
   processing = signal(false);
 
   /**
+   * Viewfinder zoom. Native camera zoom (applyConstraints) is used where the
+   * browser supports it — the stream itself zooms, full sensor detail. Where
+   * it isn't (older iOS), we fall back to digital zoom: the preview scales
+   * via CSS and grabStill() crops the identical region, so WYSIWYG holds.
+   */
+  readonly zoomLevels = [1, 2, 3];
+  zoom = signal(1);
+  zoomNative = signal(false);
+
+  /**
    * Manager's auto-crop preference, remembered across captures. Starts on so
    * scans are cleaned by default; flipping the review-page toggle persists the
    * choice for subsequent pages.
@@ -127,7 +137,26 @@ export class InvoiceCameraPage implements OnDestroy {
     }
     // The stream is attached by the constructor effect once the <video>
     // element renders (it doesn't exist until the state flips below).
+    this.zoom.set(1);
+    this.zoomNative.set(false);
     this.state.set('streaming');
+  }
+
+  /** 1× / 2× / 3× buttons — native track zoom when available, else digital. */
+  async setZoom(z: number) {
+    this.zoom.set(z);
+    const track = this.stream?.getVideoTracks()[0];
+    const caps: any = track?.getCapabilities?.();
+    if (track && caps?.zoom && z >= (caps.zoom.min ?? 1) && z <= caps.zoom.max) {
+      try {
+        await track.applyConstraints({ advanced: [{ zoom: z } as any] } as any);
+        this.zoomNative.set(true);
+        return;
+      } catch {
+        // Constraint rejected — fall through to digital zoom.
+      }
+    }
+    this.zoomNative.set(false);
   }
 
   private stopStream() {
@@ -194,25 +223,52 @@ export class InvoiceCameraPage implements OnDestroy {
    * scans are never compressed beyond that.
    */
   private async grabStill(): Promise<Blob | null> {
+    // 1) Full-resolution source frame. Android Chrome: the still-photo
+    //    pipeline. iOS: the (high-res) live video frame.
+    let source: ImageBitmap | HTMLVideoElement | null = null;
+    let sw = 0;
+    let sh = 0;
     const track = this.stream?.getVideoTracks()[0] ?? null;
     if (track && 'ImageCapture' in window) {
       try {
-        return await new (window as any).ImageCapture(track).takePhoto();
+        const photo: Blob = await new (window as any).ImageCapture(track).takePhoto();
+        source = await createImageBitmap(photo);
+        sw = source.width;
+        sh = source.height;
       } catch {
-        // Some devices reject takePhoto mid-stream — use the frame grab.
+        source = null;   // some devices reject takePhoto mid-stream
       }
     }
-    const video = this.videoRef()?.nativeElement;
+    if (!source) {
+      const video = this.videoRef()?.nativeElement;
+      if (!video || !video.videoWidth) return null;   // stream not ready
+      source = video;
+      sw = video.videoWidth;
+      sh = video.videoHeight;
+    }
+
+    // 2) Crop to what the viewfinder showed: centre 3:4 cover region,
+    //    tightened by the digital-zoom factor. Native zoom is already baked
+    //    into the frame, so no extra crop for it.
+    const zoomF = this.zoomNative() ? 1 : this.zoom();
+    const targetAspect = 3 / 4;
+    let cw = sw;
+    let ch = sh;
+    if (cw / ch > targetAspect) cw = ch * targetAspect;
+    else ch = cw / targetAspect;
+    cw /= zoomF;
+    ch /= zoomF;
+    const cx = (sw - cw) / 2;
+    const cy = (sh - ch) / 2;
+
     const canvas = this.canvasRef()?.nativeElement;
-    if (!video || !canvas) return null;
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    if (!w || !h) return null;     // stream not ready
-    canvas.width = w;
-    canvas.height = h;
+    if (!canvas) return null;
+    canvas.width = Math.round(cw);
+    canvas.height = Math.round(ch);
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, w, h);
+    ctx.drawImage(source as CanvasImageSource, cx, cy, cw, ch, 0, 0, canvas.width, canvas.height);
+    if (source instanceof ImageBitmap) source.close();
     return await new Promise<Blob | null>(resolve =>
       canvas.toBlob(b => resolve(b), 'image/jpeg', 0.95)
     );
