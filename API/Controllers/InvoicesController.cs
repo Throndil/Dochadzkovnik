@@ -1596,4 +1596,184 @@ public class InvoicesController : ControllerBase
 
         var dto = BuildSummaryDto(doc);
         dto.DeliveryLists = doc.Purchases
-            .Order
+            .OrderBy(p => p.Id)
+            .Select(p => new InvoiceDeliveryListDto
+            {
+                Id               = p.Id,
+                DeliveryNoteRef  = p.DeliveryNoteRef,
+                PurchaseDate     = p.PurchaseDate,
+                PickedUpBy       = p.PickedUpBy,
+                DeliveryNote     = p.DeliveryNote,
+                LocationId       = p.LocationId,
+                LocationName     = p.Location?.Name,
+                SubtotalExclVat  = p.SubtotalExclVat,
+                SubtotalVat      = p.SubtotalVat,
+                Lines = p.Lines
+                    .OrderBy(l => l.Id)
+                    .Select(l => new InvoiceLineDto
+                    {
+                        Id               = l.Id,
+                        PurchaseId       = l.PurchaseId,
+                        SupplierItemCode = l.SupplierItemCode,
+                        MaterialNameRaw  = l.MaterialNameRaw,
+                        Unit             = l.Unit,
+                        Quantity         = l.Quantity,
+                        UnitPrice        = l.UnitPrice,
+                        LineTotal        = l.LineTotal,
+                        ListPriceExclVat = l.ListPriceExclVat,
+                        DiscountPercent  = l.DiscountPercent,
+                        UnitPriceInclVat = l.UnitPriceInclVat,
+                        VatRate          = l.VatRate,
+                        IsReverseCharge  = l.IsReverseCharge,
+                        IsService        = l.IsService,
+                        LocationId       = l.LocationId,
+                        LocationName     = l.Location?.Name
+                    })
+                    .ToList()
+            })
+            .ToList();
+        return dto;
+    }
+
+    private static InvoiceDocumentDto BuildSummaryDto(InvoiceDocument d) => new()
+    {
+        Id                 = d.Id,
+        InvoiceNumber      = d.InvoiceNumber,
+        SupplierName       = d.SupplierName,
+        SupplierIco        = d.SupplierIco,
+        SupplierIcDph      = d.SupplierIcDph,
+        SupplierIban       = d.SupplierIban,
+        IssueDate          = d.IssueDate,
+        DeliveryDate       = d.DeliveryDate,
+        DueDate            = d.DueDate,
+        PeriodFrom         = d.PeriodFrom,
+        PeriodTo           = d.PeriodTo,
+        Currency           = d.Currency,
+        TotalExclVat       = d.TotalExclVat,
+        TotalVat           = d.TotalVat,
+        TotalInclVat       = d.TotalInclVat,
+        PdfUrl             = d.PdfUrl,
+        Status             = d.Status,
+        DocumentKind       = d.DocumentKind,
+        ReconciliationOk   = d.ReconciliationOk,
+        ReconciliationNote = d.ReconciliationNote,
+        UploadedBy         = d.UploadedBy,
+        UploadedAt         = d.UploadedAt,
+        CommittedBy        = d.CommittedBy,
+        CommittedAt        = d.CommittedAt,
+        Note               = d.Note,
+        ScanSource         = d.ScanSource,
+        ScanPageCount      = d.ScanPageCount,
+        // Effective locations this document's lines were assigned to (line
+        // override ?? delivery list). Shown as chips on the Faktúry list so
+        // the manager sees at a glance where the money went. Empty when the
+        // navigations weren't loaded by the caller.
+        LocationNames = d.Purchases
+            .SelectMany(p => p.Lines.Select(l => l.Location?.Name ?? p.Location?.Name))
+            .Where(n => n != null)
+            .Select(n => n!)
+            .Distinct()
+            .OrderBy(n => n)
+            .ToList()
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Helpers
+    // ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Try to map an invoice's <c>prevzal:</c> text onto an existing
+    /// Employee. Strips Slovak honorifics ("p.", "pán", "ing.", "mgr."),
+    /// splits into tokens, diacritics-stripped + lowercased. The Employee
+    /// matches when their last name (and optionally first name) appears as
+    /// a token in the prevzal text. Returns the Employee id only when the
+    /// match is UNIQUE — ambiguity stays on the uploader so we never silently
+    /// pin a purchase to the wrong worker.
+    /// </summary>
+    private static int? MatchEmployeeFromPickedUpBy(string? prevzal, IEnumerable<Models.Employee> employees)
+    {
+        if (string.IsNullOrWhiteSpace(prevzal)) return null;
+
+        // Drop the common honorifics + punctuation, then tokenise on
+        // whitespace / dashes / dots / commas.
+        var cleaned = Regex.Replace(
+            NormalizeForMatch(prevzal),
+            @"\b(p|pan|ing|mgr|bc|dr|phdr|mudr|rndr)\.?\b",
+            " ",
+            RegexOptions.IgnoreCase);
+        var tokens = cleaned.Split(new[] { ' ', '-', '.', ',', '/', ';' },
+                                   StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => t.Length >= 2)
+            .ToHashSet();
+        if (tokens.Count == 0) return null;
+
+        var hits = new List<int>();
+        foreach (var emp in employees)
+        {
+            var first = NormalizeForMatch(emp.FirstName);
+            var last  = NormalizeForMatch(emp.LastName);
+            // Last name is the strong signal — match on that. If both names
+            // appear in the prevzal text it's a stronger hit, but a single
+            // last-name hit is enough.
+            if (!string.IsNullOrEmpty(last) && tokens.Contains(last))
+            {
+                hits.Add(emp.Id);
+            }
+        }
+        return hits.Count == 1 ? hits[0] : (int?)null;
+    }
+
+    /// <summary>Strip diacritics + lowercase for fuzzy Location matching.</summary>
+    private static string NormalizeForMatch(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var formD = s.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder();
+        foreach (var ch in formD)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+                sb.Append(ch);
+        }
+        return sb.ToString().Normalize(NormalizationForm.FormC).ToLowerInvariant().Trim();
+    }
+
+    // ─── Audit trail ───────────────────────────────────────────────
+
+    private sealed record EditRecord(string Field, string? OldValue, string? NewValue, string EditedBy, DateTime EditedAt, bool AutoCalc = false);
+
+    private static List<EditRecord> DeserializeHistory(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<EditRecord>>(json) ?? []; }
+        catch { return []; }
+    }
+
+    private static string SerializeHistory(List<EditRecord> edits)
+        => JsonSerializer.Serialize(edits);
+
+    private static void TryEdit(List<EditRecord> edits, string editor, string field, string? current, string? incoming, Action<string?> apply)
+    {
+        if (incoming == null) return;
+        var normalized = string.IsNullOrWhiteSpace(incoming) ? null : incoming.Trim();
+        if (current == normalized) return;
+        edits.Add(new EditRecord(field, current, normalized, editor, DateTime.UtcNow));
+        apply(normalized);
+    }
+
+    private static void TryEditDecimal(List<EditRecord> edits, string editor, string field, decimal current, decimal? incoming, Action<decimal> apply)
+    {
+        if (incoming == null) return;
+        var rounded = Round2(incoming.Value);
+        if (current == rounded) return;
+        edits.Add(new EditRecord(field, current.ToString(CultureInfo.InvariantCulture), rounded.ToString(CultureInfo.InvariantCulture), editor, DateTime.UtcNow));
+        apply(rounded);
+    }
+
+    private static void TryEditBool(List<EditRecord> edits, string editor, string field, bool current, bool? incoming, Action<bool> apply)
+    {
+        if (incoming == null) return;
+        if (current == incoming.Value) return;
+        edits.Add(new EditRecord(field, current.ToString(), incoming.Value.ToString(), editor, DateTime.UtcNow));
+        apply(incoming.Value);
+    }
+}

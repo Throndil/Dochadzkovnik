@@ -2160,4 +2160,246 @@ public sealed class InvoiceParser : IInvoiceParser
         DateTime? Date, decimal? SubExclVat, decimal? SubVat,
         decimal DefaultVatRate, bool HasReverseCharge);
 
-    private
+    private DlMeta ParseDeliveryListMeta(string body)
+    {
+        // The first "DL-XXX" token after "za dodací list" is the DL ref.
+        var dlRefMatch = Regex.Match(body, @"za\s+dodací\s+list\s+([A-Z0-9\-]+)", RegexOptions.IgnoreCase);
+        var dlRef = dlRefMatch.Success ? dlRefMatch.Groups[1].Value : null;
+
+        var akcia   = AkciaRx.Match(body).Groups[1].Value.OrNull()?.Trim().TrimEnd('|').Trim();
+        // "akcia: ." sentinel → null
+        if (akcia == "." || akcia == "-") akcia = null;
+
+        var prevzal = PrevzalRx.Match(body).Groups[1].Value.OrNull()?.Trim().TrimEnd('|').Trim();
+        var pozn    = PoznDlRx.Match(body).Groups[1].Value.OrNull()?.Trim();
+        var date    = ParseSkDate(DlDateRx.Match(body).Groups[1].Value);
+
+        decimal? subExclVat = null;
+        decimal? subVat     = null;
+        decimal defaultVatRate = 23m;
+        bool hasReverseCharge = false;
+
+        // Subtotal pattern: "základ DPH 23% 751,25 EUR | DPH 23% 172,79 EUR"
+        // Multiple rates can appear on the same line; sum them.
+        foreach (Match m in SubtotalRx.Matches(body))
+        {
+            var rate    = decimal.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+            var baseAmt = SlovakNumberHelper.TryParse(m.Groups[2].Value) ?? 0m;
+            var vatAmt  = SlovakNumberHelper.TryParse(m.Groups[3].Value) ?? 0m;
+            subExclVat = (subExclVat ?? 0m) + baseAmt;
+            subVat     = (subVat ?? 0m) + vatAmt;
+            if (rate == 0m) hasReverseCharge = true;
+            else defaultVatRate = rate;  // last non-zero rate wins; usually 23
+        }
+
+        return new DlMeta(dlRef, akcia, prevzal, pozn, date, subExclVat, subVat, defaultVatRate, hasReverseCharge);
+    }
+
+    // ─── Line-item mapper ──────────────────────────────────────────
+
+    private static ParsedLine MapLineItem(
+        DocumentAiEntity li,
+        decimal defaultVat,
+        bool segmentHasReverseCharge,
+        string text,
+        int rowStart,
+        int rowEnd)
+    {
+        // Document AI line_item nested property keys we expect:
+        //   line_item/description, line_item/quantity, line_item/unit_price,
+        //   line_item/amount, line_item/product_code
+        string? descr      = Prop(li, "description") ?? li.MentionText;
+        string? supplierCd = Prop(li, "product_code");
+        decimal? quantity  = SlovakNumberHelper.TryParse(Prop(li, "quantity"));
+        decimal? aiUnitPrice = SlovakNumberHelper.TryParse(Prop(li, "unit_price"));
+        decimal? aiAmount  = SlovakNumberHelper.TryParse(Prop(li, "amount"));
+        string? unit       = Prop(li, "unit");
+
+        bool isService = descr != null &&
+            (descr.Contains("Prenájom", StringComparison.OrdinalIgnoreCase)
+             || descr.Contains("Zľava", StringComparison.OrdinalIgnoreCase));
+
+        // Try the text-based 5-column extractor first — it's far more reliable
+        // than Document AI's per-row column mapping on SK construction invoices.
+        // Falls back to Document AI's values when the regex doesn't match.
+        decimal? listPrice = null;
+        decimal? discountPercent = null;
+        decimal? unitPriceExcl = aiUnitPrice;
+        decimal? unitPriceIncl = null;
+        decimal? lineTotal = aiAmount;
+
+        var rowPrices = ExtractRowPrices(text, rowStart, rowEnd);
+        if (rowPrices.HasValue)
+        {
+            listPrice       = rowPrices.Value.list;
+            discountPercent = rowPrices.Value.discount;
+            unitPriceExcl   = rowPrices.Value.postExcl;
+            unitPriceIncl   = rowPrices.Value.postIncl;
+            lineTotal       = rowPrices.Value.total;
+        }
+
+        // Detect reverse-charge (prenesenie daňovej povinnosti → 0% VAT). The
+        // "**" marker is authoritative when Document AI keeps it, but it usually
+        // strips the prefix — which is why relying on it alone (or on a hardcoded
+        // product name) misclassified other reverse-charge items and broke the
+        // cent-level reconciliation. The format-independent signal is the price
+        // row itself: a reverse-charge line has no VAT uplift, so "cena po zľave
+        // s DPH" equals "cena po zľave bez DPH". Only trust that inside a segment
+        // whose printed subtotal actually carries a 0% rate, so a 1-cent rounding
+        // coincidence on a normal line can't misfire.
+        bool noVatUplift = rowPrices.HasValue
+                           && Math.Abs(rowPrices.Value.postIncl - rowPrices.Value.postExcl) <= 0.01m;
+        bool isReverse = (descr?.Contains("**") ?? false)
+                         || (supplierCd?.Contains("**") ?? false)
+                         || (segmentHasReverseCharge && noVatUplift);
+
+        var vatRate = isReverse ? 0m : defaultVat;
+
+        var codeClean = supplierCd?.Trim().TrimStart('*').Trim();
+        var descClean = DedupRepeatedDescription((descr ?? "").Trim().TrimStart('*').Trim());
+        // Receipts: the PLU alone often arrives as the whole "description"
+        // (PRESPOR "7760332") — that's a code, not a name. Keep it as the
+        // item code; the name stays blank for the manager to fill in.
+        if (descClean.Length > 0 && descClean.Any(char.IsDigit) && !descClean.Any(char.IsLetter))
+        {
+            codeClean ??= descClean;
+            descClean = "";
+        }
+
+        return new ParsedLine(
+            SupplierItemCode: codeClean,
+            Description: descClean,
+            Quantity: quantity,
+            Unit: unit,
+            ListPriceExclVat: listPrice,
+            DiscountPercent: discountPercent,
+            UnitPriceExclVat: unitPriceExcl,
+            UnitPriceInclVat: unitPriceIncl,
+            LineTotalExclVat: lineTotal,
+            VatRate: vatRate,
+            IsReverseCharge: isReverse,
+            IsService: isService,
+            Confidence: li.Confidence);
+    }
+
+    // ─── Helpers ───────────────────────────────────────────────────
+
+    private static DocumentAiEntity? FindEntity(IReadOnlyList<DocumentAiEntity> entities, string type)
+        => entities.FirstOrDefault(e => e.Type == type);
+
+    private static string? Prop(DocumentAiEntity li, string suffix)
+        => li.Properties.FirstOrDefault(p => p.Type.EndsWith("/" + suffix, StringComparison.Ordinal))?.MentionText;
+
+    private static DateTime? ParseSkDate(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        // SK invoices use d.M.yyyy or dd.MM.yyyy.
+        var formats = new[] { "d.M.yyyy", "dd.MM.yyyy", "d.MM.yyyy", "dd.M.yyyy" };
+        if (DateTime.TryParseExact(s.Trim(), formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+            return d;
+        return null;
+    }
+
+    private static DateTime? ParseEntityDate(IReadOnlyList<DocumentAiEntity> entities, string type)
+    {
+        var raw = FindEntity(entities, type)?.NormalizedValue ?? FindEntity(entities, type)?.MentionText;
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        // Document AI returns dates in ISO (YYYY-MM-DD) when normalized.
+        if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var d))
+            return d;
+        return ParseSkDate(raw);
+    }
+
+    /// <summary>
+    /// Find the next occurrence of a line_item entity's identifying token in
+    /// the document text. When the product_code repeats across delivery
+    /// lists (e.g. PN10010 appears 4× on the DEK invoice, SECA lata
+    /// 3020200254 appears 2×), we disambiguate by ALSO matching the
+    /// description prefix near the code. Returns -1 when no match is found
+    /// at or after the cursor.
+    /// </summary>
+    private static int FindNextOffset(DocumentAiEntity e, string text, int fromIndex)
+    {
+        if (string.IsNullOrEmpty(text) || fromIndex >= text.Length) return -1;
+
+        var code = e.Properties.FirstOrDefault(p => p.Type.EndsWith("/product_code", StringComparison.Ordinal))?.MentionText?.Trim();
+        // Anchor marker: the description property, or — when the OCR
+        // fragmented the row and this piece carries none (e.g. a bare
+        // "27,680 tona" quantity fragment on the A-Z STAV photo scan) — the
+        // entity's own mention text. Without a marker the line would be
+        // silently dropped.
+        var descrRaw = e.Properties.FirstOrDefault(p => p.Type.EndsWith("/description", StringComparison.Ordinal))?.MentionText
+                       ?? e.MentionText;
+        // Use a short description marker — the OCR'd description might be
+        // duplicated (PS01090 case) so take the first 12 chars only.
+        var descrMarker = (descrRaw ?? "").Trim();
+        if (descrMarker.Length > 12) descrMarker = descrMarker[..12];
+
+        // 1) Combined: find a product_code whose description appears within
+        //    ~200 chars after it. This is the strongest signal — disambiguates
+        //    duplicate product codes (PN10010 across 4 delivery lists).
+        if (!string.IsNullOrEmpty(code) && descrMarker.Length >= 5)
+        {
+            int searchFrom = fromIndex;
+            while (searchFrom < text.Length)
+            {
+                var codeIdx = text.IndexOf(code, searchFrom, StringComparison.Ordinal);
+                if (codeIdx < 0) break;
+                var windowEnd = Math.Min(text.Length, codeIdx + code.Length + 250);
+                var window = text.Substring(codeIdx, windowEnd - codeIdx);
+                if (window.Contains(descrMarker, StringComparison.Ordinal))
+                    return codeIdx;
+                searchFrom = codeIdx + 1;
+            }
+        }
+
+        // 2) Plain product_code search.
+        if (!string.IsNullOrEmpty(code))
+        {
+            var idx = text.IndexOf(code, fromIndex, StringComparison.Ordinal);
+            if (idx >= 0) return idx;
+        }
+
+        // 3) Description prefix.
+        if (descrMarker.Length >= 5)
+        {
+            var idx = text.IndexOf(descrMarker, fromIndex, StringComparison.Ordinal);
+            if (idx >= 0) return idx;
+        }
+
+        // Nothing at or after the cursor. Document AI's entity order doesn't
+        // always follow reading order — a fragment whose text sits BEFORE an
+        // already-anchored entity would be dropped entirely (A-Z STAV
+        // 26200942: the name fragment precedes the quantity fragment). Retry
+        // once from the top of the document.
+        if (fromIndex > 0) return FindNextOffset(e, text, 0);
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Document AI occasionally returns a line_item's description with the
+    /// text repeating itself (the PS01090 row on the DEK invoice came back
+    /// as "Zľava z prenájmu - bonus Požičovňa Zľava z prenájmu - bonus
+    /// Požičovňa"). Detect by looking for the first 12 chars reappearing
+    /// later and truncate at that point.
+    /// </summary>
+    private static string DedupRepeatedDescription(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s ?? "";
+        var t = s.Trim();
+        if (t.Length < 24) return t;
+        var marker = t[..Math.Min(12, t.Length / 2)];
+        if (marker.Length < 5) return t;
+        var second = t.IndexOf(marker, marker.Length, StringComparison.Ordinal);
+        if (second > 0 && second < t.Length)
+            return t[..second].TrimEnd();
+        return t;
+    }
+}
+
+internal static class StringExtensions
+{
+    public static string? OrNull(this string? s)
+        => string.IsNullOrWhiteSpace(s) ? null : s;
+}

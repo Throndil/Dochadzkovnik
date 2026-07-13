@@ -1051,4 +1051,80 @@ public class LocationsController : ControllerBase
             .OrderByDescending(r => r.Cost)
             .ToList();
 
-        var
+        var labour = new PnlLabourDto
+        {
+            HoursWorked         = labourRows.Sum(r => r.Hours),
+            Cost                = labourRows.Sum(r => r.Cost),
+            BreakdownByEmployee = labourRows
+        };
+
+        // ── Material: same unified view as the Spotreba materiálu panel
+        // (real MaterialUsage rows at UnitPriceAtTime + purchase-line
+        // syntheses). Null when the MaterialPurchases flag is off for the
+        // caller — the card then hides the row per plan §(g).
+        PnlMaterialDto? material = null;
+        var materialsOn = User.HasClaim("isSuperAdmin", "true")
+            || await _db.FeatureFlags.AnyAsync(ff => ff.Key == "MaterialPurchases" && ff.Enabled);
+        if (materialsOn)
+        {
+            var matEntries = await BuildUnifiedMaterialEntriesAsync(id, f, t);
+            var matRows = matEntries
+                .GroupBy(e => new { e.MaterialId, e.MaterialName, e.Unit })
+                .Select(g =>
+                {
+                    var qty  = g.Sum(x => x.Quantity);
+                    var cost = g.Sum(x => x.LineCost);
+                    return new PnlMaterialRowDto
+                    {
+                        MaterialId   = g.Key.MaterialId,
+                        MaterialName = g.Key.MaterialName,
+                        Unit         = g.Key.Unit,
+                        Quantity     = qty,
+                        AvgUnitPrice = qty == 0m ? null : Math.Round(cost / qty, 4, MidpointRounding.AwayFromZero),
+                        Cost         = Math.Round(cost, 2, MidpointRounding.AwayFromZero)
+                    };
+                })
+                .OrderByDescending(r => r.Cost)
+                .ToList();
+
+            material = new PnlMaterialDto
+            {
+                Cost                = matRows.Sum(r => r.Cost),
+                BreakdownByMaterial = matRows
+            };
+        }
+
+        // ── Revenue / profit. Empty contract value → revenue "—", profit
+        // hidden (null), cost side still shown. When the material section is
+        // hidden by the flag, profit carries on without it per plan UX.
+        var revenue = loc.ContractValue;
+        decimal? profit = revenue.HasValue
+            ? revenue.Value - labour.Cost - (material?.Cost ?? 0m)
+            : null;
+
+        return new LocationPnlDto
+        {
+            Location = new PnlLocationDto { Id = loc.Id, Name = loc.Name, ContractValue = loc.ContractValue },
+            Labour   = labour,
+            Material = material,
+            Revenue  = revenue,
+            Profit   = profit
+        };
+    }
+
+    // PUT /api/locations/{id}/contract-value   body { contractValue: decimal? }
+    [HttpPut("{id}/contract-value")]
+    [RequireFeatureOrSuperAdmin("PayrollAndPnL")]
+    public async Task<ActionResult> UpdateContractValue(int id, UpdateContractValueDto dto)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        if (dto.ContractValue is decimal v && v < 0)
+            return BadRequest("Zmluvná hodnota nemôže byť záporná.");
+
+        loc.ContractValue = dto.ContractValue;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+}
