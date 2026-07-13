@@ -93,6 +93,15 @@ export interface UpdateInvoiceLinePayload {
   locationId?: number;
 }
 
+/** Scanning-pipeline health (GET /api/invoices/scan-status). */
+export interface ScanStatus {
+  /** ok | ai-only | fallback | down */
+  mode: 'ok' | 'ai-only' | 'fallback' | 'down';
+  aiConfigured: boolean;
+  /** UTC ISO time when the AI daily quota resets (fallback mode only). */
+  aiExhaustedUntil: string | null;
+}
+
 /** Manual row addition during review (scanner missed a printed row). */
 export interface AddInvoiceLinePayload {
   supplierItemCode?: string | null;
@@ -237,6 +246,27 @@ export class InvoiceService {
     return firstValueFrom(
       this.http.post<InvoiceDocument>(`${this.url}/${invoiceId}/ai-reparse`, {})
     );
+  }
+
+  /** Scanning-pipeline health for the customer-facing banners. */
+  getScanStatus(): Promise<ScanStatus> {
+    return firstValueFrom(this.http.get<ScanStatus>(`${this.url}/scan-status`));
+  }
+
+  /** Map an upload/API error to an actionable Slovak message. */
+  friendlyError(e: any, fallback: string): string {
+    if (typeof e?.error === 'string' && e.error.trim().length > 0) return e.error;
+    if (typeof e?.error?.error === 'string') return e.error.error;
+    switch (e?.status) {
+      case 0:   return 'Ste offline alebo server nie je dostupný. Skontrolujte pripojenie a skúste znova.';
+      case 401: return 'Boli ste odhlásený — prihláste sa znova.';
+      case 409: return 'Tento doklad už bol nahraný (duplicita).';
+      case 413: return 'Súbor je príliš veľký.';
+      case 429: return 'Denný limit rozpoznávania je vyčerpaný — skúste znova zajtra.';
+      case 502:
+      case 503: return 'Rozpoznávanie je momentálne nedostupné. Fotky si nechajte a skúste o pár minút.';
+      default:  return e?.message ?? fallback;
+    }
   }
 
   discard(invoiceId: number): Promise<void> {

@@ -49,6 +49,29 @@ export class MaterialsPage implements OnInit {
 
   unitPresets = ['vrece', 'kg', 'l', 'm²', 'm³', 'ks', 'bm'];
 
+  /** Katalóg display structure: ACTIVE materials grouped by jednotka
+   *  (largest groups first, items alphabetical), inactive ones collapsed
+   *  behind a counter toggle — the flat 100-row table was unusable. */
+  showInactiveCatalog = signal(false);
+  catalogGroups = computed(() => {
+    const groups = new Map<string, Material[]>();
+    for (const m of this.materials()) {
+      if (!m.isActive) continue;
+      const key = (m.unit || '—').trim().toLowerCase();
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(m);
+    }
+    return [...groups.values()]
+      .map(items => ({
+        unit: (items[0].unit || '—').trim(),
+        items: [...items].sort((a, b) => a.name.localeCompare(b.name, 'sk'))
+      }))
+      .sort((a, b) => b.items.length - a.items.length || a.unit.localeCompare(b.unit, 'sk'));
+  });
+  inactiveMaterials = computed(() =>
+    this.materials()
+      .filter(m => !m.isActive)
+      .sort((a, b) => a.name.localeCompare(b.name, 'sk')));
+
   // ─── Nákupy ──────────────────────────────────────────────────────
   purchases = signal<MaterialPurchase[]>([]);
   purchasesLoading = signal(false);

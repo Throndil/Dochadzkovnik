@@ -90,49 +90,76 @@
         Žiadne pracoviská. Pridajte prvé pracovisko pomocou tlačidla vyššie.
       </div>
     } @else {
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      @for (loc of locations(); track loc.id) {
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <!-- Clicking the image opens location detail -->
-          <a [routerLink]="['/admin/locations', loc.id]" class="block cursor-pointer">
-            @if (loc.photoUrl) {
-              <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Fotografia pracoviska" />
-            } @else {
-              <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">📍</div>
-            }
+    <!-- One card template, rendered for the active grid and (collapsed by
+         default) for the inactive section. -->
+    <ng-template #locationCard let-loc>
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <!-- Clicking the image opens location detail -->
+        <a [routerLink]="['/admin/locations', loc.id]" class="block cursor-pointer">
+          @if (loc.photoUrl) {
+            <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Fotografia pracoviska" />
+          } @else {
+            <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">📍</div>
+          }
+        </a>
+        <div class="p-4">
+          <!-- Name links to location detail (gallery + edit) -->
+          <a [routerLink]="['/admin/locations', loc.id]"
+             class="font-semibold text-lg text-slate-900 dark:text-white hover:text-amber-400 hover:underline cursor-pointer">
+            {{ loc.name }}
           </a>
-          <div class="p-4">
-            <!-- Name links to location detail (gallery + edit) -->
-            <a [routerLink]="['/admin/locations', loc.id]"
-               class="font-semibold text-lg text-slate-900 dark:text-white hover:text-amber-400 hover:underline cursor-pointer">
-              {{ loc.name }}
-            </a>
-            @if (loc.address) {
-              <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">{{ loc.address }}</p>
-            }
-            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mt-3">
-              <span [class]="loc.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
-                    class="px-2 py-1 rounded-full text-xs font-medium">
-                {{ loc.isActive ? 'Aktívne' : 'Neaktívne' }}
-              </span>
-              <div class="flex flex-wrap gap-2">
-                <a [routerLink]="['/admin/time-entries']" [queryParams]="{locationId: loc.id}"
-                   class="text-slate-400 hover:text-slate-200 text-sm font-medium">Záznamy</a>
-                <button (click)="onManage(loc)"
-                        class="text-amber-500 hover:text-amber-400 text-sm font-semibold">Spravovať</button>
-                <button (click)="onToggleActive(loc)"
-                        class="text-sm font-medium"
-                        [class]="loc.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
-                  {{ loc.isActive ? 'Deaktivovať' : 'Aktivovať' }}
-                </button>
-                <button (click)="onHardDelete(loc)"
-                        class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
-              </div>
+          @if (loc.address) {
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">{{ loc.address }}</p>
+          }
+          <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mt-3">
+            <span [class]="loc.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
+                  class="px-2 py-1 rounded-full text-xs font-medium">
+              {{ loc.isActive ? 'Aktívne' : 'Neaktívne' }}
+            </span>
+            <div class="flex flex-wrap gap-2">
+              <a [routerLink]="['/admin/time-entries']" [queryParams]="{locationId: loc.id}"
+                 class="text-slate-400 hover:text-slate-200 text-sm font-medium">Záznamy</a>
+              <button (click)="onManage(loc)"
+                      class="text-amber-500 hover:text-amber-400 text-sm font-semibold">Spravovať</button>
+              <button (click)="onToggleActive(loc)"
+                      class="text-sm font-medium"
+                      [class]="loc.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
+                {{ loc.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+              </button>
+              <button (click)="onHardDelete(loc)"
+                      class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
             </div>
           </div>
         </div>
+      </div>
+    </ng-template>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      @for (loc of activeLocations(); track loc.id) {
+        <ng-container *ngTemplateOutlet="locationCard; context: { $implicit: loc }" />
       }
     </div>
+    @if (activeLocations().length === 0) {
+      <div class="py-6 text-center text-slate-500 dark:text-slate-400">Žiadne aktívne pracoviská.</div>
+    }
+
+    @if (inactiveLocations().length > 0) {
+      <button type="button" (click)="showInactive.set(!showInactive())"
+              class="mt-6 inline-flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+        <svg class="w-4 h-4 transition-transform" [class.rotate-90]="showInactive()"
+             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+        Neaktívne pracoviská ({{ inactiveLocations().length }})
+      </button>
+      @if (showInactive()) {
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3 opacity-75">
+          @for (loc of inactiveLocations(); track loc.id) {
+            <ng-container *ngTemplateOutlet="locationCard; context: { $implicit: loc }" />
+          }
+        </div>
+      }
+    }
     }
   </div>
 </div>

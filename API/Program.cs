@@ -160,6 +160,9 @@ builder.Services.AddHttpClient<ILlmInvoiceExtractor, GeminiInvoiceExtractor>(c =
 {
     c.Timeout = TimeSpan.FromSeconds(60);
 });
+// Scanning pipeline health/quota state (AI quota exhaustion, OCR outages) —
+// singleton so the extractor writes and the scan-status endpoint reads.
+builder.Services.AddSingleton<ScanStatusService>();
 
 // App services
 builder.Services.AddScoped<ITokenService, TokenService>();

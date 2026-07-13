@@ -106,9 +106,14 @@
       @if (loading()) {
         <app-spinner />
       } @else {
-        <!-- Stacked card list — phones + narrow tablets -->
+        <!-- Stacked card list — phones + narrow tablets. Active materials
+             grouped by jednotka; inactive collapsed at the bottom. -->
         <div class="md:hidden space-y-2">
-          @for (m of materials(); track m.id) {
+          @for (g of catalogGroups(); track g.unit) {
+            <div class="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 pt-2">
+              {{ g.unit }} · {{ g.items.length }}
+            </div>
+          @for (m of g.items; track m.id) {
             <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3"
                  [class.opacity-70]="!m.isActive">
               @if (editingId() === m.id) {
@@ -183,78 +188,128 @@
                 </div>
               }
             </div>
+          }
           } @empty {
             <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
-              Žiadny materiál v katalógu.
+              Žiadny aktívny materiál v katalógu.
             </div>
+          }
+
+          <!-- Inactive: collapsed behind a counter toggle -->
+          @if (inactiveMaterials().length > 0) {
+            <button type="button" (click)="showInactiveCatalog.set(!showInactiveCatalog())"
+                    class="touch-target inline-flex items-center gap-2 pt-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+              <svg class="w-4 h-4 transition-transform" [class.rotate-90]="showInactiveCatalog()"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+              Neaktívny materiál ({{ inactiveMaterials().length }})
+            </button>
+            @if (showInactiveCatalog()) {
+              @for (m of inactiveMaterials(); track m.id) {
+                <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3 opacity-75 flex items-center justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{{ m.name }}</div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400">{{ m.unit }} · {{ formatEur(m.pricePerUnit) }}</div>
+                  </div>
+                  <div class="flex gap-3 shrink-0">
+                    <button (click)="onToggleActive(m)" class="touch-target text-green-500 hover:text-green-400 text-sm font-medium">Aktivovať</button>
+                    <button (click)="onDelete(m)" class="touch-target text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
+                  </div>
+                </div>
+              }
+            }
           }
         </div>
 
-        <!-- Table — md+ -->
-        <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <table class="w-full text-sm">
-            <thead class="bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300">
-              <tr>
-                <th class="text-left px-4 py-3 font-medium">Názov</th>
-                <th class="text-left px-4 py-3 font-medium">Jednotka</th>
-                <th class="text-right px-4 py-3 font-medium">Cena/jednotka</th>
-                <th class="text-left px-4 py-3 font-medium">Stav</th>
-                <th class="text-right px-4 py-3 font-medium">Akcie</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-              @for (m of materials(); track m.id) {
-                <tr class="text-slate-800 dark:text-slate-200">
-                  @if (editingId() === m.id) {
-                    <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.name" class="w-full px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
-                    <td class="px-4 py-2"><input type="text" [(ngModel)]="editForm.unit" class="w-32 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" /></td>
-                    <td class="px-4 py-2 text-right">
-                      <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
-                             class="w-28 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-right" />
-                    </td>
-                    <td class="px-4 py-2">
-                      <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" [(ngModel)]="editForm.isActive" class="rounded" />
-                        <span class="text-xs">Aktívny</span>
-                      </label>
-                    </td>
-                    <td class="px-4 py-2 text-right">
-                      <button (click)="saveEdit()"   class="text-green-600 hover:text-green-700 text-sm font-semibold mr-3">Uložiť</button>
-                      <button (click)="cancelEdit()" class="text-slate-500 hover:text-slate-700 text-sm">Zrušiť</button>
-                    </td>
-                  } @else {
-                    <td class="px-4 py-3 font-medium">{{ m.name }}</td>
-                    <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ m.unit }}</td>
-                    <td class="px-4 py-3 text-right tabular-nums"
-                        [class.text-amber-600]="!m.pricePerUnit"
-                        [class.dark:text-amber-400]="!m.pricePerUnit"
-                        [title]="m.pricePerUnit ? '' : 'Cena nie je nastavená — náklady budú 0 €'">
-                      {{ formatEur(m.pricePerUnit) }}
-                    </td>
-                    <td class="px-4 py-3">
-                      <span [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
-                            class="px-2 py-1 rounded-full text-xs font-medium">
-                        {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
-                      </span>
-                    </td>
-                    <td class="px-4 py-3 text-right whitespace-nowrap">
-                      <button (click)="startEdit(m)"
-                              class="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white text-sm font-medium mr-3">Upraviť</button>
-                      <button (click)="onToggleActive(m)"
-                              class="text-sm font-medium mr-3"
-                              [class]="m.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
-                        {{ m.isActive ? 'Deaktivovať' : 'Aktivovať' }}
-                      </button>
-                      <button (click)="onDelete(m)"
-                              class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
-                    </td>
-                  }
-                </tr>
-              } @empty {
-                <tr><td colspan="5" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400 italic">Žiadny materiál v katalógu.</td></tr>
-              }
-            </tbody>
-          </table>
+        <!-- md+: active materials grouped by jednotka, two group-columns.
+             The flat 100-row table was unusable for the customer. -->
+        <div class="hidden md:block space-y-4">
+          <div class="grid md:grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            @for (g of catalogGroups(); track g.unit) {
+              <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div class="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/40 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <span class="font-semibold text-slate-700 dark:text-slate-200">{{ g.unit }}</span>
+                  <span class="text-xs text-slate-500 dark:text-slate-400">{{ g.items.length }}</span>
+                </div>
+                <table class="w-full text-sm">
+                  <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    @for (m of g.items; track m.id) {
+                      <tr class="text-slate-800 dark:text-slate-200">
+                        @if (editingId() === m.id) {
+                          <td class="px-4 py-2">
+                            <div class="flex gap-2">
+                              <input type="text" [(ngModel)]="editForm.name" class="flex-1 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" />
+                              <input type="text" [(ngModel)]="editForm.unit" title="Jednotka" class="w-20 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" />
+                            </div>
+                          </td>
+                          <td class="px-4 py-2 text-right">
+                            <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
+                                   class="w-24 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-right" />
+                          </td>
+                          <td class="px-4 py-2 text-right whitespace-nowrap">
+                            <button (click)="saveEdit()"   class="text-green-600 hover:text-green-700 text-sm font-semibold mr-3">Uložiť</button>
+                            <button (click)="cancelEdit()" class="text-slate-500 hover:text-slate-700 text-sm">Zrušiť</button>
+                          </td>
+                        } @else {
+                          <td class="px-4 py-2.5 font-medium">{{ m.name }}</td>
+                          <td class="px-4 py-2.5 text-right tabular-nums w-28"
+                              [class.text-amber-600]="!m.pricePerUnit"
+                              [class.dark:text-amber-400]="!m.pricePerUnit"
+                              [title]="m.pricePerUnit ? '' : 'Cena nie je nastavená — náklady budú 0 €'">
+                            {{ formatEur(m.pricePerUnit) }}
+                          </td>
+                          <td class="px-4 py-2.5 text-right whitespace-nowrap w-56">
+                            <button (click)="startEdit(m)"
+                                    class="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white text-sm font-medium mr-3">Upraviť</button>
+                            <button (click)="onToggleActive(m)"
+                                    class="text-slate-400 hover:text-slate-200 text-sm font-medium mr-3">Deaktivovať</button>
+                            <button (click)="onDelete(m)"
+                                    class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @empty {
+              <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
+                Žiadny aktívny materiál v katalógu.
+              </div>
+            }
+          </div>
+
+          <!-- Inactive: collapsed behind a counter toggle -->
+          @if (inactiveMaterials().length > 0) {
+            <button type="button" (click)="showInactiveCatalog.set(!showInactiveCatalog())"
+                    class="inline-flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
+              <svg class="w-4 h-4 transition-transform" [class.rotate-90]="showInactiveCatalog()"
+                   viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+              Neaktívny materiál ({{ inactiveMaterials().length }})
+            </button>
+            @if (showInactiveCatalog()) {
+              <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden opacity-80">
+                <table class="w-full text-sm">
+                  <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    @for (m of inactiveMaterials(); track m.id) {
+                      <tr class="text-slate-600 dark:text-slate-300">
+                        <td class="px-4 py-2.5">{{ m.name }}</td>
+                        <td class="px-4 py-2.5 text-slate-500 dark:text-slate-400 w-24">{{ m.unit }}</td>
+                        <td class="px-4 py-2.5 text-right tabular-nums w-28">{{ formatEur(m.pricePerUnit) }}</td>
+                        <td class="px-4 py-2.5 text-right whitespace-nowrap w-48">
+                          <button (click)="onToggleActive(m)" class="text-green-500 hover:text-green-400 text-sm font-medium mr-3">Aktivovať</button>
+                          <button (click)="onDelete(m)" class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          }
         </div>
       }
     }

@@ -1,9 +1,9 @@
-import { Component, ElementRef, OnDestroy, OnInit, effect, signal, viewChild, inject } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, computed, effect, signal, viewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
-import { InvoiceService } from '../../services/invoice.service';
+import { InvoiceService, ScanStatus } from '../../services/invoice.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 /**
@@ -121,10 +121,26 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
 
   // ─── Lifecycle ────────────────────────────────────────────────
 
+  /** Pipeline health → persistent banner (quota spent / outage). */
+  scanStatus = signal<ScanStatus | null>(null);
+
+  /** Local-time label for the AI quota reset, e.g. "zajtra o 09:00". */
+  scanStatusResetLabel = computed(() => {
+    const until = this.scanStatus()?.aiExhaustedUntil;
+    if (!until) return '';
+    const d = new Date(until);
+    const time = d.toLocaleTimeString('sk-SK', { hour: '2-digit', minute: '2-digit' });
+    const today = new Date().toDateString() === d.toDateString();
+    return today ? `dnes o ${time}` : `zajtra o ${time}`;
+  });
+
   ngOnInit() {
     // Nothing to pre-start: the primary flow is the NATIVE camera via
     // input[capture] — no getUserMedia, no permission prompt, no live
     // stream in the tab. The in-app viewfinder is opt-in per visit.
+    // Do check the pipeline health so the customer sees quota/outage
+    // banners BEFORE photographing ten pages for nothing.
+    this.svc.getScanStatus().then(s => this.scanStatus.set(s)).catch(() => {});
   }
 
   /** Primary capture: the phone's native camera app (input[capture]).
@@ -699,11 +715,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
       this.stopStream();
       this.router.navigate(['/admin/invoices', doc.id]);
     } catch (e: any) {
-      const msg =
-        typeof e?.error === 'string' ? e.error :
-        typeof e?.error?.error === 'string' ? e.error.error :
-        e?.message ?? 'Odoslanie zlyhalo. Skúste znova.';
-      this.errorMsg.set(msg);
+      this.errorMsg.set(this.svc.friendlyError(e, 'Odoslanie zlyhalo. Skúste znova.'));
       this.state.set('pages-list');
     }
   }

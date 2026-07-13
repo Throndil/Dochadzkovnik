@@ -1,4 +1,5 @@
-﻿import { Component, signal, OnInit, inject } from '@angular/core';
+﻿import { Component, signal, computed, OnInit, inject } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
@@ -10,12 +11,18 @@ import { LocationManagePanelComponent } from '../../components/location-manage-p
 
 @Component({
   selector: 'app-locations',
-  imports: [NavbarComponent, RouterLink, FormsModule, LocationManagePanelComponent, SpinnerComponent],
+  imports: [NavbarComponent, RouterLink, FormsModule, LocationManagePanelComponent, SpinnerComponent, NgTemplateOutlet],
   templateUrl: './locations.page.html'
 })
 export class LocationsPage implements OnInit {
   locations = signal<Location[]>([]);
   loading = signal(true);
+
+  /** Active sites always visible; the customer's deactivated ones collapse
+   *  behind a counter toggle so the page stays scannable. */
+  showInactive = signal(false);
+  activeLocations = computed(() => this.locations().filter(l => l.isActive));
+  inactiveLocations = computed(() => this.locations().filter(l => !l.isActive));
   showForm = signal(false);
   newLocation: CreateLocation = { name: '', address: '' };
   newLocationPhoto: File | null = null;

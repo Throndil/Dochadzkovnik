@@ -40,6 +40,24 @@
       </div>
     </div>
 
+    <!-- Pipeline health banner (quota spent / outage) -->
+    @if (scanStatus(); as ss) {
+      @if (ss.mode === 'down') {
+        <div class="bg-red-100 dark:bg-red-900/60 border-2 border-red-400 dark:border-red-500 text-red-800 dark:text-red-100 p-4 rounded-xl text-sm font-semibold">
+          ⚠️ Rozpoznávanie dokladov je momentálne nedostupné. Nahrávanie zlyhá — skúste o pár minút.
+        </div>
+      } @else if (ss.mode === 'fallback') {
+        <div class="bg-amber-100 dark:bg-amber-900/40 border border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-100 p-3 rounded-xl text-sm">
+          <strong>Denný limit AI rozpoznávania je vyčerpaný</strong> — skenovanie beží v záložnom režime a fotky sa môžu rozpoznať horšie.
+          @if (scanStatusResetLabel()) { Obnoví sa {{ scanStatusResetLabel() }}. }
+        </div>
+      } @else if (ss.mode === 'ai-only') {
+        <div class="bg-amber-100 dark:bg-amber-900/40 border border-amber-400 dark:border-amber-600 text-amber-800 dark:text-amber-100 p-3 rounded-xl text-sm">
+          Záložné rozpoznávanie je dočasne nedostupné — skenovanie beží len cez AI.
+        </div>
+      }
+    }
+
     @if (uploadError()) {
       <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm">
         {{ uploadError() }}
