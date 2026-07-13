@@ -103,21 +103,29 @@ function scaleCanvas(src: HTMLCanvasElement, scale: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(src.width * scale));
   c.height = Math.max(1, Math.round(src.height * scale));
-  c.getContext('2d')!.drawImage(src, 0, 0, c.width, c.height);
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, c.width, c.height);
   return c;
 }
 
-/** Downscale so the longest edge is ≤ maxEdge (never upscales). */
-function capCanvas(src: HTMLCanvasElement, maxEdge: number): HTMLCanvasElement {
-  const edge = Math.max(src.width, src.height);
-  return edge <= maxEdge ? src : scaleCanvas(src, maxEdge / edge);
-}
-
 // Detection resolution (page-contour finding doesn't need more) and the
-// normalised output edge: every device — iPhone 4K frames, 8 MP tablet
+// normalised output band: every device — iPhone 4K frames, 8 MP tablet
 // stills — delivers the same class of scan (~250 DPI for A4) to Document AI.
+// Small crops are UPSCALED (max 2×, high-quality resampling): OCR engines
+// read 2×-upscaled small print measurably better than the original.
 const DETECT_MAX_EDGE = 1200;
 const OUTPUT_MAX_EDGE = 3000;
+const OUTPUT_MIN_EDGE = 1800;
+
+/** Bring the page into the [OUTPUT_MIN_EDGE, OUTPUT_MAX_EDGE] band. */
+function normaliseCanvasSize(src: HTMLCanvasElement): HTMLCanvasElement {
+  const edge = Math.max(src.width, src.height);
+  if (edge > OUTPUT_MAX_EDGE) return scaleCanvas(src, OUTPUT_MAX_EDGE / edge);
+  if (edge < OUTPUT_MIN_EDGE) return scaleCanvas(src, Math.min(2, OUTPUT_MIN_EDGE / edge));
+  return src;
+}
 
 /**
  * Light unsharp mask for OCR legibility: sharp = 1.6·img − 0.6·blur(σ=2).
@@ -203,6 +211,54 @@ function flattenIllumination(cv: any, canvas: HTMLCanvasElement): void {
     mean?.delete?.();
     std?.delete?.();
     out?.delete?.();
+  }
+}
+
+/**
+ * CLAHE-based local contrast boost for washed-out photos (faded thermal
+ * receipts, dim shots). Gated hard: it runs only when the page's global RMS
+ * contrast is LOW (σ < 35) — on a normal crisp scan CLAHE would amplify
+ * paper texture and hurt OCR, which is exactly what the literature warns
+ * about. Works on the luminance channel so colours survive. Best-effort.
+ */
+function boostLocalContrast(cv: any, canvas: HTMLCanvasElement): void {
+  let img: any = null;
+  let ycrcb: any = null;
+  let channels: any = null;
+  let mean: any = null;
+  let std: any = null;
+  let clahe: any = null;
+  try {
+    img = cv.imread(canvas);
+    cv.cvtColor(img, img, cv.COLOR_RGBA2RGB);
+    ycrcb = new cv.Mat();
+    cv.cvtColor(img, ycrcb, cv.COLOR_RGB2YCrCb);
+    channels = new cv.MatVector();
+    cv.split(ycrcb, channels);
+    const y = channels.get(0);
+
+    mean = new cv.Mat();
+    std = new cv.Mat();
+    cv.meanStdDev(y, mean, std);
+    const sd = std.data64F[0];
+    if (sd >= 35) { y.delete(); return; }   // contrast is fine — do nothing
+
+    clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+    clahe.apply(y, y);
+    channels.set(0, y);
+    cv.merge(channels, ycrcb);
+    cv.cvtColor(ycrcb, img, cv.COLOR_YCrCb2RGB);
+    cv.imshow(canvas, img);
+    y.delete();
+  } catch {
+    // Keep the un-boosted image.
+  } finally {
+    img?.delete?.();
+    ycrcb?.delete?.();
+    channels?.delete?.();
+    mean?.delete?.();
+    std?.delete?.();
+    clahe?.delete?.();
   }
 }
 
@@ -337,14 +393,15 @@ export async function autoCropDocument(
       if (outW < 50 || outH < 50) return { blob: await original(), cropped: false, sharpness: laplacianSharpness(cv, detCanvas) };
 
       const extracted: HTMLCanvasElement = scanner.extractPaper(srcCanvas, outW, outH, fullCorners);
-      // Normalise the page to a consistent size across devices (downscale
-      // only) BEFORE measuring and enhancing, so thresholds and the unsharp
+      // Normalise the page into a consistent size band across devices
+      // BEFORE measuring and enhancing, so thresholds and the unsharp
       // radius mean the same thing on every camera.
-      const result = capCanvas(extracted, OUTPUT_MAX_EDGE);
+      const result = normaliseCanvasSize(extracted);
       // Measure focus BEFORE enhancement (sharpening would inflate the
       // metric and mask genuine motion blur).
       const sharpness = laplacianSharpness(cv, result);
       flattenIllumination(cv, result);
+      boostLocalContrast(cv, result);
       sharpenCanvas(cv, result);
       return { blob: await canvasToJpeg(result, quality), cropped: true, sharpness };
     } finally {

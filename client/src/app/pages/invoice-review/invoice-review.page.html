@@ -58,6 +58,17 @@
               <div class="mt-1 text-xs text-red-700/80 dark:text-red-300/80">
                 Opravte pole „Vytlačené spolu" alebo ceny v riadkoch tak, aby sa súčty zhodovali. Ak je faktúra v poriadku, môžete ju uložiť aj napriek nezhode.
               </div>
+              <!-- Vision-model second opinion: replaces the draft, then the
+                   banner reports the honest verdict on the new numbers. -->
+              <button type="button" (click)="onAiReparse()" [disabled]="aiRunning()"
+                      class="touch-target mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold disabled:opacity-50">
+                @if (aiRunning()) {
+                  <app-spinner size="sm" [inline]="true" />
+                  Čítam dokument…
+                } @else {
+                  ✨ Skúsiť AI rozpoznanie
+                }
+              </button>
             }
           </div>
         }
@@ -160,8 +171,8 @@
             </div>
           </div>
 
-          <!-- Lines table -->
-          <div class="overflow-x-auto">
+          <!-- Lines table (desktop / tablet-landscape) -->
+          <div class="overflow-x-auto hidden lg:block">
             <table class="w-full text-sm">
               <thead class="bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-300">
                 <tr>
@@ -304,6 +315,168 @@
               </tfoot>
             </table>
           </div>
+
+          <!-- Lines as cards (phones / small tablets) — same handlers as the
+               table; a 12-column input row is unusable at 400 px wide. -->
+          <div class="lg:hidden divide-y divide-slate-200 dark:divide-slate-700">
+            @for (line of dl.lines; track line.id) {
+              <div class="px-4 py-3 space-y-2">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="text-sm text-slate-900 dark:text-white"
+                         [class.italic]="line.isService" [class.text-slate-500]="line.isService">{{ line.materialNameRaw }}</div>
+                    @if (line.supplierItemCode) {
+                      <div class="text-xs text-slate-500 dark:text-slate-400">{{ line.supplierItemCode }}</div>
+                    }
+                  </div>
+                  @if (isReview()) {
+                    <button type="button" (click)="onDeleteLine(line)" title="Vymazať riadok"
+                            class="touch-target shrink-0 text-slate-400 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400">
+                      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                      </svg>
+                    </button>
+                  }
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-sm">
+                  <label class="block">
+                    <span class="block text-[11px] text-slate-500 dark:text-slate-400">Mn. ({{ line.unit }})</span>
+                    <input type="text" inputmode="decimal" [value]="formatQty(line.quantity)"
+                           [disabled]="!isReview()"
+                           (blur)="onQuantityBlur(line, $any($event.target).value)"
+                           class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded" />
+                  </label>
+                  <label class="block">
+                    <span class="block text-[11px] text-slate-500 dark:text-slate-400">Cena</span>
+                    <input type="text" inputmode="decimal" [value]="formatMoney(listPriceFor(line))"
+                           [disabled]="!isReview()"
+                           (blur)="onListPriceBlur(line, $any($event.target).value)"
+                           class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded" />
+                  </label>
+                  <label class="block">
+                    <span class="block text-[11px] text-slate-500 dark:text-slate-400">Zľava %</span>
+                    @if (isReview()) {
+                      <input type="text" inputmode="decimal" [value]="line.discountPercent ?? ''"
+                             (blur)="onDiscountBlur(line, $any($event.target).value)" placeholder="—"
+                             class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded" />
+                    } @else {
+                      <div class="px-2 py-1.5 text-right text-slate-700 dark:text-slate-300">{{ formatPercent(line.discountPercent) }}</div>
+                    }
+                  </label>
+                  <label class="block">
+                    <span class="block text-[11px] text-slate-500 dark:text-slate-400">DPH</span>
+                    <select [value]="vatRateString(line.vatRate)" [disabled]="!isReview()"
+                            (change)="onVatRateChange(line, $any($event.target).value)"
+                            class="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded">
+                      <option value="0">0 %</option>
+                      <option value="10">10 %</option>
+                      <option value="20">20 %</option>
+                      <option value="23">23 %</option>
+                    </select>
+                  </label>
+                  <label class="block">
+                    <span class="block text-[11px] text-slate-500 dark:text-slate-400">Spolu bez DPH</span>
+                    <input type="text" inputmode="decimal" [value]="formatMoney(line.lineTotal)"
+                           [disabled]="!isReview()"
+                           (blur)="onLineTotalBlur(line, $any($event.target).value)"
+                           [class.border-red-500]="!totalsMatch(line)"
+                           class="w-full px-2 py-1.5 text-right font-semibold bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded" />
+                  </label>
+                  <label class="block">
+                    <span class="block text-[11px] text-slate-500 dark:text-slate-400">S DPH</span>
+                    @if (isReview()) {
+                      <input type="text" inputmode="decimal" [value]="formatMoney(lineTotalInclVat(line))"
+                             (blur)="onLineInclBlur(line, $any($event.target).value)"
+                             class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded" />
+                    } @else {
+                      <div class="px-2 py-1.5 text-right text-slate-700 dark:text-slate-300">{{ formatMoney(lineTotalInclVat(line)) }} €</div>
+                    }
+                  </label>
+                </div>
+                @if (!totalsMatch(line)) {
+                  <div class="text-xs text-amber-500 dark:text-amber-400">≈ {{ formatMoney(expectedTotal(line)) }} € (Cena × (1 − Zľava) × Mn.)</div>
+                }
+                <div class="flex items-center gap-3">
+                  <select [disabled]="!isLocationEditable()"
+                          (change)="onLineLocationChange(line, $any($event.target).value ? +$any($event.target).value : null)"
+                          [class.text-amber-600]="line.locationId != null"
+                          [class.dark:text-amber-400]="line.locationId != null"
+                          class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                    <option value="" [selected]="line.locationId == null">— Podľa DL —</option>
+                    @for (loc of locations(); track loc.id) {
+                      <option [value]="loc.id" [selected]="line.locationId === loc.id">{{ loc.name }}</option>
+                    }
+                  </select>
+                  <label class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                    <input type="checkbox" [checked]="line.isReverseCharge" [disabled]="!isReview()"
+                           (change)="onReverseToggle(line, $any($event.target).checked)"
+                           class="h-4 w-4 accent-amber-500" />
+                    PDP
+                  </label>
+                </div>
+              </div>
+            }
+            <div class="px-4 py-2 text-right text-sm font-semibold text-slate-900 dark:text-white">
+              Súčet: {{ formatMoney(dl.subtotalExclVat) }} € <span class="text-slate-400">·</span> DPH {{ formatMoney(dl.subtotalVat) }} €
+            </div>
+          </div>
+
+          <!-- Manual row addition — the scanner missed a printed row. -->
+          @if (isReview()) {
+            <div class="px-4 py-3 border-t border-slate-200 dark:border-slate-700">
+              @if (addingToDl() === dl.id) {
+                <div class="space-y-2">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input type="text" [ngModel]="draftName()" (ngModelChange)="draftName.set($event)"
+                           placeholder="Názov položky *"
+                           class="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm sm:col-span-2" />
+                    <div class="grid grid-cols-4 gap-2">
+                      <input type="text" inputmode="decimal" [ngModel]="draftQty()" (ngModelChange)="draftQty.set($event)"
+                             placeholder="Mn." title="Množstvo"
+                             class="px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                      <input type="text" [ngModel]="draftUnit()" (ngModelChange)="draftUnit.set($event)"
+                             placeholder="MJ" title="Merná jednotka"
+                             class="px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                      <input type="text" inputmode="decimal" [ngModel]="draftPrice()" (ngModelChange)="draftPrice.set($event)"
+                             placeholder="Cena" title="Jednotková cena bez DPH"
+                             class="px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                      <select [ngModel]="draftVat()" (ngModelChange)="draftVat.set($event)"
+                              title="Sadzba DPH"
+                              class="px-1 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                        <option value="0">0 %</option>
+                        <option value="10">10 %</option>
+                        <option value="20">20 %</option>
+                        <option value="23">23 %</option>
+                      </select>
+                    </div>
+                    <input type="text" inputmode="decimal" [ngModel]="draftTotal()" (ngModelChange)="draftTotal.set($event)"
+                           placeholder="Spolu bez DPH (nepovinné — dopočíta sa)"
+                           title="Ak zadáte len Spolu, jednotková cena sa dopočíta"
+                           class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
+                  </div>
+                  <div class="flex gap-2 justify-end">
+                    <button type="button" (click)="cancelAddLine()" [disabled]="savingLine()"
+                            class="touch-target px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-sm disabled:opacity-50">
+                      Zrušiť
+                    </button>
+                    <button type="button" (click)="saveNewLine(dl.id)" [disabled]="savingLine() || !draftName().trim()"
+                            class="touch-target px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold disabled:opacity-50">
+                      {{ savingLine() ? 'Ukladám…' : 'Pridať riadok' }}
+                    </button>
+                  </div>
+                </div>
+              } @else {
+                <button type="button" (click)="openAddLine(dl.id)"
+                        class="touch-target inline-flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400 hover:underline">
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14M5 12h14"></path>
+                  </svg>
+                  Pridať riadok (chýba na skene)
+                </button>
+              }
+            </div>
+          }
         </div>
       }
 

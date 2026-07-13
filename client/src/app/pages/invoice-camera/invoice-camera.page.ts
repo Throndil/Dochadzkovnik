@@ -319,8 +319,8 @@ export class InvoiceCameraPage implements OnDestroy {
    */
   private async grabStill(): Promise<Blob | null> {
     // 1) Full-resolution source frame. Android Chrome: the still-photo
-    //    pipeline. iOS: the (high-res) live video frame.
-    let source: ImageBitmap | HTMLVideoElement | null = null;
+    //    pipeline. iOS: the sharpest of a 3-frame burst grab.
+    let source: ImageBitmap | HTMLCanvasElement | null = null;
     let sw = 0;
     let sh = 0;
     const track = this.stream?.getVideoTracks()[0] ?? null;

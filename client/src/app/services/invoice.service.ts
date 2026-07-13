@@ -93,6 +93,20 @@ export interface UpdateInvoiceLinePayload {
   locationId?: number;
 }
 
+/** Manual row addition during review (scanner missed a printed row). */
+export interface AddInvoiceLinePayload {
+  supplierItemCode?: string | null;
+  materialNameRaw: string;
+  unit?: string;
+  quantity?: number;
+  /** Unit price bez DPH. Omit to derive it from lineTotal ÷ quantity. */
+  unitPrice?: number | null;
+  /** Spolu bez DPH. Omit to compute quantity × unitPrice. */
+  lineTotal?: number | null;
+  vatRate?: number;
+  discountPercent?: number | null;
+}
+
 export interface UpdateInvoiceDeliveryListPayload {
   /** Pass a positive Location.Id, or -1 to clear (= Sklad / Inventár). */
   locationId?: number;
@@ -207,6 +221,21 @@ export class InvoiceService {
   deleteLine(invoiceId: number, lineId: number): Promise<InvoiceDocument> {
     return firstValueFrom(
       this.http.delete<InvoiceDocument>(`${this.url}/${invoiceId}/lines/${lineId}`)
+    );
+  }
+
+  /** Manually add a row the scanner missed (review only). */
+  addLine(invoiceId: number, purchaseId: number, payload: AddInvoiceLinePayload): Promise<InvoiceDocument> {
+    return firstValueFrom(
+      this.http.post<InvoiceDocument>(`${this.url}/${invoiceId}/delivery-lists/${purchaseId}/lines`, payload)
+    );
+  }
+
+  /** Re-read the stored document with the vision AI and replace the draft
+   *  (review only). The reconciliation banner reports the honest result. */
+  aiReparse(invoiceId: number): Promise<InvoiceDocument> {
+    return firstValueFrom(
+      this.http.post<InvoiceDocument>(`${this.url}/${invoiceId}/ai-reparse`, {})
     );
   }
 

@@ -36,6 +36,8 @@ public class InvoicesController : ControllerBase
     private readonly IBlobStorageService? _blob;
     private readonly IDocumentAiClient? _ocr;
     private readonly IInvoiceParser _parser;
+    private readonly ILlmInvoiceExtractor _ai;
+    private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<InvoicesController> _log;
 
     private const string PdfFolderRoot = "invoices";
@@ -43,15 +45,37 @@ public class InvoicesController : ControllerBase
     public InvoicesController(
         AppDbContext db,
         IInvoiceParser parser,
+        ILlmInvoiceExtractor ai,
+        IHttpClientFactory httpFactory,
         ILogger<InvoicesController> log,
         IBlobStorageService? blob = null,
         IDocumentAiClient? ocr = null)
     {
         _db = db;
         _parser = parser;
+        _ai = ai;
+        _httpFactory = httpFactory;
         _log = log;
         _blob = blob;
         _ocr = ocr;
+    }
+
+    /// <summary>
+    /// In-memory version of the reconciliation gate: do the parsed lines
+    /// (+ their VAT) land on the printed total? Same tolerance as
+    /// RecomputeReconciliationAsync (5 cents + cash rounding headroom).
+    /// Used to decide whether the AI fallback should run and whether its
+    /// output is trustworthy enough to replace the deterministic parse.
+    /// </summary>
+    private static bool ParsedReconciles(ParsedInvoice p)
+    {
+        if (string.IsNullOrWhiteSpace(p.Header.InvoiceNumber)) return false;
+        if (p.Header.TotalInclVat is not { } incl) return false;
+        var lines = p.DeliveryLists.SelectMany(d => d.Lines).ToList();
+        if (lines.Count == 0) return false;
+        var excl = lines.Sum(l => l.LineTotalExclVat ?? 0m);
+        var vat = lines.Sum(l => Round2((l.LineTotalExclVat ?? 0m) * l.VatRate / 100m));
+        return Math.Abs(excl + vat - incl) <= 0.06m;
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -141,6 +165,36 @@ public class InvoicesController : ControllerBase
                     Truncate(l.Description, 50),
                     l.Quantity, l.Unit,
                     l.ListPriceExclVat, l.DiscountPercent, l.UnitPriceExclVat, l.LineTotalExclVat);
+            }
+        }
+
+        // ── AI fallback (Gemini vision) ─────────────────────────────
+        // The deterministic parse doesn't reconcile (or missed key fields)
+        // → let a vision model read the page; photo scans that Document AI
+        // reflows into nonsense are usually trivial for it. Its output
+        // faces the SAME arithmetic gate — it can only replace the parse
+        // when the lines land cent-exact on the printed total, so it can
+        // never invent numbers into the books.
+        if (_ai.IsConfigured && !ParsedReconciles(parsed))
+        {
+            try
+            {
+                using var aiCts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
+                var ai = await _ai.ExtractAsync(bytes, mime, ocr.FullText, aiCts.Token);
+                if (ai != null && ParsedReconciles(ai))
+                {
+                    _log.LogInformation("[InvoiceScanning] AI fallback reconciled (číslo={Num}, spolu={Total}) — replacing the deterministic parse.",
+                        ai.Header.InvoiceNumber, ai.Header.TotalInclVat);
+                    parsed = ai;
+                }
+                else
+                {
+                    _log.LogInformation("[InvoiceScanning] AI fallback did not reconcile — keeping the deterministic parse.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[InvoiceScanning] AI fallback failed — continuing with the deterministic parse.");
             }
         }
 
@@ -234,13 +288,32 @@ public class InvoicesController : ControllerBase
         _db.InvoiceDocuments.Add(doc);
         await _db.SaveChangesAsync();   // get the doc.Id
 
+        var buildError = await BuildDraftPurchasesAsync(doc, parsed);
+        if (buildError != null) return BadRequest(buildError);
+
+        await _db.SaveChangesAsync();
+
+        // Reconciliation: run it once now so the manager sees the result.
+        await RecomputeReconciliationAsync(doc.Id);
+
+        return await BuildDtoAsync(doc.Id);
+    }
+
+    /// <summary>
+    /// Materialise a ParsedInvoice into draft MaterialPurchases + lines for
+    /// the given document. Shared by the upload path and the AI re-parse.
+    /// Returns a Slovak error message instead of throwing when the DB lacks
+    /// prerequisites (no active employee).
+    /// </summary>
+    private async Task<string?> BuildDraftPurchasesAsync(InvoiceDocument doc, ParsedInvoice parsed)
+    {
         // The "buyer" for these draft purchases is the uploading manager. We
         // don't know which Employee that is without a JWT→Employee mapping;
         // for V1 we attach to the first active admin Employee, or fail loudly
         // if none. Practical: there's always one in this customer's DB.
         var firstActiveEmp = await _db.Employees.FirstOrDefaultAsync(e => e.IsActive);
         if (firstActiveEmp == null)
-            return BadRequest("V databáze nie je žiadny aktívny zamestnanec, ku ktorému by sa dali priradiť nákupy.");
+            return "V databáze nie je žiadny aktívny zamestnanec, ku ktorému by sa dali priradiť nákupy.";
 
         // Build draft MaterialPurchase + MaterialPurchaseLine rows.
         var locationsByNormName = await _db.Locations
@@ -319,13 +392,7 @@ public class InvoicesController : ControllerBase
             purchase.TotalCost = purchase.Lines.Sum(l => l.LineTotal);
             _db.MaterialPurchases.Add(purchase);
         }
-
-        await _db.SaveChangesAsync();
-
-        // Reconciliation: run it once now so the manager sees the result.
-        await RecomputeReconciliationAsync(doc.Id);
-
-        return await BuildDtoAsync(doc.Id);
+        return null;
     }
 
     /// <summary>
@@ -447,7 +514,7 @@ public class InvoicesController : ControllerBase
 
     /// <summary>
     /// Normalises each uploaded image (EXIF auto-rotate, downscale long
-    /// edge to 2200 px if larger, JPEG re-encode at quality 82) and
+    /// edge to 3000 px if larger, JPEG re-encode at quality 90) and
     /// embeds the result one-per-page into a PDF. Page size matches each
     /// image's aspect ratio so Document AI gets the cleanest possible
     /// rasterisation. Returns the PDF bytes.
@@ -460,8 +527,10 @@ public class InvoicesController : ControllerBase
     /// </summary>
     private static async Task<byte[]> CombineImagesToPdfAsync(IReadOnlyList<IFormFile> files)
     {
-        const int maxLongEdge = 2200;
-        const int jpegQuality = 82;
+        // Matches the client scanner's output band (≤3000 px, q≥0.9) — the
+        // server must not undo the capture-quality work by recompressing.
+        const int maxLongEdge = 3000;
+        const int jpegQuality = 90;
 
         var pages = new List<(byte[] Jpeg, int Width, int Height)>(files.Count);
 
@@ -1074,6 +1143,78 @@ public class InvoicesController : ControllerBase
         return await BuildDtoAsync(id);
     }
 
+    /// <summary>
+    /// POST /api/invoices/{id}/delivery-lists/{purchaseId}/lines
+    /// Photo scans sometimes miss a printed row entirely — the manager adds
+    /// it by hand during review instead of re-photographing. Review-only,
+    /// same rule as every other number edit. The new line lands in the audit
+    /// trail as a manual addition.
+    /// </summary>
+    [HttpPost("{id}/delivery-lists/{purchaseId}/lines")]
+    public async Task<ActionResult<InvoiceDocumentDto>> AddLine(int id, int purchaseId, [FromBody] AddInvoiceLineDto dto)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(id);
+        if (doc == null) return NotFound();
+        if (doc.Status != "review") return BadRequest("Riadky možno pridávať len počas kontroly.");
+
+        var purchase = await _db.MaterialPurchases
+            .FirstOrDefaultAsync(p => p.Id == purchaseId && p.InvoiceDocumentId == id);
+        if (purchase == null) return NotFound();
+
+        var name = (dto.MaterialNameRaw ?? "").Trim();
+        if (name.Length == 0) return BadRequest("Zadajte názov položky.");
+
+        var qty = dto.Quantity is > 0m ? dto.Quantity.Value : 1m;
+        var unitPrice = dto.UnitPrice ?? 0m;
+        var lineTotal = dto.LineTotal ?? Round2(qty * unitPrice);
+        // Total given but unit price not → derive it (receipts print totals).
+        if (dto.UnitPrice == null && dto.LineTotal is { } lt && qty > 0m)
+            unitPrice = Round2(lt / qty);
+
+        var editor = User.Identity?.Name ?? "unknown";
+        var line = new MaterialPurchaseLine
+        {
+            PurchaseId       = purchase.Id,
+            SupplierItemCode = string.IsNullOrWhiteSpace(dto.SupplierItemCode) ? null : dto.SupplierItemCode.Trim(),
+            MaterialNameRaw  = Truncate(name, 200),
+            Unit             = Truncate(string.IsNullOrWhiteSpace(dto.Unit) ? "ks" : dto.Unit!.Trim(), 50),
+            Quantity         = qty,
+            UnitPrice        = unitPrice,
+            LineTotal        = lineTotal,
+            VatRate          = dto.VatRate ?? 23m,
+            DiscountPercent  = dto.DiscountPercent is > 0m ? dto.DiscountPercent : null,
+            IsReverseCharge  = false,
+            IsService        = false,
+            LineEditHistory  = SerializeHistory([new EditRecord("manualAdd", null, name, editor, DateTime.UtcNow)])
+        };
+        _db.MaterialPurchaseLines.Add(line);
+        await _db.SaveChangesAsync();
+
+        // Recompute parent purchase totals from the persisted lines.
+        var fresh = await _db.MaterialPurchases
+            .Include(p => p.Lines)
+            .FirstAsync(p => p.Id == purchase.Id);
+        fresh.TotalCost       = fresh.Lines.Sum(l => l.LineTotal);
+        fresh.SubtotalExclVat = Round2(fresh.Lines.Sum(l => l.LineTotal));
+        fresh.SubtotalVat     = Round2(fresh.Lines.Sum(l => Round2(l.LineTotal * l.VatRate / 100m)));
+        await _db.SaveChangesAsync();
+
+        await RecomputeReconciliationAsync(id);
+        return await BuildDtoAsync(id);
+    }
+
+    public sealed class AddInvoiceLineDto
+    {
+        public string? SupplierItemCode { get; set; }
+        public string? MaterialNameRaw { get; set; }
+        public string? Unit { get; set; }
+        public decimal? Quantity { get; set; }
+        public decimal? UnitPrice { get; set; }
+        public decimal? LineTotal { get; set; }
+        public decimal? VatRate { get; set; }
+        public decimal? DiscountPercent { get; set; }
+    }
+
     [HttpPut("{id}/delivery-lists/{purchaseId}")]
     public async Task<ActionResult<InvoiceDocumentDto>> UpdateDeliveryList(int id, int purchaseId, [FromBody] UpdateInvoiceDeliveryListDto dto)
     {
@@ -1282,6 +1423,102 @@ public class InvoicesController : ControllerBase
     public sealed class UpdateIssueDateDto
     {
         public DateTime IssueDate { get; set; }
+    }
+
+    /// <summary>
+    /// POST /api/invoices/{id}/ai-reparse — the manual "Skúsiť AI" button on
+    /// review. Downloads the stored original, runs the vision-LLM extraction
+    /// and REPLACES the draft header + purchases with its result; the
+    /// reconciliation banner then reports honestly whether the new numbers
+    /// add up. Review-only (committed numbers are history) and requires the
+    /// AI number + total to be present — otherwise the document is untouched.
+    /// </summary>
+    [HttpPost("{id}/ai-reparse")]
+    public async Task<ActionResult<InvoiceDocumentDto>> AiReparse(int id)
+    {
+        if (!_ai.IsConfigured)
+            return StatusCode(503, "AI rozpoznávanie nie je nakonfigurované (Gemini API kľúč chýba).");
+
+        var doc = await _db.InvoiceDocuments
+            .Include(d => d.Purchases)
+            .FirstOrDefaultAsync(d => d.Id == id);
+        if (doc == null) return NotFound();
+        if (doc.Status != "review") return BadRequest("AI rozpoznanie je možné len počas kontroly.");
+
+        byte[] bytes;
+        try
+        {
+            var http = _httpFactory.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(30);
+            bytes = await http.GetByteArrayAsync(doc.PdfUrl);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[InvoiceScanning] ai-reparse: stored file download failed for doc {Id}", id);
+            return StatusCode(502, "Uložený dokument sa nepodarilo stiahnuť.");
+        }
+
+        // The Document AI text layer is a useful hint even when scrambled.
+        string? ocrText = null;
+        try
+        {
+            using var raw = JsonDocument.Parse(doc.RawOcrJson ?? "{}");
+            if (raw.RootElement.TryGetProperty("text", out var t)) ocrText = t.GetString();
+        }
+        catch { /* the hint is optional */ }
+
+        var mime = doc.PdfUrl.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
+            ? "application/pdf"
+            : "image/jpeg";
+
+        ParsedInvoice? ai;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
+            ai = await _ai.ExtractAsync(bytes, mime, ocrText, cts.Token);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[InvoiceScanning] ai-reparse failed for doc {Id}", id);
+            ai = null;
+        }
+        if (ai == null)
+            return StatusCode(502, "AI rozpoznanie zlyhalo. Skúste znova o chvíľu.");
+        if (string.IsNullOrWhiteSpace(ai.Header.InvoiceNumber) || ai.Header.TotalInclVat == null)
+            return BadRequest("AI nerozpoznalo číslo faktúry alebo celkovú sumu — dokument ostáva bez zmeny.");
+
+        // Dedup guard (same rule as upload), excluding this document.
+        var newNumber = Clip(ai.Header.InvoiceNumber!, 100)!;
+        var newIssue = ai.Header.IssueDate ?? doc.IssueDate;
+        var dup = await _db.InvoiceDocuments.AnyAsync(d =>
+            d.Id != id && d.InvoiceNumber == newNumber && d.IssueDate == newIssue);
+        if (dup) return Conflict($"Faktúra {newNumber} z {newIssue:d.M.yyyy} už existuje.");
+
+        // Replace the draft. Review documents have no usage rows yet, so
+        // removing the purchases (lines cascade) is safe.
+        doc.InvoiceNumber = newNumber;
+        doc.SupplierName  = Clip(ai.Header.SupplierName, 200) ?? doc.SupplierName;
+        doc.SupplierIco   = Clip(ai.Header.SupplierIco, 50) ?? doc.SupplierIco;
+        doc.SupplierIcDph = Clip(ai.Header.SupplierIcDph, 50) ?? doc.SupplierIcDph;
+        doc.IssueDate     = newIssue;
+        doc.DeliveryDate  = ai.Header.DeliveryDate ?? doc.DeliveryDate;
+        doc.DueDate       = ai.Header.DueDate ?? doc.DueDate;
+        doc.TotalExclVat  = Round2(ai.Header.TotalExclVat ?? 0m);
+        doc.TotalVat      = Round2(ai.Header.TotalVat ?? 0m);
+        doc.TotalInclVat  = Round2(ai.Header.TotalInclVat.Value);
+        if (ai.Header.IsReceipt) doc.DocumentKind = "receipt";
+
+        _db.MaterialPurchases.RemoveRange(doc.Purchases);
+        await _db.SaveChangesAsync();
+
+        var rebuildError = await BuildDraftPurchasesAsync(doc, ai);
+        if (rebuildError != null) return BadRequest(rebuildError);
+        await _db.SaveChangesAsync();
+
+        _log.LogInformation("[InvoiceScanning] Doc {Id} re-parsed via AI (číslo={Num}, spolu={Total}).",
+            id, newNumber, doc.TotalInclVat);
+        await RecomputeReconciliationAsync(id);
+        return await BuildDtoAsync(id);
     }
 
     /// <summary>

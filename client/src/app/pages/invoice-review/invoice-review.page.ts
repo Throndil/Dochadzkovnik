@@ -247,6 +247,76 @@ export class InvoiceReviewPage implements OnInit {
     }
   }
 
+  // ─── AI re-parse (vision model second opinion) ──────────────────
+
+  aiRunning = signal(false);
+
+  /** "Skúsiť AI" — replaces the draft with the vision model's reading.
+   *  The reconciliation banner then shows the honest verdict. */
+  async onAiReparse() {
+    if (this.aiRunning()) return;
+    this.aiRunning.set(true);
+    this.error.set(null);
+    try {
+      this.invoice.set(await this.svc.aiReparse(this.id));
+    } catch (e: any) {
+      this.error.set(typeof e?.error === 'string' ? e.error : 'AI rozpoznanie zlyhalo.');
+    } finally {
+      this.aiRunning.set(false);
+    }
+  }
+
+  // ─── Manual row addition (scanner missed a printed row) ────────
+
+  /** Purchase id of the delivery list whose add-row form is open. */
+  addingToDl = signal<number | null>(null);
+  draftName = signal('');
+  draftQty = signal('1');
+  draftUnit = signal('ks');
+  draftPrice = signal('');
+  draftTotal = signal('');
+  draftVat = signal('23');
+  savingLine = signal(false);
+
+  openAddLine(dlId: number) {
+    this.addingToDl.set(dlId);
+    this.draftName.set('');
+    this.draftQty.set('1');
+    this.draftUnit.set('ks');
+    this.draftPrice.set('');
+    this.draftTotal.set('');
+    this.draftVat.set('23');
+  }
+
+  cancelAddLine() { this.addingToDl.set(null); }
+
+  async saveNewLine(dlId: number) {
+    const name = this.draftName().trim();
+    if (!name) { this.error.set('Zadajte názov položky.'); return; }
+    const num = (s: string): number | null => {
+      const v = parseFloat((s || '').replace(/\s/g, '').replace(',', '.'));
+      return Number.isFinite(v) ? v : null;
+    };
+    this.savingLine.set(true);
+    this.error.set(null);
+    try {
+      const updated = await this.svc.addLine(this.id, dlId, {
+        materialNameRaw: name,
+        quantity: num(this.draftQty()) ?? 1,
+        unit: this.draftUnit().trim() || 'ks',
+        unitPrice: num(this.draftPrice()),
+        lineTotal: num(this.draftTotal()),
+        vatRate: num(this.draftVat()) ?? 23
+      });
+      this.invoice.set(updated);
+      this.addingToDl.set(null);
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Pridanie riadku zlyhalo.');
+    } finally {
+      this.savingLine.set(false);
+    }
+  }
+
   /** Manager corrected the supplier name ("just in case" fix for OCR misreads). */
   async onSupplierNameChange(value: string) {
     const inv = this.invoice();

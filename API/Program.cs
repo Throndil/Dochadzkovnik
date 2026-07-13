@@ -152,6 +152,15 @@ builder.Services.AddScoped<IMaterialPurchasesExcelExportService, MaterialPurchas
 // whether OCR is available and gates accordingly.
 builder.Services.AddScoped<IInvoiceParser, InvoiceParser>();
 
+// Vision-LLM fallback for scans the deterministic parser can't reconcile
+// (Gemini — same data boundary as Document AI). Always registered;
+// IsConfigured stays false until Gemini__ApiKey is set and every caller
+// treats an unconfigured / failed extraction as "no result".
+builder.Services.AddHttpClient<ILlmInvoiceExtractor, GeminiInvoiceExtractor>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(60);
+});
+
 // App services
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IPinHasher, PinHasher>();
