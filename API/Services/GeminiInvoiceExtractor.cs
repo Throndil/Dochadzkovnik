@@ -21,6 +21,15 @@ public interface ILlmInvoiceExtractor
     bool IsConfigured { get; }
 
     /// <summary>
+    /// Gemini-first pipeline: the vision read runs BEFORE Document AI and,
+    /// when it passes the reconciliation gate, Document AI is skipped
+    /// (~50× cheaper per document). Default true when configured; set
+    /// <c>Gemini:Primary=false</c> as the kill switch to restore the
+    /// deterministic-first order.
+    /// </summary>
+    bool IsPrimary { get; }
+
+    /// <summary>
     /// Extract the invoice from the original file (PDF or image). Returns
     /// null when unconfigured, on any API failure, or when the response
     /// can't be mapped — callers fall back to the deterministic parse.
@@ -42,6 +51,7 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
     private readonly ILogger<GeminiInvoiceExtractor> _log;
     private readonly string? _apiKey;
     private readonly string _model;
+    private readonly bool _primary;
 
     public GeminiInvoiceExtractor(HttpClient http, IConfiguration cfg, ILogger<GeminiInvoiceExtractor> log)
     {
@@ -53,9 +63,12 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
         // headroom (the flagship flash sheds free-tier traffic first under
         // load — live: 503 UNAVAILABLE "high demand" on every call).
         _model = string.IsNullOrWhiteSpace(cfg["Gemini:Model"]) ? "gemini-3.1-flash-lite" : cfg["Gemini:Model"]!;
+        _primary = !string.Equals(cfg["Gemini:Primary"], "false", StringComparison.OrdinalIgnoreCase);
     }
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_apiKey);
+
+    public bool IsPrimary => IsConfigured && _primary;
 
     public async Task<ParsedInvoice?> ExtractAsync(byte[] fileBytes, string mimeType, string? ocrText, CancellationToken ct = default)
     {
