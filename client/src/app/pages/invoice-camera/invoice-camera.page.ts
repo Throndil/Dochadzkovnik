@@ -272,42 +272,65 @@ export class InvoiceCameraPage implements OnDestroy {
    * libraries fail to load, we keep the untouched frame.
    */
   async shutter() {
+    if (this.processing()) return;
     this.processing.set(true);
-    const originalBlob = await this.grabStill();
-    if (!originalBlob) {
-      this.processing.set(false);
-      return;
-    }
-
-    // Run auto-crop + enhancement. The indicator matters on the first run,
-    // which downloads the OpenCV wasm; later runs are fast (cached).
-    let processedBlob: Blob | null = null;
-    let blurry = false;
     try {
-      const res = await autoCropDocument(originalBlob, 0.95);
-      if (res.cropped) processedBlob = res.blob;
-      blurry = res.sharpness != null && res.sharpness < InvoiceCameraPage.SHARPNESS_WARN_BELOW;
-    } catch {
-      // Ignore — fall back to the untouched frame below.
+      // Hard ceiling on the whole grab: ImageCapture.takePhoto() is known to
+      // never settle on some Android devices — without this the overlay
+      // would spin forever.
+      const originalBlob = await InvoiceCameraPage
+        .withTimeout(this.grabStill(), 15_000)
+        .catch(() => null);
+      if (!originalBlob) {
+        this.errorMsg.set('Fotenie zlyhalo — skúste znova.');
+        return;
+      }
+      this.errorMsg.set(null);
+
+      // Run auto-crop + enhancement. The indicator matters on the first run,
+      // which downloads the OpenCV wasm; later runs are fast (cached).
+      let processedBlob: Blob | null = null;
+      let blurry = false;
+      try {
+        const res = await autoCropDocument(originalBlob, 0.95);
+        if (res.cropped) processedBlob = res.blob;
+        blurry = res.sharpness != null && res.sharpness < InvoiceCameraPage.SHARPNESS_WARN_BELOW;
+      } catch {
+        // Ignore — fall back to the untouched frame below.
+      }
+
+      const warning = this.lastCaptureLowRes
+        ? 'Nízke rozlíšenie záberu — text nemusí byť čitateľný. Skúste 1× priblíženie a vyplňte rámik stranou.'
+        : blurry
+          ? 'Fotka vyzerá rozmazaná — čísla nemusia byť čitateľné. Odporúčame odfotiť znova.'
+          : null;
+
+      const useProcessed = processedBlob != null && this.autoCropEnabled();
+      const activeBlob = useProcessed ? processedBlob! : originalBlob;
+      this.pending.set({
+        originalBlob,
+        processedBlob,
+        useProcessed,
+        thumbUrl: URL.createObjectURL(activeBlob),
+        warning
+      });
+      this.state.set('review-page');
+    } finally {
+      // The overlay must NEVER survive the shutter — whatever went wrong.
+      this.processing.set(false);
     }
-    this.processing.set(false);
+  }
 
-    const warning = this.lastCaptureLowRes
-      ? 'Nízke rozlíšenie záberu — text nemusí byť čitateľný. Skúste 1× priblíženie a vyplňte rámik stranou.'
-      : blurry
-        ? 'Fotka vyzerá rozmazaná — čísla nemusia byť čitateľné. Odporúčame odfotiť znova.'
-        : null;
-
-    const useProcessed = processedBlob != null && this.autoCropEnabled();
-    const activeBlob = useProcessed ? processedBlob! : originalBlob;
-    this.pending.set({
-      originalBlob,
-      processedBlob,
-      useProcessed,
-      thumbUrl: URL.createObjectURL(activeBlob),
-      warning
+  /** Await a promise but give up after ms — a wedged device API must never
+   *  freeze the capture flow. */
+  private static withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('timeout')), ms);
+      p.then(
+        v => { clearTimeout(t); resolve(v); },
+        e => { clearTimeout(t); reject(e); }
+      );
     });
-    this.state.set('review-page');
   }
 
   /**
@@ -328,20 +351,23 @@ export class InvoiceCameraPage implements OnDestroy {
       try {
         const ic = new (window as any).ImageCapture(track);
         // Ask for the SENSOR maximum — without explicit dimensions many
-        // devices return a much smaller default still.
+        // devices return a much smaller default still. Both calls carry
+        // their own timeout: on some Androids they simply never settle,
+        // and the frame-grab below is a perfectly good plan B.
         let opts: any;
         try {
-          const pc = await ic.getPhotoCapabilities();
+          const pc = await InvoiceCameraPage.withTimeout<any>(ic.getPhotoCapabilities(), 3_000);
           if (pc?.imageWidth?.max && pc?.imageHeight?.max) {
             opts = { imageWidth: pc.imageWidth.max, imageHeight: pc.imageHeight.max };
           }
         } catch { /* use device defaults */ }
-        const photo: Blob = await ic.takePhoto(opts).catch(() => ic.takePhoto());
+        const photo: Blob = await InvoiceCameraPage.withTimeout<Blob>(
+          ic.takePhoto(opts).catch(() => ic.takePhoto()), 6_000);
         source = await createImageBitmap(photo);
         sw = source.width;
         sh = source.height;
       } catch {
-        source = null;   // some devices reject takePhoto mid-stream
+        source = null;   // takePhoto hung or rejected — frame grab instead
       }
     }
     if (!source) {
@@ -526,29 +552,38 @@ export class InvoiceCameraPage implements OnDestroy {
 
     // Normalise each (HEIC → PNG, anything else passes through), then run the
     // same auto-crop as live captures. Detection is best-effort per image —
-    // a photo where no page is found keeps its normalised original.
+    // a photo where no page is found keeps its normalised original. Each file
+    // is independently fault-isolated and the overlay is cleared in finally,
+    // so one bad file can never freeze the page on "Orezávam…".
     this.processing.set(true);
-    const accepted: { id: number; blob: Blob; thumbUrl: string }[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const normalised = await normaliseFile(files[i]);
-      let blob: Blob = normalised;
-      if (this.autoCropEnabled()) {
+    try {
+      const accepted: { id: number; blob: Blob; thumbUrl: string }[] = [];
+      for (let i = 0; i < files.length; i++) {
+        let blob: Blob;
         try {
-          const res = await autoCropDocument(normalised, 0.95);
-          if (res.cropped) blob = res.blob;
+          blob = await normaliseFile(files[i]);
         } catch {
-          // Ignore — keep the normalised original.
+          blob = files[i];   // HEIC conversion failed — send the original
         }
+        if (this.autoCropEnabled()) {
+          try {
+            const res = await autoCropDocument(blob, 0.95);
+            if (res.cropped) blob = res.blob;
+          } catch {
+            // Ignore — keep the normalised original.
+          }
+        }
+        accepted.push({
+          id: this.nextPageId++,
+          blob,
+          thumbUrl: URL.createObjectURL(blob)
+        });
       }
-      accepted.push({
-        id: this.nextPageId++,
-        blob,
-        thumbUrl: URL.createObjectURL(blob)
-      });
+      this.pages.update(arr => [...arr, ...accepted]);
+      this.state.set('pages-list');
+    } finally {
+      this.processing.set(false);
     }
-    this.processing.set(false);
-    this.pages.update(arr => [...arr, ...accepted]);
-    this.state.set('pages-list');
   }
 
   // ─── Submit ───────────────────────────────────────────────────
