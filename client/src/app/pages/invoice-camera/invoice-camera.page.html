@@ -62,8 +62,10 @@
       <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
         <div class="relative bg-black flex justify-center">
           <!-- Document-shaped 3:4 viewfinder: no letterbox bars, and the
-               capture crops to exactly this region (WYSIWYG framing). -->
-          <div class="relative h-[70dvh] max-w-full aspect-[3/4] overflow-hidden">
+               capture crops to exactly this region (WYSIWYG framing).
+               60dvh (not more) so the shutter row below never slips under
+               the fold on small phones. -->
+          <div class="relative h-[60dvh] max-w-full aspect-[3/4] overflow-hidden">
             <video #preview autoplay playsinline muted
                    class="absolute inset-0 w-full h-full object-cover"
                    [style.transform]="zoomNative() || zoom() === 1 ? null : 'scale(' + zoom() + ')'"></video>
@@ -150,7 +152,7 @@
       <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
         <div class="relative">
           <img [src]="p.thumbUrl" alt="Strana {{ pages().length + 1 }}"
-               class="w-full max-h-[70dvh] object-contain bg-black" />
+               class="w-full max-h-[60dvh] object-contain bg-black" />
           <!-- Show what's being previewed; only offer the toggle when a crop
                was actually detected. -->
           @if (p.processedBlob) {

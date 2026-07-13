@@ -283,6 +283,11 @@ export class InvoiceCameraPage implements OnDestroy {
         .catch(() => null);
       if (!originalBlob) {
         this.errorMsg.set('Fotenie zlyhalo — skúste znova.');
+        // A failed grab often means the device is under memory pressure and
+        // the camera layer/track may have died with it — reset the zoom and
+        // revive the preview so the manager isn't staring at a black box.
+        void this.setZoom(1);
+        this.ensureLiveStream();
         return;
       }
       this.errorMsg.set(null);
@@ -510,6 +515,25 @@ export class InvoiceCameraPage implements OnDestroy {
     if (p) URL.revokeObjectURL(p.thumbUrl);
     this.pending.set(null);
     this.state.set('streaming');
+    // The track (or its video layer) may have died during the heavy
+    // crop/enhance work — make sure the preview is actually alive.
+    this.ensureLiveStream();
+  }
+
+  /**
+   * The camera track or its GPU video layer can die under memory pressure
+   * (the preview then shows black even though the state machine is fine).
+   * Restart the camera when the track is dead; re-kick playback otherwise.
+   */
+  private ensureLiveStream() {
+    const track = this.stream?.getVideoTracks()[0];
+    const live = !!track && track.readyState === 'live' && !track.muted;
+    if (!live) {
+      this.stopStream();
+      void this.startCamera();
+      return;
+    }
+    this.videoRef()?.nativeElement?.play().catch(() => {});
   }
 
   // ─── Pages-list operations ────────────────────────────────────

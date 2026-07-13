@@ -205,11 +205,13 @@ function flattenIllumination(cv: any, canvas: HTMLCanvasElement): void {
     bgColor = new cv.Mat();
     cv.cvtColor(bg, bgColor, cv.COLOR_GRAY2RGB);
 
-    img.convertTo(img, cv.CV_32FC3);
-    bgColor.convertTo(bgColor, cv.CV_32FC3, 1, 1);   // +1 avoids ÷0
+    // Integer division with scale — NO float conversion. The 32F route
+    // needed three ~80 MB float mats for a 3000 px page and the resulting
+    // memory spike killed the camera's video layer (black preview) and
+    // then the whole tab on phones. 8U divide peaks ~4× lower and the
+    // ±1 rounding difference is invisible to OCR.
     out = new cv.Mat();
     cv.divide(img, bgColor, out, 235);               // paper lands ≈ 235
-    out.convertTo(out, cv.CV_8UC3);
     cv.imshow(canvas, out);
   } catch {
     // Keep the original crop.

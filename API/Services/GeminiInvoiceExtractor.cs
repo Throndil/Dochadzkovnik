@@ -135,8 +135,13 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
 
                     var overloaded = resp.StatusCode is System.Net.HttpStatusCode.ServiceUnavailable
                                                      or System.Net.HttpStatusCode.TooManyRequests;
+                    // 404 = the configured model name doesn't exist (typo /
+                    // retired model) — move on to the fallback model instead
+                    // of failing the document.
+                    var wrongModel = resp.StatusCode == System.Net.HttpStatusCode.NotFound;
                     _log.LogWarning("[InvoiceScanning] Gemini {Model} returned {Status} (attempt {Attempt}): {Body}",
                         model, (int)resp.StatusCode, attempt + 1, Truncate(respText, 300));
+                    if (wrongModel) break;
                     if (!overloaded) return null;
                     if (attempt == 0) await Task.Delay(TimeSpan.FromSeconds(2), ct);
                 }
