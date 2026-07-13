@@ -5,7 +5,6 @@ import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { InvoiceService } from '../../services/invoice.service';
 import { normaliseFile } from '../../utils/image-utils';
-import { autoCropDocument } from '../../utils/document-scan';
 
 /**
  * /admin/invoices/scan — in-app camera scanner for paper invoices.
@@ -47,17 +46,16 @@ export class InvoiceCameraPage implements OnDestroy {
   pages = signal<{ id: number; blob: Blob; thumbUrl: string }[]>([]);
 
   /**
-   * Frozen frame shown on the review-page state. Holds both the untouched
-   * photo and the auto-cropped version (when detection succeeded) so the
-   * manager can toggle between them. `useProcessed` drives which one is
-   * shown and ultimately accepted; `thumbUrl` always points at the active one.
+   * Frozen frame shown on the review-page state. The photo is uploaded
+   * exactly as captured — cropping/enhancement happens server-side
+   * (ImageSharp normalisation) and, for hard scans, in the AI fallback.
+   * In-browser OpenCV processing was removed on purpose: its full-page
+   * buffers kept exhausting phone browsers (black previews, tab crashes).
    */
   pending = signal<{
-    originalBlob: Blob;
-    processedBlob: Blob | null;
-    useProcessed: boolean;
+    blob: Blob;
     thumbUrl: string;
-    /** Quality verdict shown on the review screen (blur / low resolution). */
+    /** Quality verdict shown on the review screen (low resolution). */
     warning: string | null;
   } | null>(null);
 
@@ -82,16 +80,6 @@ export class InvoiceCameraPage implements OnDestroy {
   lowLight = signal(false);
   private lumaTimer: ReturnType<typeof setInterval> | null = null;
   private lumaCanvas: HTMLCanvasElement | null = null;
-
-  /** Below this variance-of-Laplacian the shot is flagged as blurred. */
-  private static readonly SHARPNESS_WARN_BELOW = 55;
-
-  /**
-   * Manager's auto-crop preference, remembered across captures. Starts on so
-   * scans are cleaned by default; flipping the review-page toggle persists the
-   * choice for subsequent pages.
-   */
-  autoCropEnabled = signal(true);
 
   private nextPageId = 1;
   private stream: MediaStream | null = null;
@@ -283,41 +271,20 @@ export class InvoiceCameraPage implements OnDestroy {
         .catch(() => null);
       if (!originalBlob) {
         this.errorMsg.set('Fotenie zlyhalo — skúste znova.');
-        // A failed grab often means the device is under memory pressure and
-        // the camera layer/track may have died with it — reset the zoom and
-        // revive the preview so the manager isn't staring at a black box.
+        // The camera layer/track often dies together with the failure —
+        // reset zoom and revive the preview.
         void this.setZoom(1);
         this.ensureLiveStream();
         return;
       }
       this.errorMsg.set(null);
 
-      // Run auto-crop + enhancement. The indicator matters on the first run,
-      // which downloads the OpenCV wasm; later runs are fast (cached).
-      let processedBlob: Blob | null = null;
-      let blurry = false;
-      try {
-        const res = await autoCropDocument(originalBlob, 0.95);
-        if (res.cropped) processedBlob = res.blob;
-        blurry = res.sharpness != null && res.sharpness < InvoiceCameraPage.SHARPNESS_WARN_BELOW;
-      } catch {
-        // Ignore — fall back to the untouched frame below.
-      }
-
-      const warning = this.lastCaptureLowRes
-        ? 'Nízke rozlíšenie záberu — text nemusí byť čitateľný. Skúste 1× priblíženie a vyplňte rámik stranou.'
-        : blurry
-          ? 'Fotka vyzerá rozmazaná — čísla nemusia byť čitateľné. Odporúčame odfotiť znova.'
-          : null;
-
-      const useProcessed = processedBlob != null && this.autoCropEnabled();
-      const activeBlob = useProcessed ? processedBlob! : originalBlob;
       this.pending.set({
-        originalBlob,
-        processedBlob,
-        useProcessed,
-        thumbUrl: URL.createObjectURL(activeBlob),
-        warning
+        blob: originalBlob,
+        thumbUrl: URL.createObjectURL(originalBlob),
+        warning: this.lastCaptureLowRes
+          ? 'Nízke rozlíšenie záberu — text nemusí byť čitateľný. Skúste 1× priblíženie a vyplňte rámik stranou.'
+          : null
       });
       this.state.set('review-page');
     } finally {
@@ -484,25 +451,12 @@ export class InvoiceCameraPage implements OnDestroy {
     return s;
   }
 
-  /** Switch the review preview between the auto-cropped and original image. */
-  toggleProcessed() {
-    const p = this.pending();
-    if (!p || !p.processedBlob) return;
-    URL.revokeObjectURL(p.thumbUrl);
-    const useProcessed = !p.useProcessed;
-    const activeBlob = useProcessed ? p.processedBlob : p.originalBlob;
-    // Remember the choice so the next captured page defaults the same way.
-    this.autoCropEnabled.set(useProcessed);
-    this.pending.set({ ...p, useProcessed, thumbUrl: URL.createObjectURL(activeBlob) });
-  }
-
   acceptPending() {
     const p = this.pending();
     if (!p) return;
-    const blob = p.useProcessed && p.processedBlob ? p.processedBlob : p.originalBlob;
-    // The active thumbUrl already renders `blob`, so hand it to the page as-is
+    // The thumbUrl already renders `blob`, so hand it to the page as-is
     // (don't revoke it — the page now owns it; ngOnDestroy/removePage will).
-    this.pages.update(arr => [...arr, { id: this.nextPageId++, blob, thumbUrl: p.thumbUrl }]);
+    this.pages.update(arr => [...arr, { id: this.nextPageId++, blob: p.blob, thumbUrl: p.thumbUrl }]);
     this.pending.set(null);
     // After the first accepted page, default to pages-list (lets the manager
     // decide: add another page or submit). Subsequent shutters drop them
@@ -530,7 +484,10 @@ export class InvoiceCameraPage implements OnDestroy {
     const live = !!track && track.readyState === 'live' && !track.muted;
     if (!live) {
       this.stopStream();
-      void this.startCamera();
+      // Give the dead track a moment to fully release the camera —
+      // re-acquiring instantly tends to hand back a degraded (blurry)
+      // low-resolution stream on phones.
+      setTimeout(() => void this.startCamera(), 400);
       return;
     }
     this.videoRef()?.nativeElement?.play().catch(() => {});
@@ -591,11 +548,9 @@ export class InvoiceCameraPage implements OnDestroy {
     input.value = '';
     if (files.length === 0) return;
 
-    // Normalise each (HEIC → PNG, anything else passes through), then run the
-    // same auto-crop as live captures. Detection is best-effort per image —
-    // a photo where no page is found keeps its normalised original. Each file
-    // is independently fault-isolated and the overlay is cleared in finally,
-    // so one bad file can never freeze the page on "Orezávam…".
+    // Normalise each (HEIC → PNG, anything else passes through) and add as
+    // a page. Server-side ImageSharp does the real normalisation; each file
+    // is fault-isolated and the overlay is cleared in finally.
     this.processing.set(true);
     try {
       const accepted: { id: number; blob: Blob; thumbUrl: string }[] = [];
@@ -605,14 +560,6 @@ export class InvoiceCameraPage implements OnDestroy {
           blob = await normaliseFile(files[i]);
         } catch {
           blob = files[i];   // HEIC conversion failed — send the original
-        }
-        if (this.autoCropEnabled()) {
-          try {
-            const res = await autoCropDocument(blob, 0.95);
-            if (res.cropped) blob = res.blob;
-          } catch {
-            // Ignore — keep the normalised original.
-          }
         }
         accepted.push({
           id: this.nextPageId++,

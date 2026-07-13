@@ -554,6 +554,15 @@ public class InvoicesController : ControllerBase
                     (int)Math.Round(image.Height * scale)));
             }
 
+            // OCR enhancement — server-side on purpose. This used to run in
+            // the browser (OpenCV wasm) and its full-page buffers kept
+            // exhausting phone browsers; here memory is a non-issue and every
+            // device gets the identical pipeline:
+            //  1. shadow flattening (divide by the low-frequency background),
+            //     gated on measured unevenness so clean scans pass untouched;
+            //  2. a mild sharpen for the soft video-pipeline captures.
+            EnhanceForOcr(image);
+
             // Re-encode as JPEG — the bytes go into the PDF verbatim
             // (DCTDecode), so this is the exact raster Document AI will see.
             // Force 3-component YCbCr so the /DeviceRGB colour space in the
@@ -568,6 +577,83 @@ public class InvoicesController : ControllerBase
         }
 
         return BuildJpegPdf(pages);
+    }
+
+    /// <summary>
+    /// In-place OCR enhancement for photographed pages. Shadow bands across
+    /// a page (window light, phone shadow — see the HEKTRANS photo scan)
+    /// wreck Document AI far more than mild blur does: the text under the
+    /// band loses contrast against its local background. Dividing each pixel
+    /// by the heavily-blurred background evens the illumination while text
+    /// edges survive. Gated: when the background is already uniform
+    /// (relative σ &lt; 0.10) the image passes through with only the sharpen.
+    /// </summary>
+    private static void EnhanceForOcr(Image image)
+    {
+        try
+        {
+            using var rgb = image.CloneAs<SixLabors.ImageSharp.PixelFormats.Rgb24>();
+
+            // Background = heavy blur of a 1/8-scale luminance copy, scaled
+            // back up. Cheap and smooth enough for illumination estimation.
+            var bgW = Math.Max(1, rgb.Width / 8);
+            var bgH = Math.Max(1, rgb.Height / 8);
+            using var bg = rgb.CloneAs<SixLabors.ImageSharp.PixelFormats.L8>();
+            bg.Mutate(x => x.Resize(bgW, bgH).GaussianBlur(12f).Resize(rgb.Width, rgb.Height));
+
+            // Unevenness gate: relative stddev of the background.
+            double sum = 0, sumSq = 0;
+            long n = 0;
+            bg.ProcessPixelRows(rows =>
+            {
+                for (var y = 0; y < rows.Height; y += 4)          // sample every 4th row
+                {
+                    var row = rows.GetRowSpan(y);
+                    for (var x = 0; x < row.Length; x += 4)
+                    {
+                        double v = row[x].PackedValue;
+                        sum += v;
+                        sumSq += v * v;
+                        n++;
+                    }
+                }
+            });
+            if (n == 0) return;
+            var mean = sum / n;
+            var std = Math.Sqrt(Math.Max(0, sumSq / n - mean * mean));
+            var uneven = mean > 1 && std / mean >= 0.10;
+
+            if (uneven)
+            {
+                // out = clamp(pixel × 235 / background) per channel.
+                rgb.ProcessPixelRows(bg, (srcRows, bgRows) =>
+                {
+                    for (var y = 0; y < srcRows.Height; y++)
+                    {
+                        var src = srcRows.GetRowSpan(y);
+                        var bgr = bgRows.GetRowSpan(y);
+                        for (var x = 0; x < src.Length; x++)
+                        {
+                            var d = bgr[x].PackedValue + 1;        // +1 avoids ÷0
+                            var p = src[x];
+                            src[x] = new SixLabors.ImageSharp.PixelFormats.Rgb24(
+                                (byte)Math.Min(255, p.R * 235 / d),
+                                (byte)Math.Min(255, p.G * 235 / d),
+                                (byte)Math.Min(255, p.B * 235 / d));
+                        }
+                    }
+                });
+                // Copy the flattened pixels back into the caller's image.
+                image.Mutate(x => x.DrawImage(rgb, 1f));
+            }
+
+            // Mild unsharp for the soft phone-video captures.
+            image.Mutate(x => x.GaussianSharpen(1.2f));
+        }
+        catch
+        {
+            // Enhancement is best-effort — the un-enhanced page still scans.
+        }
     }
 
     /// <summary>
