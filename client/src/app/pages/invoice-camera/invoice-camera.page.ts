@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnDestroy, effect, signal, viewChild, inject } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, effect, signal, viewChild, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
@@ -29,7 +29,7 @@ import { normaliseFile } from '../../utils/image-utils';
   imports: [CommonModule, NavbarComponent, SpinnerComponent],
   templateUrl: './invoice-camera.page.html'
 })
-export class InvoiceCameraPage implements OnDestroy {
+export class InvoiceCameraPage implements OnInit, OnDestroy {
   private svc = inject(InvoiceService);
   private router = inject(Router);
 
@@ -83,6 +83,11 @@ export class InvoiceCameraPage implements OnDestroy {
 
   private nextPageId = 1;
   private stream: MediaStream | null = null;
+  /** Bumped on every stream (re)acquire — `stream` itself is a plain field,
+   *  so without this the attach effect would NOT rerun when the camera is
+   *  restarted while the <video> element stays mounted (the post-failure
+   *  restart), leaving the old dead/degraded stream on screen. */
+  private streamGen = signal(0);
   /** Reusable full-resolution frame buffer for the burst capture. */
   private fullFrame: HTMLCanvasElement | null = null;
   /** Set by grabStill when the captured region is too small for reliable OCR. */
@@ -96,6 +101,7 @@ export class InvoiceCameraPage implements OnDestroy {
     // saw videoWidth 0 and silently did nothing). Attach the live stream
     // whenever the element (re)appears instead.
     effect(() => {
+      this.streamGen();   // rerun on every stream (re)acquire too
       const video = this.videoRef()?.nativeElement;
       if (!video || !this.stream) return;
       if (video.srcObject !== this.stream) {
@@ -107,6 +113,19 @@ export class InvoiceCameraPage implements OnDestroy {
   }
 
   // ─── Lifecycle ────────────────────────────────────────────────
+
+  async ngOnInit() {
+    // Skip the "Povoliť kameru" tap when the browser already granted the
+    // permission persistently — getUserMedia then starts prompt-free.
+    // When the state is 'prompt'/unknown we keep the explicit button:
+    // gesture-triggered permission prompts are granted more reliably.
+    try {
+      const st = await (navigator as any).permissions?.query({ name: 'camera' });
+      if (st?.state === 'granted') void this.startCamera();
+    } catch {
+      // Permissions API unavailable (older WebKit) — manual button stays.
+    }
+  }
 
   ngOnDestroy() {
     this.stopStream();
@@ -122,7 +141,7 @@ export class InvoiceCameraPage implements OnDestroy {
    * User-gesture trigger from the "Povoliť kameru" button. iOS Safari
    * requires the getUserMedia call to be inside a click handler.
    */
-  async startCamera() {
+  async startCamera(allowRetry = true) {
     this.errorMsg.set(null);
     let stream: MediaStream;
     try {
@@ -142,7 +161,18 @@ export class InvoiceCameraPage implements OnDestroy {
       this.state.set('error');
       return;
     }
+    // Right after a restart WebKit sometimes hands back a DEGRADED stream
+    // (camera not fully released yet) — detect it and re-acquire once
+    // instead of leaving the manager with an extremely blurry preview.
+    const s = stream.getVideoTracks()[0]?.getSettings?.();
+    const acquiredEdge = Math.max(s?.width ?? 0, s?.height ?? 0);
+    if (allowRetry && acquiredEdge > 0 && acquiredEdge < 1280) {
+      for (const t of stream.getTracks()) t.stop();
+      await new Promise(r => setTimeout(r, 800));
+      return this.startCamera(false);
+    }
     this.stream = stream;
+    this.streamGen.update(v => v + 1);
     // The stream is attached by the constructor effect once the <video>
     // element renders (it doesn't exist until the state flips below).
     this.zoom.set(1);
