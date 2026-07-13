@@ -57,6 +57,8 @@ export class InvoiceCameraPage implements OnDestroy {
     processedBlob: Blob | null;
     useProcessed: boolean;
     thumbUrl: string;
+    /** Quality verdict shown on the review screen (blur / low resolution). */
+    warning: string | null;
   } | null>(null);
 
   /** True while the auto-crop detection runs after pressing the shutter. */
@@ -72,6 +74,18 @@ export class InvoiceCameraPage implements OnDestroy {
   zoom = signal(1);
   zoomNative = signal(false);
 
+  /** Torch (camera light) — shown only when the device/browser exposes it
+   *  (Android Chrome, iOS 18+ Safari). */
+  torchAvailable = signal(false);
+  torchOn = signal(false);
+  /** Live low-light hint, sampled from the preview every ~1,2 s. */
+  lowLight = signal(false);
+  private lumaTimer: ReturnType<typeof setInterval> | null = null;
+  private lumaCanvas: HTMLCanvasElement | null = null;
+
+  /** Below this variance-of-Laplacian the shot is flagged as blurred. */
+  private static readonly SHARPNESS_WARN_BELOW = 55;
+
   /**
    * Manager's auto-crop preference, remembered across captures. Starts on so
    * scans are cleaned by default; flipping the review-page toggle persists the
@@ -81,6 +95,10 @@ export class InvoiceCameraPage implements OnDestroy {
 
   private nextPageId = 1;
   private stream: MediaStream | null = null;
+  /** Reusable full-resolution frame buffer for the burst capture. */
+  private fullFrame: HTMLCanvasElement | null = null;
+  /** Set by grabStill when the captured region is too small for reliable OCR. */
+  private lastCaptureLowRes = false;
 
   constructor() {
     // The <video #preview> lives inside @if(state === 'streaming'), so it is
@@ -118,8 +136,9 @@ export class InvoiceCameraPage implements OnDestroy {
    */
   async startCamera() {
     this.errorMsg.set(null);
+    let stream: MediaStream;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
           // Paper OCR lives or dies by pixels: WITHOUT these iOS hands out a
@@ -135,11 +154,76 @@ export class InvoiceCameraPage implements OnDestroy {
       this.state.set('error');
       return;
     }
+    this.stream = stream;
     // The stream is attached by the constructor effect once the <video>
     // element renders (it doesn't exist until the state flips below).
     this.zoom.set(1);
     this.zoomNative.set(false);
+    this.torchOn.set(false);
+
+    const track = stream.getVideoTracks()[0];
+    const caps: any = track?.getCapabilities?.() ?? {};
+    this.torchAvailable.set(!!caps.torch);
+    // Best-effort quality knobs (Android; ignored elsewhere): continuous
+    // autofocus/exposure/white-balance and no browser-side downscaling.
+    // Each advanced entry is independent, so an unsupported one is skipped.
+    track?.applyConstraints({
+      advanced: [
+        { focusMode: 'continuous' } as any,
+        { exposureMode: 'continuous' } as any,
+        { whiteBalanceMode: 'continuous' } as any,
+        { resizeMode: 'none' } as any
+      ]
+    } as any).catch(() => {});
+
+    this.startLumaSampling();
     this.state.set('streaming');
+  }
+
+  /** Camera light for dark sites/containers. Keeps the stream alive. */
+  async toggleTorch() {
+    const track = this.stream?.getVideoTracks()[0];
+    if (!track) return;
+    const want = !this.torchOn();
+    try {
+      await track.applyConstraints({ advanced: [{ torch: want } as any] } as any);
+      this.torchOn.set(want);
+    } catch {
+      this.torchAvailable.set(false);
+    }
+  }
+
+  /**
+   * Mean-luma sampling of the live preview (32×24 thumbnail, cheap) — when
+   * the scene is dark the UI suggests the torch / more light BEFORE the
+   * manager wastes a capture on an unreadable photo.
+   */
+  private startLumaSampling() {
+    this.stopLumaSampling();
+    this.lumaTimer = setInterval(() => {
+      if (this.state() !== 'streaming') return;
+      const video = this.videoRef()?.nativeElement;
+      if (!video || !video.videoWidth) return;
+      this.lumaCanvas ??= document.createElement('canvas');
+      const c = this.lumaCanvas;
+      c.width = 32;
+      c.height = 24;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, 32, 24);
+      const d = ctx.getImageData(0, 0, 32, 24).data;
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      this.lowLight.set(sum / (d.length / 4) < 70);
+    }, 1200);
+  }
+
+  private stopLumaSampling() {
+    if (this.lumaTimer) {
+      clearInterval(this.lumaTimer);
+      this.lumaTimer = null;
+    }
+    this.lowLight.set(false);
   }
 
   /** 1× / 2× / 3× buttons — native track zoom when available, else digital. */
@@ -160,6 +244,8 @@ export class InvoiceCameraPage implements OnDestroy {
   }
 
   private stopStream() {
+    this.stopLumaSampling();
+    this.torchOn.set(false);
     if (!this.stream) return;
     for (const track of this.stream.getTracks()) track.stop();
     this.stream = null;
@@ -193,16 +279,24 @@ export class InvoiceCameraPage implements OnDestroy {
       return;
     }
 
-    // Run auto-crop + sharpen. The indicator matters on the first run, which
-    // downloads the OpenCV wasm; later runs are fast (libraries cached).
+    // Run auto-crop + enhancement. The indicator matters on the first run,
+    // which downloads the OpenCV wasm; later runs are fast (cached).
     let processedBlob: Blob | null = null;
+    let blurry = false;
     try {
       const res = await autoCropDocument(originalBlob, 0.95);
       if (res.cropped) processedBlob = res.blob;
+      blurry = res.sharpness != null && res.sharpness < InvoiceCameraPage.SHARPNESS_WARN_BELOW;
     } catch {
       // Ignore — fall back to the untouched frame below.
     }
     this.processing.set(false);
+
+    const warning = this.lastCaptureLowRes
+      ? 'Nízke rozlíšenie záberu — text nemusí byť čitateľný. Skúste 1× priblíženie a vyplňte rámik stranou.'
+      : blurry
+        ? 'Fotka vyzerá rozmazaná — čísla nemusia byť čitateľné. Odporúčame odfotiť znova.'
+        : null;
 
     const useProcessed = processedBlob != null && this.autoCropEnabled();
     const activeBlob = useProcessed ? processedBlob! : originalBlob;
@@ -210,7 +304,8 @@ export class InvoiceCameraPage implements OnDestroy {
       originalBlob,
       processedBlob,
       useProcessed,
-      thumbUrl: URL.createObjectURL(activeBlob)
+      thumbUrl: URL.createObjectURL(activeBlob),
+      warning
     });
     this.state.set('review-page');
   }
@@ -231,7 +326,17 @@ export class InvoiceCameraPage implements OnDestroy {
     const track = this.stream?.getVideoTracks()[0] ?? null;
     if (track && 'ImageCapture' in window) {
       try {
-        const photo: Blob = await new (window as any).ImageCapture(track).takePhoto();
+        const ic = new (window as any).ImageCapture(track);
+        // Ask for the SENSOR maximum — without explicit dimensions many
+        // devices return a much smaller default still.
+        let opts: any;
+        try {
+          const pc = await ic.getPhotoCapabilities();
+          if (pc?.imageWidth?.max && pc?.imageHeight?.max) {
+            opts = { imageWidth: pc.imageWidth.max, imageHeight: pc.imageHeight.max };
+          }
+        } catch { /* use device defaults */ }
+        const photo: Blob = await ic.takePhoto(opts).catch(() => ic.takePhoto());
         source = await createImageBitmap(photo);
         sw = source.width;
         sh = source.height;
@@ -240,11 +345,13 @@ export class InvoiceCameraPage implements OnDestroy {
       }
     }
     if (!source) {
-      const video = this.videoRef()?.nativeElement;
-      if (!video || !video.videoWidth) return null;   // stream not ready
-      source = video;
-      sw = video.videoWidth;
-      sh = video.videoHeight;
+      // Frame-grab path (iOS/desktop): burst 3 frames and keep the sharpest
+      // — hand-shake insurance the photo pipeline would otherwise provide.
+      const frame = await this.grabSharpestFrame();
+      if (!frame) return null;   // stream not ready
+      source = frame;
+      sw = frame.width;
+      sh = frame.height;
     }
 
     // 2) Crop to what the viewfinder showed: centre 3:4 cover region,
@@ -269,9 +376,64 @@ export class InvoiceCameraPage implements OnDestroy {
     if (!ctx) return null;
     ctx.drawImage(source as CanvasImageSource, cx, cy, cw, ch, 0, 0, canvas.width, canvas.height);
     if (source instanceof ImageBitmap) source.close();
+    // Consistency guard: below ~1500 px the small table print won't survive
+    // OCR (happens with 3× digital zoom on a low-res stream) — the review
+    // screen warns and nudges back to 1× + filling the guide frame.
+    this.lastCaptureLowRes = Math.max(canvas.width, canvas.height) < 1500;
     return await new Promise<Blob | null>(resolve =>
       canvas.toBlob(b => resolve(b), 'image/jpeg', 0.95)
     );
+  }
+
+  /**
+   * Burst capture for the frame-grab path: sample 3 frames ~140 ms apart,
+   * score each on a 320 px copy (Tenengrad gradient energy — pure JS, no
+   * OpenCV needed yet) and keep the sharpest at full resolution. One
+   * reusable full-res buffer, redrawn only when the score improves.
+   */
+  private async grabSharpestFrame(): Promise<HTMLCanvasElement | null> {
+    const video = this.videoRef()?.nativeElement;
+    if (!video || !video.videoWidth) return null;
+    this.fullFrame ??= document.createElement('canvas');
+    const full = this.fullFrame;
+    const small = document.createElement('canvas');
+    small.width = 320;
+    small.height = Math.max(1, Math.round(320 * video.videoHeight / video.videoWidth));
+    const sctx = small.getContext('2d', { willReadFrequently: true });
+    if (!sctx) return null;
+
+    let best = -1;
+    for (let i = 0; i < 3; i++) {
+      sctx.drawImage(video, 0, 0, small.width, small.height);
+      const score = InvoiceCameraPage.tenengrad(sctx.getImageData(0, 0, small.width, small.height));
+      if (score > best) {
+        best = score;
+        full.width = video.videoWidth;
+        full.height = video.videoHeight;
+        full.getContext('2d')!.drawImage(video, 0, 0);
+      }
+      if (i < 2) await new Promise(r => setTimeout(r, 140));
+    }
+    return best >= 0 ? full : null;
+  }
+
+  /** Gradient-energy focus score of a small grayscale copy. */
+  private static tenengrad(img: ImageData): number {
+    const { data, width, height } = img;
+    const g = new Float32Array(width * height);
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      g[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    }
+    let s = 0;
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const p = y * width + x;
+        const gx = g[p + 1] - g[p - 1];
+        const gy = g[p + width] - g[p - width];
+        s += gx * gx + gy * gy;
+      }
+    }
+    return s;
   }
 
   /** Switch the review preview between the auto-cropped and original image. */

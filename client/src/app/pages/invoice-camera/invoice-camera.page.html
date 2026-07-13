@@ -67,10 +67,39 @@
             <video #preview autoplay playsinline muted
                    class="absolute inset-0 w-full h-full object-cover"
                    [style.transform]="zoomNative() || zoom() === 1 ? null : 'scale(' + zoom() + ')'"></video>
+            <!-- A4 guide frame: filling it with the page gives every device
+                 the same effective DPI — the key to consistent scans. -->
+            <div class="absolute inset-x-[5%] inset-y-[3%] border-2 border-dashed border-white/40 rounded-md pointer-events-none"></div>
+            <div class="absolute top-[4%] inset-x-0 text-center pointer-events-none">
+              <span class="px-2 py-0.5 rounded bg-black/50 text-[11px] text-white/80">Vyplňte rámik stranou faktúry</span>
+            </div>
           </div>
           @if (pages().length > 0) {
             <div class="absolute top-2 left-2 px-2 py-1 rounded-md bg-black/60 text-xs">
               Strana {{ pages().length + 1 }}
+            </div>
+          }
+          <!-- Torch (camera light) — only when the device exposes it. -->
+          @if (torchAvailable()) {
+            <button type="button" (click)="toggleTorch()"
+                    class="touch-target absolute top-2 right-2 w-10 h-10 rounded-full flex items-center justify-center transition-colors"
+                    [class.bg-amber-500]="torchOn()"
+                    [class.text-white]="torchOn()"
+                    [class.bg-black/60]="!torchOn()"
+                    [class.text-slate-200]="!torchOn()"
+                    [class.animate-pulse]="lowLight() && !torchOn()"
+                    [title]="torchOn() ? 'Vypnúť svetlo' : 'Zapnúť svetlo'">
+              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+              </svg>
+            </button>
+          }
+          <!-- Low-light hint from live preview sampling. -->
+          @if (lowLight() && !torchOn()) {
+            <div class="absolute bottom-14 inset-x-4 text-center">
+              <span class="inline-block px-3 py-1.5 rounded-md bg-black/70 text-amber-300 text-xs">
+                Slabé svetlo — {{ torchAvailable() ? 'zapnite svetlo kamery' : 'pridajte osvetlenie' }}
+              </span>
             </div>
           }
           <!-- Zoom: native camera zoom where the browser supports it,
@@ -129,6 +158,12 @@
                     class="touch-target absolute top-2 right-2 px-3 py-1.5 rounded-md bg-black/60 hover:bg-black/80 text-xs font-medium">
               {{ p.useProcessed ? 'Zobraziť originál' : 'Použiť orezané' }}
             </button>
+          }
+          <!-- Quality verdict (blur / low resolution): warn, never block. -->
+          @if (p.warning) {
+            <div class="absolute bottom-2 inset-x-2 px-3 py-2 rounded-md bg-amber-500/95 text-black text-xs font-semibold text-center">
+              {{ p.warning }}
+            </div>
           }
         </div>
         <div class="p-4 flex items-center justify-between gap-3">
