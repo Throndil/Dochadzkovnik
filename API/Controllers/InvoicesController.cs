@@ -181,15 +181,31 @@ public class InvoicesController : ControllerBase
             {
                 using var aiCts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
                 var ai = await _ai.ExtractAsync(bytes, mime, ocr.FullText, aiCts.Token);
+                var detHasBasics = !string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber)
+                                   && parsed.Header.TotalInclVat != null;
+                var aiHasBasics = ai != null
+                                  && !string.IsNullOrWhiteSpace(ai.Header.InvoiceNumber)
+                                  && ai.Header.TotalInclVat != null;
                 if (ai != null && ParsedReconciles(ai))
                 {
                     _log.LogInformation("[InvoiceScanning] AI fallback reconciled (číslo={Num}, spolu={Total}) — replacing the deterministic parse.",
                         ai.Header.InvoiceNumber, ai.Header.TotalInclVat);
                     parsed = ai;
                 }
+                else if (aiHasBasics && !detHasBasics)
+                {
+                    // The deterministic parse would be REJECTED outright
+                    // (no number / no total). The AI's non-reconciling read
+                    // is still far more useful: the document lands in review
+                    // with the Nesedí banner for manual correction instead
+                    // of bouncing the upload back to the customer.
+                    _log.LogInformation("[InvoiceScanning] AI fallback didn't reconcile but rescued the basics (číslo={Num}, spolu={Total}) — accepting for review.",
+                        ai!.Header.InvoiceNumber, ai.Header.TotalInclVat);
+                    parsed = ai;
+                }
                 else
                 {
-                    _log.LogInformation("[InvoiceScanning] AI fallback did not reconcile — keeping the deterministic parse.");
+                    _log.LogInformation("[InvoiceScanning] AI fallback did not improve on the deterministic parse — keeping it.");
                 }
             }
             catch (Exception ex)
@@ -219,12 +235,10 @@ public class InvoicesController : ControllerBase
             {
                 _log.LogWarning(ex, "[InvoiceScanning] Could not write rejected-scan dump.");
             }
-            // Both the deterministic parse AND the AI fallback failed at this
-            // point — the photo genuinely doesn't carry the information.
-            // Tell the customer what to actually do about it.
-            if (string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber))
-                return BadRequest("Nepodarilo sa rozpoznať číslo dokladu. Odfoťte doklad znova — vyplňte rámik celou stranou a zabezpečte lepšie osvetlenie (alebo zapnite svetlo kamery).");
-            return BadRequest("Nepodarilo sa rozpoznať celkovú sumu dokladu. Odfoťte doklad znova — vyplňte rámik celou stranou a zabezpečte lepšie osvetlenie (alebo zapnite svetlo kamery).");
+            // Both the deterministic parse AND the AI failed at this point —
+            // the photo genuinely doesn't carry the information. Big, clear
+            // instruction for the customer.
+            return BadRequest("DOKLAD SA NEPODARILO PREČÍTAŤ — ani s pomocou AI. Odfoťte ho znova pri LEPŠOM OSVETLENÍ (zapnite blesk), zblízka a s celou stranou v zábere.");
         }
 
         // 2) Dedup check — invoice number + issue date. Supplier IČO is NOT

@@ -34,9 +34,10 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   private router = inject(Router);
 
   // ── View refs (live <video>, hidden capture canvas, hidden file-picker fallback) ──
-  videoRef     = viewChild<ElementRef<HTMLVideoElement>>('preview');
-  canvasRef    = viewChild<ElementRef<HTMLCanvasElement>>('capture');
-  fileInputRef = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+  videoRef       = viewChild<ElementRef<HTMLVideoElement>>('preview');
+  canvasRef      = viewChild<ElementRef<HTMLCanvasElement>>('capture');
+  fileInputRef   = viewChild<ElementRef<HTMLInputElement>>('fileInput');
+  cameraInputRef = viewChild<ElementRef<HTMLInputElement>>('cameraInput');
 
   // ── State machine ──
   state = signal<'idle' | 'streaming' | 'review-page' | 'pages-list' | 'uploading' | 'error'>('idle');
@@ -116,17 +117,16 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
 
   // ─── Lifecycle ────────────────────────────────────────────────
 
-  async ngOnInit() {
-    // Skip the "Povoliť kameru" tap when the browser already granted the
-    // permission persistently — getUserMedia then starts prompt-free.
-    // When the state is 'prompt'/unknown we keep the explicit button:
-    // gesture-triggered permission prompts are granted more reliably.
-    try {
-      const st = await (navigator as any).permissions?.query({ name: 'camera' });
-      if (st?.state === 'granted') void this.startCamera();
-    } catch {
-      // Permissions API unavailable (older WebKit) — manual button stays.
-    }
+  ngOnInit() {
+    // Nothing to pre-start: the primary flow is the NATIVE camera via
+    // input[capture] — no getUserMedia, no permission prompt, no live
+    // stream in the tab. The in-app viewfinder is opt-in per visit.
+  }
+
+  /** Primary capture: the phone's native camera app (input[capture]).
+   *  Full-res stills, native night mode/flash, zero in-tab memory. */
+  openNativeCamera() {
+    this.cameraInputRef()?.nativeElement.click();
   }
 
   ngOnDestroy() {
@@ -150,11 +150,13 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
       stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          // Paper OCR lives or dies by pixels: WITHOUT these iOS hands out a
-          // 640×480 stream and the text is mush. Browsers clamp "ideal" to
-          // the camera's best supported video mode (1080p/4K on phones).
-          width:  { ideal: 3840 },
-          height: { ideal: 2160 }
+          // QHD, deliberately NOT 4K: the 4K camera pipeline inside a browser
+          // tab was a major part of the memory pressure that crashed phones.
+          // The live viewfinder is the secondary flow — the native camera
+          // app (input[capture]) is the primary and shoots at full sensor
+          // resolution regardless.
+          width:  { ideal: 2560 },
+          height: { ideal: 1440 }
         },
         audio: false
       });
@@ -522,6 +524,27 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     this.ensureLiveStream();
   }
 
+  /** Downscale oversized stills to ≤3000 px JPEG (one transient canvas,
+   *  released immediately). Files ≤4 MB pass through untouched. */
+  private async shrinkForUpload(blob: Blob): Promise<Blob> {
+    if (blob.size <= 4 * 1024 * 1024) return blob;
+    try {
+      const bmp = await createImageBitmap(blob);
+      const scale = Math.min(1, 3000 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(bmp.width * scale));
+      c.height = Math.max(1, Math.round(bmp.height * scale));
+      c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close();
+      const out = await new Promise<Blob | null>(res => c.toBlob(b => res(b), 'image/jpeg', 0.9));
+      c.width = 0;
+      c.height = 0;
+      return out ?? blob;
+    } catch {
+      return blob;
+    }
+  }
+
   /** ~480 px display thumbnail — the grid must never decode full pages. */
   private async makeThumb(blob: Blob): Promise<string> {
     try {
@@ -563,18 +586,15 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   // ─── Pages-list operations ────────────────────────────────────
 
   goAddAnother() {
-    // "Pridať ďalšiu stranu" can be pressed when no camera stream exists
-    // (PC / file-picker flow), or when the phone killed the track after
-    // backgrounding the browser — jumping to the streaming state would show
-    // a dead black preview. Start the camera properly; on failure the error
-    // state offers the file-picker fallback.
+    // With a live in-app viewfinder, go back to it; otherwise the next page
+    // comes from the native camera app (the primary, crash-proof flow).
     const live = this.stream?.getVideoTracks().some(t => t.readyState === 'live') ?? false;
-    if (!live) {
-      this.stopStream();
-      this.startCamera();
+    if (live) {
+      this.state.set('streaming');
       return;
     }
-    this.state.set('streaming');
+    this.stopStream();
+    this.openNativeCamera();
   }
 
   removePage(id: number) {
@@ -628,6 +648,10 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
         } catch {
           blob = files[i];   // HEIC conversion failed — send the original
         }
+        // Native-camera stills can be 5–8 MB (HEIC→PNG even more) — a
+        // multi-page invoice would blow the 40 MB upload cap. One bounded
+        // downscale to ≤3000 px JPEG, only when oversized.
+        blob = await this.shrinkForUpload(blob);
         accepted.push({
           id: this.nextPageId++,
           blob,

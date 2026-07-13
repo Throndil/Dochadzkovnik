@@ -33,27 +33,37 @@
       </div>
     }
 
-    <!-- ── State: idle (initial permission prompt) ────────────────── -->
+    <!-- ── State: idle ────────────────────────────────────────────── -->
     @if (state() === 'idle') {
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-4 text-center">
         <div class="text-slate-300">
           Odfoťte každú stranu faktúry. Fotky sa spoja do jedného PDF a pošlú na rozpoznanie.
         </div>
-        <button type="button" (click)="startCamera()"
+        <!-- PRIMARY: the phone's native camera app via input[capture] —
+             full-resolution stills, native night mode + flash, no camera
+             permission prompt, and nothing streaming inside the tab (the
+             in-page live camera kept crashing low-memory phones). -->
+        <button type="button" (click)="openNativeCamera()"
                 class="touch-target inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold">
           <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
             <circle cx="12" cy="13" r="4"></circle>
           </svg>
-          Povoliť kameru
+          Odfotiť stranu
         </button>
         <div class="text-xs text-slate-500">
           alebo
         </div>
-        <button type="button" (click)="openFilePicker()"
-                class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100">
-          Vybrať fotky zo zariadenia
-        </button>
+        <div class="flex flex-wrap justify-center gap-2">
+          <button type="button" (click)="startCamera()"
+                  class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100">
+            Živý náhľad v aplikácii
+          </button>
+          <button type="button" (click)="openFilePicker()"
+                  class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100">
+            Vybrať fotky zo zariadenia
+          </button>
+        </div>
       </div>
     }
 
@@ -204,8 +214,13 @@
         </div>
 
         @if (errorMsg()) {
-          <div class="bg-red-900/40 border border-red-700 text-red-200 p-3 rounded-lg text-sm">
-            {{ errorMsg() }}
+          <div class="bg-red-900/60 border-2 border-red-500 text-red-100 p-4 rounded-xl flex items-start gap-3">
+            <svg class="w-7 h-7 shrink-0 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <div class="text-base font-semibold leading-snug">{{ errorMsg() }}</div>
           </div>
         }
 
@@ -253,6 +268,9 @@
     <!-- ── Always-mounted hidden helpers ──────────────────────────── -->
     <canvas #capture class="hidden"></canvas>
     <input #fileInput type="file" accept="image/*" multiple
+           (change)="onFallbackFiles($event)" class="hidden" />
+    <!-- Native camera app (capture="environment") — one page per shot. -->
+    <input #cameraInput type="file" accept="image/*" capture="environment"
            (change)="onFallbackFiles($event)" class="hidden" />
   </div>
 </div>
