@@ -110,7 +110,14 @@ export class InvoiceCameraPage implements OnDestroy {
     this.errorMsg.set(null);
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
+        video: {
+          facingMode: { ideal: 'environment' },
+          // Paper OCR lives or dies by pixels: WITHOUT these iOS hands out a
+          // 640×480 stream and the text is mush. Browsers clamp "ideal" to
+          // the camera's best supported video mode (1080p/4K on phones).
+          width:  { ideal: 3840 },
+          height: { ideal: 2160 }
+        },
         audio: false
       });
     } catch (e: any) {
@@ -150,31 +157,18 @@ export class InvoiceCameraPage implements OnDestroy {
    * libraries fail to load, we keep the untouched frame.
    */
   async shutter() {
-    const video = this.videoRef()?.nativeElement;
-    const canvas = this.canvasRef()?.nativeElement;
-    if (!video || !canvas) return;
-
-    const w = video.videoWidth;
-    const h = video.videoHeight;
-    if (!w || !h) return;     // stream not ready
-
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, w, h);
-
-    const originalBlob = await new Promise<Blob | null>(resolve =>
-      canvas.toBlob(b => resolve(b), 'image/jpeg', 0.85)
-    );
-    if (!originalBlob) return;
-
-    // Run auto-crop. Show a brief indicator since the first run downloads the
-    // OpenCV wasm; later runs are fast (libraries cached).
     this.processing.set(true);
+    const originalBlob = await this.grabStill();
+    if (!originalBlob) {
+      this.processing.set(false);
+      return;
+    }
+
+    // Run auto-crop + sharpen. The indicator matters on the first run, which
+    // downloads the OpenCV wasm; later runs are fast (libraries cached).
     let processedBlob: Blob | null = null;
     try {
-      const res = await autoCropDocument(canvas);
+      const res = await autoCropDocument(originalBlob, 0.95);
       if (res.cropped) processedBlob = res.blob;
     } catch {
       // Ignore — fall back to the untouched frame below.
@@ -190,6 +184,38 @@ export class InvoiceCameraPage implements OnDestroy {
       thumbUrl: URL.createObjectURL(activeBlob)
     });
     this.state.set('review-page');
+  }
+
+  /**
+   * Grab the best still the device can give. Android Chrome exposes
+   * ImageCapture.takePhoto() — the true photo pipeline (full sensor
+   * resolution + a fresh autofocus run). iOS Safari doesn't, so there we
+   * grab the (now high-res) video frame at maximum JPEG quality — invoice
+   * scans are never compressed beyond that.
+   */
+  private async grabStill(): Promise<Blob | null> {
+    const track = this.stream?.getVideoTracks()[0] ?? null;
+    if (track && 'ImageCapture' in window) {
+      try {
+        return await new (window as any).ImageCapture(track).takePhoto();
+      } catch {
+        // Some devices reject takePhoto mid-stream — use the frame grab.
+      }
+    }
+    const video = this.videoRef()?.nativeElement;
+    const canvas = this.canvasRef()?.nativeElement;
+    if (!video || !canvas) return null;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) return null;     // stream not ready
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, w, h);
+    return await new Promise<Blob | null>(resolve =>
+      canvas.toBlob(b => resolve(b), 'image/jpeg', 0.95)
+    );
   }
 
   /** Switch the review preview between the auto-cropped and original image. */
@@ -290,7 +316,7 @@ export class InvoiceCameraPage implements OnDestroy {
       let blob: Blob = normalised;
       if (this.autoCropEnabled()) {
         try {
-          const res = await autoCropDocument(normalised);
+          const res = await autoCropDocument(normalised, 0.95);
           if (res.cropped) blob = res.blob;
         } catch {
           // Ignore — keep the normalised original.

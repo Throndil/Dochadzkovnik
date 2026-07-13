@@ -99,6 +99,29 @@ function canvasToJpeg(canvas: HTMLCanvasElement, quality: number): Promise<Blob>
   );
 }
 
+/**
+ * Light unsharp mask for OCR legibility: sharp = 1.6·img − 0.6·blur(σ=2).
+ * Phone video frames are slightly soft (video pipeline, not the photo
+ * pipeline) — this recovers the small-print edges Document AI needs without
+ * introducing halos. Best-effort: failures leave the canvas untouched.
+ */
+function sharpenCanvas(cv: any, canvas: HTMLCanvasElement): void {
+  let img: any = null;
+  let blur: any = null;
+  try {
+    img = cv.imread(canvas);
+    blur = new cv.Mat();
+    cv.GaussianBlur(img, blur, new cv.Size(0, 0), 2);
+    cv.addWeighted(img, 1.6, blur, -0.6, 0, img);
+    cv.imshow(canvas, img);
+  } catch {
+    // Keep the un-sharpened crop.
+  } finally {
+    img?.delete?.();
+    blur?.delete?.();
+  }
+}
+
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -160,6 +183,7 @@ export async function autoCropDocument(
       if (outW < 50 || outH < 50) return { blob: await original(), cropped: false };
 
       const result: HTMLCanvasElement = scanner.extractPaper(srcCanvas, outW, outH, corners);
+      sharpenCanvas(cv, result);
       return { blob: await canvasToJpeg(result, quality), cropped: true };
     } finally {
       img?.delete?.();
