@@ -885,8 +885,12 @@ public class LocationsController : ControllerBase
     public async Task<ActionResult<List<LocationPnlDto>>> GetPnlSummary([FromQuery] string? from, [FromQuery] string? to)
     {
         var (f, t) = ParseDateRange(from, to);
+        // ALL locations, deactivated included: a site deactivated last week
+        // still carries June's wages and material, and hiding it would make
+        // that money vanish from June's report. Rows with zero activity in
+        // the range are hidden client-side, so dormant inactive sites don't
+        // clutter the view.
         var locs = await _db.Locations
-            .Where(l => l.IsActive)
             .OrderBy(l => l.Name)
             .ToListAsync();
         var rows = new List<LocationPnlDto>(locs.Count);
@@ -963,7 +967,7 @@ public class LocationsController : ControllerBase
         {
             rows.Add(new LocationPnlDto
             {
-                Location = new PnlLocationDto { Id = 0, Name = "Sklad / Nepriradené" },
+                Location = new PnlLocationDto { Id = 0, Name = "Sklad / Nepriradené", IsActive = true },
                 Labour   = new PnlLabourDto(),
                 Material = rows.Any(r => r.Material != null)
                     ? new PnlMaterialDto { Cost = unassigned.Sum(x => x.LineTotal) }
@@ -1104,7 +1108,7 @@ public class LocationsController : ControllerBase
 
         return new LocationPnlDto
         {
-            Location = new PnlLocationDto { Id = loc.Id, Name = loc.Name, ContractValue = loc.ContractValue },
+            Location = new PnlLocationDto { Id = loc.Id, Name = loc.Name, ContractValue = loc.ContractValue, IsActive = loc.IsActive },
             Labour   = labour,
             Material = material,
             Revenue  = revenue,

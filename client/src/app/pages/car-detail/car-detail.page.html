@@ -1,7 +1,12 @@
 <app-navbar />
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
   <div class="max-w-xl mx-auto px-4 py-4 sm:p-6 space-y-6">
-    <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Upraviť vozidlo</h1>
+    <div>
+      <a routerLink="/admin/cars" class="inline-flex items-center gap-2 text-slate-400 hover:text-slate-200 text-sm mb-2">← Späť na vozidlá</a>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Upraviť vozidlo</h1>
+    </div>
+
+    <app-alert variant="error" [message]="error()" class="block" />
 
     @if (car()) {
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
@@ -33,7 +38,7 @@
             }
             <input #photoInput type="file" accept="image/*" class="hidden" (change)="onFileSelected($event)" />
           </div>
-          <p class="text-xs text-slate-500 mt-1">Foto sa uloží pri kliknutí na "Uložiť zmeny"</p>
+          <p class="text-xs text-slate-500 mt-1">Foto sa uloží pri "Uložiť zmeny"</p>
         </div>
 
         <form (ngSubmit)="onSave()" class="space-y-4">

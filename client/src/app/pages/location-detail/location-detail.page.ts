@@ -1,5 +1,5 @@
 import { Component, signal, computed, OnInit, inject } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { DatePipe } from '@angular/common';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
@@ -13,6 +13,8 @@ import { WorkDiaryService, WorkDiary } from '../../services/work-diary.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import { AuthService } from '../../services/auth.service';
 import { ToastService } from '../../services/toast.service';
+import { ApiErrorService } from '../../services/api-error.service';
+import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
 
 export interface PhotoGroup {
   key: string;            // unique: date__employeeName
@@ -23,7 +25,7 @@ export interface PhotoGroup {
 
 @Component({
   selector: 'app-location-detail',
-  imports: [NavbarComponent, FormsModule, DatePipe, SpinnerComponent, LocationManagePanelComponent],
+  imports: [NavbarComponent, FormsModule, DatePipe, SpinnerComponent, LocationManagePanelComponent, RouterLink, MonthPickerComponent],
   templateUrl: './location-detail.page.html'
 })
 export class LocationDetailPage implements OnInit {
@@ -242,6 +244,7 @@ export class LocationDetailPage implements OnInit {
   // ─── Náklady a zisk / P&L (PayrollAndPnL flag) ──────────────────
   auth = inject(AuthService);
   private toast = inject(ToastService);
+  private apiError = inject(ApiErrorService);
   /** Card renders only for the flag or superadmin — same gate as the Mzdy link. */
   pnlVisible = computed(() => this.flags.payrollAndPnL() || this.auth.isSuperAdmin());
   pnl = signal<LocationPnl | null>(null);
@@ -387,7 +390,13 @@ export class LocationDetailPage implements OnInit {
       name: this.name,
       address: this.address,
       isActive: this.isActive
-    }).subscribe(() => this.router.navigate(['/admin/locations']));
+    }).subscribe({
+      next: () => {
+        this.toast.success('Zmeny uložené');
+        this.router.navigate(['/admin/locations']);
+      },
+      error: e => this.toast.error(this.apiError.friendly(e, 'Uloženie pracoviska zlyhalo'))
+    });
   }
 
   onFileSelected(event: Event) {

@@ -1,15 +1,17 @@
 ﻿import { Component, signal, OnInit, inject } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { EmployeeService, Employee } from '../../services/employee.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import { AuthService } from '../../services/auth.service';
+import { ToastService } from '../../services/toast.service';
+import { ApiErrorService } from '../../services/api-error.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-employee-detail',
-  imports: [NavbarComponent, FormsModule],
+  imports: [NavbarComponent, FormsModule, RouterLink],
   templateUrl: './employee-detail.page.html'
 })
 export class EmployeeDetailPage implements OnInit {
@@ -37,7 +39,9 @@ export class EmployeeDetailPage implements OnInit {
   constructor(
     private route: ActivatedRoute,
     private router: Router,
-    private employeeService: EmployeeService
+    private employeeService: EmployeeService,
+    private toast: ToastService,
+    private apiError: ApiErrorService
   ) {}
 
   ngOnInit() {
@@ -65,17 +69,32 @@ export class EmployeeDetailPage implements OnInit {
       city: this.city || undefined,
       isActive: this.isActive,
       hourlyWage: this.hourlyWage
-    }).subscribe(() => this.router.navigate(['/admin/employees']));
+    }).subscribe({
+      next: () => {
+        this.toast.success('Zmeny uložené');
+        this.router.navigate(['/admin/employees']);
+      },
+      error: e => this.toast.error(this.apiError.friendly(e, 'Uloženie zamestnanca zlyhalo'))
+    });
   }
 
   onSetPin() {
     if (!/^\d{4,6}$/.test(this.newPin)) return;
     const savedPin = this.newPin;
-    this.employeeService.setPin(this.id, savedPin).subscribe(() => {
-      this.currentPin.set(savedPin);
-      this.pinSaved = true;
-      this.newPin = '';
-      setTimeout(() => this.pinSaved = false, 3000);
+    this.employeeService.setPin(this.id, savedPin).subscribe({
+      next: () => {
+        this.currentPin.set(savedPin);
+        this.pinSaved = true;
+        this.newPin = '';
+        setTimeout(() => this.pinSaved = false, 3000);
+      },
+      error: e => {
+        if (e.status === 409) {
+          this.toast.error('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+        } else {
+          this.toast.error(this.apiError.friendly(e, 'PIN sa nepodarilo zmeniť'));
+        }
+      }
     });
   }
 
@@ -104,9 +123,12 @@ export class EmployeeDetailPage implements OnInit {
     if (!file.type.startsWith('image/') && !file.name.match(/\.(heic|heif)$/i)) return;
     const normalised = await normaliseFile(file);   // HEIC → PNG before canvas decode
     const resized = await this.resizeImage(normalised);
-    this.employeeService.uploadPhoto(this.id, resized).subscribe(url => {
-      this.employee.update(e => e ? { ...e, photoUrl: url } : e);
-      this.photoPreview.set(url);
+    this.employeeService.uploadPhoto(this.id, resized).subscribe({
+      next: url => {
+        this.employee.update(e => e ? { ...e, photoUrl: url } : e);
+        this.photoPreview.set(url);
+      },
+      error: e => this.toast.error(this.apiError.friendly(e, 'Nahranie fotografie zlyhalo'))
     });
   }
 

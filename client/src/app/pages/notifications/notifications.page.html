@@ -5,7 +5,7 @@
     <!-- Page Header -->
     <div>
       <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Notifikácie</h1>
-      <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Správa pripomienok pre zamestnancov, ktorí si nezaznamenali odpracované hodiny.</p>
+      <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Pripomienky pre zamestnancov bez záznamu hodín.</p>
     </div>
 
     <!-- Bez záznamu hodín — plain list. Hidden when nobody is missing days. -->
@@ -54,7 +54,7 @@
             <input type="checkbox"
                    [checked]="config().noActivity48hEnabled"
                    (change)="toggleConfigEnabled()"
-                   class="mt-1 rounded" />
+                   class="mt-1 rounded accent-amber-500" />
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">
               Pripomienka po 2 dňoch bez záznamu
             </label>
@@ -77,7 +77,7 @@
             <input type="checkbox"
                    [checked]="config().workingDaysOnly"
                    (change)="toggleWorkingDaysOnly()"
-                   class="mt-1 rounded" />
+                   class="mt-1 rounded accent-amber-500" />
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">
               Iba pracovné dni (Po–Pi)
             </label>
@@ -88,7 +88,7 @@
             <input type="checkbox"
                    [checked]="config().managerSummaryEnabled"
                    (change)="toggleManagerSummaryEnabled()"
-                   class="mt-1 rounded" />
+                   class="mt-1 rounded accent-amber-500" />
             <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">
               Posielať manažérovi denný súhrn
             </label>
@@ -135,7 +135,7 @@
       <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Zamestnanci</h2>
 
       @if (employeesError()) {
-        <p class="text-red-600 dark:text-red-400 text-sm">{{ employeesError() }}</p>
+        <app-alert variant="error" [message]="employeesError()" />
       } @else if (employeesLoading()) {
         <app-spinner />
       } @else if (employees().length === 0) {
@@ -174,7 +174,7 @@
                            [checked]="emp.notificationsEnabled"
                            [disabled]="employeeUpdatingIds().has(emp.id)"
                            (change)="toggleEmployeeNotifications(emp)"
-                           class="disabled:opacity-50 rounded" />
+                           class="disabled:opacity-50 rounded accent-amber-500" />
                   </td>
                   <td class="px-4 py-3 text-sm">{{ formatLastNotified(emp.lastNotifiedAt) }}</td>
                 </tr>
@@ -192,7 +192,7 @@
                 <div><span class="text-slate-600 dark:text-slate-400">Telefón:</span> {{ emp.phoneNumber || '—' }}</div>
                 <div><span class="text-slate-600 dark:text-slate-400">Push zariadenia:</span> {{ emp.pushSubscriptionCount }}</div>
                 <label class="flex items-center gap-2 col-span-2">
-                  <input type="checkbox" [checked]="emp.notificationsEnabled" (change)="toggleEmployeeNotifications(emp)" class="rounded" />
+                  <input type="checkbox" [checked]="emp.notificationsEnabled" (change)="toggleEmployeeNotifications(emp)" class="rounded accent-amber-500" />
                   <span class="text-slate-600 dark:text-slate-400">Aktívne</span>
                 </label>
               </div>
@@ -233,14 +233,14 @@
             </button>
           </div>
           <p class="text-xs text-slate-500 dark:text-slate-400">
-            Funguje len ak má zamestnanec aspoň jedno zariadenie s aktivovanou push notifikáciou.
+            Vyžaduje zariadenie s aktívnou push notifikáciou.
           </p>
 
           @if (testResult()) {
             <p class="text-green-600 dark:text-green-400 text-sm">{{ testResult() }}</p>
           }
           @if (testError()) {
-            <p class="text-red-600 dark:text-red-400 text-sm">{{ testError() }}</p>
+            <app-alert variant="error" [message]="testError()" />
           }
         </div>
       </div>
@@ -257,6 +257,9 @@
           @if (fireNowResult()) {
             <p class="text-green-600 dark:text-green-400 text-sm">{{ fireNowResult() }}</p>
           }
+          @if (fireNowError()) {
+            <app-alert variant="error" [message]="fireNowError()" />
+          }
         </div>
       </div>
 
@@ -266,7 +269,7 @@
           Demo: poslať konkrétnemu zamestnancovi
         </h3>
         <p class="text-xs text-amber-800 dark:text-amber-200 mb-3">
-          Pošle 48-hodinovú pripomienku konkrétnemu zamestnancovi. Ideálne na ukážku zákazníkovi — ignoruje denný limit, dá sa použiť opakovane v ten istý deň.
+          Pošle 48-hodinovú pripomienku zamestnancovi; ignoruje denný limit.
         </p>
 
         <div class="space-y-3">
@@ -294,7 +297,7 @@
             <p class="text-green-600 dark:text-green-400 text-sm font-medium">{{ demoResult() }}</p>
           }
           @if (demoError()) {
-            <p class="text-red-600 dark:text-red-400 text-sm">{{ demoError() }}</p>
+            <app-alert variant="error" [message]="demoError()" />
           }
         </div>
       </div>
@@ -324,20 +327,20 @@
           <input type="date" appDate name="historyFrom"
                  [ngModel]="historyFrom()"
                  (ngModelChange)="historyFrom.set($event)"
-                 class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+                 class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
         </div>
         <div>
           <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Do dátumu</label>
           <input type="date" appDate name="historyTo"
                  [ngModel]="historyTo()"
                  (ngModelChange)="historyTo.set($event)"
-                 class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg" />
+                 class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
         </div>
         <div>
           <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Zamestnanec</label>
           <select (change)="historyEmployeeId.set($any($event).target.value ? +$any($event).target.value : null)"
                   [value]="historyEmployeeId() || ''"
-                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
             <option value="">-- Všetci --</option>
             @for (emp of employees(); track emp.id) {
               <option [value]="emp.id">{{ emp.firstName }} {{ emp.lastName }}</option>
@@ -348,7 +351,7 @@
           <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Kanál</label>
           <select (change)="historyChannel.set($any($event).target.value)"
                   [value]="historyChannel()"
-                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+                  class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
             <option value="">-- Všetky --</option>
             <option value="Push">Push</option>
           </select>
@@ -360,7 +363,7 @@
         <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Stav</label>
         <select (change)="historyStatus.set($any($event).target.value)"
                 [value]="historyStatus()"
-                class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
+                class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500">
           <option value="">-- Všetky --</option>
           <option value="Sent">Odoslané</option>
           <option value="Failed">Chyba</option>
@@ -371,7 +374,7 @@
 
       <!-- History table -->
       @if (historyError()) {
-        <p class="text-red-600 dark:text-red-400 text-sm">{{ historyError() }}</p>
+        <app-alert variant="error" [message]="historyError()" />
       } @else if (historyLoading()) {
         <app-spinner />
       } @else if (history().length === 0) {

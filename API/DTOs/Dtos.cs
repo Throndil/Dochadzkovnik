@@ -1076,6 +1076,9 @@ public class PnlLocationDto
     public int Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public decimal? ContractValue { get; set; }
+    /// <summary>False for deactivated sites — the report still shows them
+    /// (with their historical costs) when the range covers their activity.</summary>
+    public bool IsActive { get; set; } = true;
 }
 
 public class PnlLabourDto

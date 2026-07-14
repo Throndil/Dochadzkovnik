@@ -170,13 +170,13 @@
             }
           </select>
         </div>
-        <button (click)="exportCsv()"
-                class="w-full sm:w-auto mt-1 sm:mt-0 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors self-end">
-          ↓ CSV
+        <button (click)="exportCsv()" [disabled]="exporting()"
+                class="w-full sm:w-auto mt-1 sm:mt-0 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors self-end">
+          {{ exporting() ? 'Pripravujem…' : '↓ CSV' }}
         </button>
-        <button (click)="exportXlsx()"
-                class="w-full sm:w-auto mt-1 sm:mt-0 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg transition-colors self-end">
-          ↓ Excel (s fotkami)
+        <button (click)="exportXlsx()" [disabled]="exporting()"
+                class="w-full sm:w-auto mt-1 sm:mt-0 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors self-end">
+          {{ exporting() ? 'Pripravujem…' : '↓ Excel (s fotkami)' }}
         </button>
       </div>
     </div>
@@ -368,9 +368,21 @@
         </tbody>
       </table>
       @if (entries().length === 0) {
-        <div class="p-8 text-center text-slate-500">Žiadne záznamy dochádzky.</div>
+        <div class="p-8 text-center text-slate-500 dark:text-slate-400">Žiadne záznamy dochádzky.</div>
       }
     </div>
+
+    <!-- Delete confirmation (replaces the old browser confirm()) -->
+    <app-modal
+      [open]="!!deletingEntry()"
+      variant="danger"
+      title="Odstrániť záznam dochádzky"
+      [message]="deletingEntry() ? 'Odstrániť záznam dochádzky pre ' + deletingEntry()!.employeeName + ' (' + (deletingEntry()!.hoursWorked ?? 0) + ' h)? Toto sa nedá vrátiť.' : ''"
+      confirmLabel="Odstrániť"
+      [busy]="deleteBusy()"
+      busyLabel="Odstraňujem…"
+      (confirm)="confirmDeleteEntry()"
+      (cancel)="deletingEntry.set(null)" />
 
     <!-- Mobile cards -->
     <div class="sm:hidden space-y-3">

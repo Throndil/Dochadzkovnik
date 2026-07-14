@@ -4,6 +4,7 @@
   <app-location-manage-panel [location]="manageLocation()" (close)="onManagePanelClose()" />
 
   <div class="max-w-3xl mx-auto px-4 py-4 sm:p-6">
+    <a routerLink="/admin/locations" class="inline-flex items-center gap-2 text-slate-400 hover:text-slate-200 text-sm mb-2">← Späť na pracoviská</a>
     <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mb-4 sm:mb-6">Upraviť pracovisko</h1>
 
     @if (location()) {
@@ -91,7 +92,7 @@
           <app-spinner size="sm" [inline]="true" />
         } @else if (materials().length === 0) {
           <div class="text-sm text-slate-500 dark:text-slate-400 py-4">
-            V tomto mesiaci nebol zaznamenaný žiadny materiál.
+            Žiadny materiál v tomto mesiaci.
           </div>
         } @else {
           <div class="overflow-x-auto -mx-6 px-6">
@@ -256,7 +257,7 @@
             } @else if (auth.isSuperAdmin()) {
               <!-- Dev reminder, superadmin-only — regular admins simply don't see the row -->
               <div class="border-t border-slate-200 dark:border-slate-700 py-2 text-xs text-slate-400 dark:text-slate-500">
-                Pre kompletný výpočet aktivujte Nákupy materiálu vo Funkcie.
+                Aktivujte Nákupy materiálu vo Funkcie.
               </div>
             }
 
@@ -282,7 +283,7 @@
 
           <div class="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
             <button type="button" (click)="downloadPnlExcel()" [disabled]="pnlLoading()"
-                    class="touch-target w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors disabled:opacity-50">
+                    class="touch-target w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold transition-colors disabled:opacity-50">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
@@ -313,7 +314,7 @@
           <app-spinner size="sm" [inline]="true" />
         } @else if (hoursByEmployee().length === 0) {
           <div class="text-sm text-slate-500 dark:text-slate-400 py-4">
-            V tomto mesiaci tu nikto nepracoval (alebo nemá uzavretú šichtu).
+            V tomto mesiaci tu nikto nepracoval.
           </div>
         } @else {
           <ul class="divide-y divide-slate-100 dark:divide-slate-700/50">
@@ -352,8 +353,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Fotogaléria</h2>
           <div class="flex items-center gap-2 flex-wrap">
-            <input type="month" [ngModel]="galleryMonth()" (ngModelChange)="galleryMonth.set($event); loadGallery(); loadDiaries(); loadMaterials(); loadHours(); loadPnl()"
-                   class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm" />
+            <app-month-picker [ngModel]="galleryMonth()" (ngModelChange)="galleryMonth.set($event); loadGallery(); loadDiaries(); loadMaterials(); loadHours(); loadPnl()" />
             <!-- Admin gallery upload -->
             <button type="button" (click)="galleryUploadInput.click()" [disabled]="galleryUploadLoading()"
                     class="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 px-4 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-50">
@@ -378,14 +378,14 @@
         @if (galleryLoading()) {
           <app-spinner />
         } @else if (galleryGroups().length === 0) {
-          <div class="text-slate-500 text-sm text-center py-6">Žiadne fotky za vybraný mesiac.</div>
+          <div class="text-slate-500 dark:text-slate-400 text-sm text-center py-6">Žiadne fotky za vybraný mesiac.</div>
         } @else {
           <!-- Download-before-delete reminder -->
           <div class="flex items-start gap-2 mb-4 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-lg text-xs text-amber-700 dark:text-amber-300">
             <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
             </svg>
-            <span>Fotky sú uložené len v aplikácii. Pred odstránením si ich stiahnite ako ZIP — po zmazaní ich nie je možné obnoviť.</span>
+            <span>Pred odstránením si ich stiahnite ako ZIP — po zmazaní ich nie je možné obnoviť.</span>
           </div>
 
           <div class="flex items-center gap-3 mb-5 text-sm">
@@ -472,7 +472,7 @@
           @if (diariesLoading()) {
             <app-spinner />
           } @else if (diaries().length === 0) {
-            <p class="text-slate-500 text-sm">Žiadne záznamy v tomto mesiaci.</p>
+            <p class="text-slate-500 dark:text-slate-400 text-sm">Žiadne záznamy v tomto mesiaci.</p>
           } @else {
             <ul class="divide-y divide-slate-200 dark:divide-slate-700">
               @for (d of diaries(); track d.id) {

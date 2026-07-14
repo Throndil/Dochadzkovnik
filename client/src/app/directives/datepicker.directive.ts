@@ -3,6 +3,25 @@ import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import flatpickr from 'flatpickr';
 import type { Instance } from 'flatpickr/dist/types/instance';
 
+/** Slovak flatpickr locale, inlined so we don't deep-import
+ *  `flatpickr/dist/l10n/sk.js`. That CommonJS deep import (flatpickr ships no
+ *  package `exports` map) destabilises Angular's dev-server dependency
+ *  optimizer, so the month/weekday names are provided here instead. */
+const SLOVAK_L10N: any = {
+  weekdays: {
+    shorthand: ['ne', 'po', 'ut', 'st', 'št', 'pi', 'so'],
+    longhand: ['nedeľa', 'pondelok', 'utorok', 'streda', 'štvrtok', 'piatok', 'sobota'],
+  },
+  months: {
+    shorthand: ['jan', 'feb', 'mar', 'apr', 'máj', 'jún', 'júl', 'aug', 'sep', 'okt', 'nov', 'dec'],
+    longhand: ['január', 'február', 'marec', 'apríl', 'máj', 'jún', 'júl', 'august', 'september', 'október', 'november', 'december'],
+  },
+  firstDayOfWeek: 1,
+  rangeSeparator: ' – ',
+  weekAbbreviation: 'Týž.',
+  ordinal: () => '.',
+};
+
 /**
  * Wraps flatpickr on an <input appDate> element.
  *
@@ -49,26 +68,36 @@ export class DatepickerDirective implements AfterViewInit, OnDestroy, ControlVal
   ngAfterViewInit() {
     const el = this.el.nativeElement;
     const initial = this.pendingValue ?? el.value ?? '';
-    this.fp = flatpickr(el, {
-      dateFormat: this.enableTime ? 'Y-m-dTH:i' : 'Y-m-d',
+    const onChange = (_d: Date[], dateStr: string) => {
+      // Mirror the value back to the raw input and notify BOTH ngModel (CVA)
+      // and plain (change)/(input) template bindings.
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(el, dateStr);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      this.onChangeCb(dateStr);
+      this.onTouchedCb();
+    };
+    const base: any = {
       altInput: true,
-      altFormat: this.enableTime ? 'd.m.Y H:i' : 'd.m.Y',
-      enableTime: this.enableTime,
-      time_24hr: true,
+      // Copy the host input's classes onto flatpickr's visible alt-input so a bare
+      // `appDate` keeps whatever styling the input already had. Inputs wrapped in
+      // `.date-field` have no class here and are styled by that wrapper instead.
+      altInputClass: el.className,
       disableMobile: true,
       allowInput: false,
       defaultDate: initial || undefined,
       maxDate: this._maxDate || undefined,
       minDate: this._minDate || undefined,
-      locale: { firstDayOfWeek: 1 } as any,
-      onChange: (_d, dateStr) => {
-        // Mirror the typed value back to the raw input and notify ngModel.
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-        setter.call(el, dateStr);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        this.onChangeCb(dateStr);
-        this.onTouchedCb();
-      }
+      locale: SLOVAK_L10N,
+      onChange
+    };
+    this.fp = flatpickr(el, {
+      ...base,
+      dateFormat: this.enableTime ? 'Y-m-dTH:i' : 'Y-m-d',
+      altFormat: this.enableTime ? 'd.m.Y H:i' : 'd.m.Y',
+      enableTime: this.enableTime,
+      time_24hr: true
     }) as Instance;
 
     // If the host applied a value via writeValue BEFORE flatpickr was ready,

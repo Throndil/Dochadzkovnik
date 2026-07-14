@@ -14,6 +14,7 @@ import { forkJoin, of } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 import * as L from 'leaflet';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { AuthService } from '../../services/auth.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import {
@@ -69,7 +70,7 @@ interface VehicleStatus {
 
 @Component({
   selector: 'app-commander',
-  imports: [NavbarComponent, DatePipe, DecimalPipe],
+  imports: [NavbarComponent, SpinnerComponent, DatePipe, DecimalPipe],
   templateUrl: './commander.page.html',
 })
 export class CommanderPage implements OnInit, OnDestroy {

@@ -3,19 +3,22 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { AlertComponent } from '../../components/alert/alert.component';
 import { NotificationConfigService, NotificationConfig, NotificationEmployeeStatus, NotificationLogEntry } from '../../services/notification-config.service';
 import { EmployeeService, Employee, MissingHoursOverviewAdmin } from '../../services/employee.service';
+import { ApiErrorService } from '../../services/api-error.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 
 @Component({
   selector: 'app-notifications',
-  imports: [NavbarComponent, CommonModule, FormsModule, SpinnerComponent, DatepickerDirective],
+  imports: [NavbarComponent, CommonModule, FormsModule, SpinnerComponent, AlertComponent, DatepickerDirective],
   templateUrl: './notifications.page.html',
   standalone: true
 })
 export class NotificationsPage implements OnInit {
   private configSvc = inject(NotificationConfigService);
   private employeeSvc = inject(EmployeeService);
+  private apiError = inject(ApiErrorService);
 
   // "Treba pripomenúť" — workers missing entries for the past 2 days.
   // Uses the JWT-protected /api/employees/missing-hours-overview admin endpoint
@@ -46,6 +49,7 @@ export class NotificationsPage implements OnInit {
 
   fireNowLoading = signal(false);
   fireNowResult = signal<string>('');
+  fireNowError = signal<string>('');
 
   demoSelectedEmployeeId = signal<number | null>(null);
   demoLoading = signal(false);
@@ -114,9 +118,9 @@ export class NotificationsPage implements OnInit {
         this.config.set(cfg);
         this.configLoading.set(false);
       },
-      error: () => {
+      error: e => {
         this.configLoading.set(false);
-        alert('Nepodarilo sa načítať konfiguráciu upozornení.');
+        alert(this.apiError.friendly(e, 'Načítanie konfigurácie upozornení zlyhalo'));
       }
     });
   }
@@ -144,9 +148,9 @@ export class NotificationsPage implements OnInit {
           this.configSaveSuccess.set(false);
         }, 2000);
       },
-      error: () => {
+      error: e => {
         this.configSaving.set(false);
-        this.configSaveMessage.set('Chyba pri ukladaní');
+        this.configSaveMessage.set(this.apiError.friendly(e, 'Uloženie konfigurácie zlyhalo'));
       }
     });
   }
@@ -198,9 +202,9 @@ export class NotificationsPage implements OnInit {
         this.employees.set(emps);
         this.employeesLoading.set(false);
       },
-      error: () => {
+      error: e => {
         this.employeesLoading.set(false);
-        this.employeesError.set('Nepodarilo sa načítať zamestnancov.');
+        this.employeesError.set(this.apiError.friendly(e, 'Načítanie zamestnancov zlyhalo'));
       }
     });
   }
@@ -287,7 +291,7 @@ export class NotificationsPage implements OnInit {
       },
       error: (err) => {
         this.testPushLoading.set(false);
-        this.testError.set(err?.error?.message || 'Chyba pri odoslaní.');
+        this.testError.set(err?.error?.message || this.apiError.friendly(err, 'Odoslanie testovacej notifikácie zlyhalo'));
       }
     });
   }
@@ -297,15 +301,16 @@ export class NotificationsPage implements OnInit {
 
     this.fireNowLoading.set(true);
     this.fireNowResult.set('');
+    this.fireNowError.set('');
 
     this.configSvc.fireNow().subscribe({
       next: (res: any) => {
         this.fireNowLoading.set(false);
         this.fireNowResult.set(res.message || `Odoslané ${res.sendCount || 0} upozornení`);
       },
-      error: () => {
+      error: e => {
         this.fireNowLoading.set(false);
-        this.fireNowResult.set('Chyba pri spustení.');
+        this.fireNowError.set(this.apiError.friendly(e, 'Test notifikácie zlyhal'));
       }
     });
   }
@@ -336,7 +341,7 @@ export class NotificationsPage implements OnInit {
       },
       error: (err) => {
         this.demoLoading.set(false);
-        this.demoError.set(err?.error?.message || 'Chyba pri odoslaní.');
+        this.demoError.set(err?.error?.message || this.apiError.friendly(err, 'Odoslanie pripomienky zlyhalo'));
       }
     });
   }
@@ -354,9 +359,9 @@ export class NotificationsPage implements OnInit {
         setTimeout(() => this.resetTodayMessage.set(''), 2000);
         this.loadHistory();
       },
-      error: () => {
+      error: e => {
         this.resetTodayLoading.set(false);
-        this.resetTodayMessage.set('Chyba pri mazaní.');
+        this.resetTodayMessage.set(this.apiError.friendly(e, 'Vymazanie záznamov zlyhalo'));
       }
     });
   }
@@ -384,9 +389,9 @@ export class NotificationsPage implements OnInit {
         this.history.set(filtered);
         this.historyLoading.set(false);
       },
-      error: () => {
+      error: e => {
         this.historyLoading.set(false);
-        this.historyError.set('Nepodarilo sa načítať históriu.');
+        this.historyError.set(this.apiError.friendly(e, 'Načítanie histórie zlyhalo'));
       }
     });
   }

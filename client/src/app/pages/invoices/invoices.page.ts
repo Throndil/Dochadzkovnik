@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, computed, inject } from '@angular/core';
+import { Component, ElementRef, OnInit, signal, computed, inject, viewChild } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
@@ -6,6 +6,7 @@ import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { ModalComponent } from '../../components/modal/modal.component';
 import { InvoiceService, InvoiceDocument, ScanStatus } from '../../services/invoice.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
+import { DatepickerDirective } from '../../directives/datepicker.directive';
 
 /**
  * /admin/invoices — list of scanned supplier invoices. Manager uploads a PDF
@@ -15,7 +16,7 @@ import { FeatureFlagService } from '../../services/feature-flag.service';
 @Component({
   selector: 'app-invoices',
   standalone: true,
-  imports: [CommonModule, DatePipe, RouterLink, NavbarComponent, SpinnerComponent, ModalComponent],
+  imports: [CommonModule, DatePipe, RouterLink, NavbarComponent, SpinnerComponent, ModalComponent, DatepickerDirective],
   templateUrl: './invoices.page.html'
 })
 export class InvoicesPage implements OnInit {
@@ -38,15 +39,35 @@ export class InvoicesPage implements OnInit {
   uploadedInvoice = signal<InvoiceDocument | null>(null);
 
   statusFilter = signal<string>('');
-  /** '' (all) | 'invoice' | 'receipt' */
-  typeFilter = signal<string>('');
+  /** Inclusive date range (yyyy-MM-dd). Empty string = unbounded on that end. */
+  dateFrom = signal<string>('');
+  dateTo = signal<string>('');
+  /** Which date the range filters on: 'issue' (printed on doc) | 'scan' (uploadedAt). */
+  dateBasis = signal<string>('issue');
 
-  filtered = computed(() => {
+  /** Status + date-range filtering, shared by both the Faktúry and Bločky columns. */
+  private baseFiltered = computed(() => {
     const s = this.statusFilter();
-    const t = this.typeFilter();
-    return this.invoices().filter(i =>
-      (!s || i.status === s) && (!t || (i.documentKind ?? 'invoice') === t));
+    const from = this.dateFrom();
+    const to = this.dateTo();
+    const basis = this.dateBasis();
+    return this.invoices().filter(i => {
+      if (s && i.status !== s) return false;
+      // yyyy-MM-dd compares lexicographically = chronologically; slice drops any ISO time.
+      const key = ((basis === 'scan' ? i.uploadedAt : i.issueDate) ?? '').slice(0, 10);
+      if (from && key < from) return false;
+      if (to && key > to) return false;
+      return true;
+    });
   });
+
+  /** Left column. Legacy rows with no documentKind are treated as invoices. */
+  invoicesFiltered = computed(() =>
+    this.baseFiltered().filter(i => (i.documentKind ?? 'invoice') !== 'receipt'));
+
+  /** Right column. */
+  receiptsFiltered = computed(() =>
+    this.baseFiltered().filter(i => (i.documentKind ?? 'invoice') === 'receipt'));
 
   /** Row pending delete confirmation (null = modal closed). */
   deleting = signal<InvoiceDocument | null>(null);
@@ -101,6 +122,15 @@ export class InvoicesPage implements OnInit {
     } finally {
       this.uploading.set(false);
     }
+  }
+
+  private pdfUploadRef = viewChild<ElementRef<HTMLInputElement>>('pdfUpload');
+
+  /** "Nahrať ďalšiu" in the success modal — closes it and reopens the
+   *  file picker so batch-uploading a stack of invoices is two taps each. */
+  onUploadAnother() {
+    this.uploadedInvoice.set(null);
+    setTimeout(() => this.pdfUploadRef()?.nativeElement.click());
   }
 
   /** Triggered from the success modal's OK button. */

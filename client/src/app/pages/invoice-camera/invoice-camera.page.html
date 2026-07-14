@@ -39,8 +39,12 @@
         <div class="font-medium">Kameru sa nepodarilo spustiť.</div>
         <div class="text-sm text-red-300">{{ errorMsg() }}</div>
         <div class="flex flex-wrap gap-2">
-          <button type="button" (click)="startCamera()"
+          <button type="button" (click)="openNativeCamera()"
                   class="touch-target px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold">
+            Odfotiť stranu (fotoaparát telefónu)
+          </button>
+          <button type="button" (click)="startCamera()"
+                  class="touch-target px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-100 font-semibold">
             Skúsiť znova
           </button>
           <button type="button" (click)="openFilePicker()"
@@ -55,7 +59,7 @@
     @if (state() === 'idle') {
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-4 text-center">
         <div class="text-slate-300">
-          Odfoťte každú stranu faktúry. Fotky sa spoja do jedného PDF a pošlú na rozpoznanie.
+          Odfoťte každú stranu faktúry.
         </div>
         <!-- PRIMARY: the phone's native camera app via input[capture] —
              full-resolution stills, native night mode + flash, no camera
@@ -70,7 +74,7 @@
           Odfotiť stranu
         </button>
         <div class="text-xs text-slate-400">
-          Pri slabom svetle prepnite blesk vo fotoaparáte na <strong>⚡ Zap.</strong> (nie Auto) — automatika v šere často neblysne.
+          Pri slabom svetle zapnite blesk.
         </div>
         <div class="text-xs text-slate-500">
           alebo
@@ -272,7 +276,6 @@
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-8 text-center space-y-4">
         <app-spinner />
         <div class="text-slate-300">Spracovávam {{ pages().length }} {{ pages().length === 1 ? 'stranu' : 'strany' }}…</div>
-        <div class="text-xs text-slate-500">Toto môže trvať pár sekúnd.</div>
       </div>
     }
 

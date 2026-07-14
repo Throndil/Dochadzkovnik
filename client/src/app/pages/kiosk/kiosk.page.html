@@ -95,7 +95,7 @@
           <div class="text-center">
             <h2 class="text-xl sm:text-2xl font-bold text-green-900 dark:text-green-100 mb-2">Povoliť upozornenia</h2>
             <p class="text-green-800 dark:text-green-200 mb-4 text-sm sm:text-base">
-              Dostaňte upozornenia, keď ste bez záznamu dlhšie ako 2 dni.
+              Upozornenie po 2 dňoch bez záznamu.
             </p>
             @if (notificationSupported()) {
               <!-- Push supported: show subscribe flow -->
@@ -118,13 +118,13 @@
                 </button>
               </div>
               <p class="text-xs text-green-700 dark:text-green-300">
-                Budete musieť zadať svoj PIN a potvrdiť povolenie.
+                Vyžaduje PIN a potvrdenie.
               </p>
             } @else {
               <!-- Push not supported yet — user needs to install the PWA first -->
               <div class="flex flex-col gap-3 mb-4">
                 <p class="text-green-800 dark:text-green-200 text-sm">
-                  Váš prehliadač ešte nepodporuje upozornenia. Nainštalujte si aplikáciu na domovskú obrazovku a potom sa vráťte sem.
+                  Prehliadač nepodporuje upozornenia. Nainštalujte aplikáciu na domovskú obrazovku.
                 </p>
                 <button
                   (click)="openInstallGuide()"
@@ -144,7 +144,6 @@
               <div class="mt-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-300 dark:border-slate-600 p-5">
                 @if (declineStep() === 'reason') {
                   <h3 class="font-semibold text-slate-900 dark:text-white mb-2 text-center">Prečo nechcete upozornenia?</h3>
-                  <p class="text-xs text-slate-500 dark:text-slate-400 mb-3 text-center">Dôvod uvidí váš nadriadený na vašom profile.</p>
                   <textarea
                     [(ngModel)]="declineReason"
                     name="declineReason"
@@ -505,7 +504,7 @@
 
       <!-- Employee tiles -->
       <div>
-        <p class="text-slate-700 dark:text-slate-200 text-sm mb-3 font-medium">Kliknite na svoje meno pre zadanie hodín</p>
+        <p class="text-slate-700 dark:text-slate-200 text-sm mb-3 font-medium">Kliknite na svoje meno</p>
         <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
           @if (overview()) {
             @for (emp of overview()!.rows; track emp.employeeId) {
@@ -629,7 +628,7 @@
                 <span class="font-medium text-amber-400">{{ wuSelectedLocation()?.name }}</span>
               </p>
               <p class="text-slate-500 dark:text-slate-400 text-xs text-center mb-4">
-                Pridaj až 5 fotografií ako dôkaz práce
+                Pridaj až 5 fotografií
               </p>
 
               @if (wuResultError()) {
@@ -795,8 +794,6 @@
               } @else {
                 <p class="text-amber-400 text-xs font-medium mb-3">Denný limit (5 fotiek) bol dosiahnutý.</p>
               }
-
-              <p class="text-slate-600 dark:text-slate-500 text-xs">Formulár sa resetuje automaticky…</p>
             </div>
           }
 
@@ -841,9 +838,8 @@
                       class="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xl flex items-center justify-center transition-colors">
                 ‹
               </button>
-              <input type="month" [(ngModel)]="myHoursMonth" name="myHoursMonth"
-                     (change)="onMyHoursMonthChange(myHoursMonth)"
-                     class="flex-1 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 [color-scheme:dark] text-center" />
+              <app-month-picker [ngModel]="myHoursMonth" name="myHoursMonth"
+                                (ngModelChange)="myHoursMonth = $event; onMyHoursMonthChange($event)" />
               <button type="button" (click)="myHoursNextMonth()"
                       class="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xl flex items-center justify-center transition-colors">
                 ›
@@ -1132,7 +1128,7 @@
                   }
                 </button>
                 <p class="text-xs text-slate-500 dark:text-slate-400 text-center mt-2">
-                  Dostanete pripomenutie, keď zabudnete zapísať hodiny.
+                  Upozorní na nezapísané hodiny.
                 </p>
               }
               @if (inlinePushError()) {
@@ -1221,10 +1217,12 @@
                 <span class="ml-2 text-xs text-amber-400 font-normal">iný deň</span>
               }
             </label>
-            <input type="date" [(ngModel)]="selectedDate" name="selectedDate"
-                   [min]="twoDaysAgoString()" [max]="todayString()"
-                   (change)="clampSelectedDate()"
-                   class="w-full px-3 py-3 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 [color-scheme:dark]" />
+            <div class="date-field">
+              <input type="date" appDate
+                     [ngModel]="selectedDate" name="selectedDate"
+                     [fpMinDate]="twoDaysAgoString()" [fpMaxDate]="todayString()"
+                     (ngModelChange)="selectedDate = $event; clampSelectedDate()" />
+            </div>
             @if (dateClampWarning()) {
               <p class="mt-1 text-xs text-amber-400 font-medium">
                 Dátum bol upravený — povolený rozsah je maximálne 2 dni dozadu.
@@ -1394,7 +1392,7 @@
       @if (clockStep() === 'photo-reason') {
         <div class="p-6">
           <p class="text-center text-slate-400 text-sm mb-4">
-            Prihláška bez fotky. Pridajte foto alebo napíšte dôvod.
+            Pridajte foto alebo napíšte dôvod.
           </p>
 
           <!-- Gallery grid (reuse same signals as hours step) -->
@@ -1549,9 +1547,6 @@
               <p class="text-slate-500 text-xs mt-2">Pridaj materiál a účtenku k tejto šichte.</p>
             }
           -->
-
-
-          <p class="text-slate-600 text-xs mt-4">Okno sa zatvorí automaticky…</p>
         </div>
       }
 

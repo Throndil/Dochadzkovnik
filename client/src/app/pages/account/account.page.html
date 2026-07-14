@@ -23,14 +23,11 @@
           <span class="text-xs font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded">Superadmin</span>
         </div>
         <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
-          Zapni alebo vypni rozpracované funkcie pre zákazníka. Vypnutá funkcia
-          je úplne skrytá z menu, kioskového rozhrania aj profilov zamestnancov.
+          Zapni alebo vypni rozpracované funkcie pre zákazníka.
         </p>
 
         @if (flagError()) {
-          <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg mb-3 text-sm">
-            {{ flagError() }}
-          </div>
+          <app-alert variant="error" [message]="flagError()" class="block mb-3" />
         }
 
         <label class="flex items-center justify-between gap-4 py-2">
@@ -48,7 +45,7 @@
         <label class="flex items-center justify-between gap-4 py-2">
           <span class="flex flex-col">
             <span class="text-slate-900 dark:text-white font-medium">Commander API</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Live údaje o vozidlách na profile auta: stav tachometra, GPS poloha, ignícia, posledná komunikácia.</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Live údaje o vozidlách na profile auta.</span>
           </span>
           <input type="checkbox"
                  [checked]="flags.commanderIntegration()"
@@ -60,7 +57,7 @@
         <label class="flex items-center justify-between gap-4 py-2">
           <span class="flex flex-col">
             <span class="text-slate-900 dark:text-white font-medium">Nákup materiálu</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Kioskový tile + zachytenie nákupu pri šichte na pracovisku „Nákup materiálu". Admin záložka Nákupy + Neidentifikované.</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Kioskový tile na nákup materiálu + admin záložka Nákupy a Neidentifikované.</span>
           </span>
           <input type="checkbox"
                  [checked]="flags.materialPurchases()"
@@ -72,7 +69,7 @@
         <label class="flex items-center justify-between gap-4 py-2">
           <span class="flex flex-col">
             <span class="text-slate-900 dark:text-white font-medium">Denník a voľba dôkazu</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Po zadaní hodín si môže pracovník vybrať: nahrať fotku, zapísať do denníka, alebo priamo zapísať.</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Po zadaní hodín si pracovník vyberie: fotka, denník alebo priamy zápis.</span>
           </span>
           <input type="checkbox"
                  [checked]="flags.proofOfWorkChoices()"
@@ -84,7 +81,7 @@
         <label class="flex items-center justify-between gap-4 py-2">
           <span class="flex flex-col">
             <span class="text-slate-900 dark:text-white font-medium">Skenovanie faktúr</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Nahrať PDF faktúry od dodávateľa. Google Document AI rozpozná dodacie listy, položky a DPH; manažér ich skontroluje a uloží. Vyžaduje nastavený Google Document AI v Railway / appsettings.Local.json — viď SECRETS.md.</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Nahrať PDF faktúry od dodávateľa. Vyžaduje nastavený Google Document AI v Railway / appsettings.Local.json — viď SECRETS.md.</span>
           </span>
           <input type="checkbox"
                  [checked]="flags.invoiceScanning()"
@@ -96,7 +93,7 @@
         <label class="flex items-center justify-between gap-4 py-2 pl-6 border-l-2 border-slate-200 dark:border-slate-700">
           <span class="flex flex-col">
             <span class="text-slate-900 dark:text-white font-medium">Skenovanie faktúr — kamerou</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Sprístupní tlačidlo „Naskenovať mobilom" na /admin/faktúry. Manažér odfotí každú stranu faktúry priamo v aplikácii, server zostaví PDF a prejde rovnakou OCR cestou ako bežný upload. Vyžaduje zapnuté „Skenovanie faktúr".</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Sprístupní tlačidlo „Naskenovať mobilom" na /admin/faktúry. Vyžaduje zapnuté „Skenovanie faktúr".</span>
           </span>
           <input type="checkbox"
                  [checked]="flags.invoiceCameraScan()"
@@ -108,7 +105,7 @@
         <label class="flex items-center justify-between gap-4 py-2">
           <span class="flex flex-col">
             <span class="text-slate-900 dark:text-white font-medium">Mzdy</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Mesačná Mzdy stránka so sadzbami, zálohami a výplatou. Excel exporty: mesačný prehľad + mzdový list pre každého zamestnanca (s pracoviskami, fotkami, vozidlami a zálohami). Hodinová sadzba sa zaznamenáva pri každom zázname dochádzky — neskoršie zmeny už neprepisujú historické mzdy.</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Mesačná Mzdy stránka so sadzbami, zálohami a výplatou. Excel exporty: mesačný prehľad + mzdový list.</span>
           </span>
           <input type="checkbox"
                  [checked]="flags.payrollAndPnL()"
@@ -123,7 +120,7 @@
     <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
       <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Zmena hesla</h2>
       @if (pwdError()) {
-        <div class="bg-red-900/40 border border-red-700/50 text-red-400 p-3 rounded-lg mb-3 text-sm">{{ pwdError() }}</div>
+        <app-alert variant="error" [message]="pwdError()" class="block mb-3" />
       }
       <div class="space-y-4">
         <div>
@@ -150,7 +147,7 @@
           {{ pwdSaving() ? 'Mením...' : 'Zmeniť heslo' }}
         </button>
         @if (pwdSaved()) {
-          <p class="text-green-400 text-sm">Heslo bolo zmenené ✓</p>
+          <app-alert variant="success" message="Heslo bolo zmenené" />
         }
       </div>
     </div>

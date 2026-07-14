@@ -204,7 +204,7 @@
                 </p>
               } @else {
                 <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                  Cena nie je nastavená — pre výpočet nákladov upravte materiál v katalógu.
+                  Cena nie je nastavená — upravte materiál v katalógu.
                 </p>
               }
             </div>
@@ -258,7 +258,7 @@
         @if (loading()) {
           <p class="text-sm text-slate-500 dark:text-slate-400 italic">Načítavam…</p>
         } @else if (entries().length === 0) {
-          <p class="text-sm text-slate-500 dark:text-slate-400 italic">Zatiaľ žiadne záznamy.</p>
+          <p class="text-sm text-slate-500 dark:text-slate-400 italic">Žiadne záznamy.</p>
         } @else {
           <ul class="space-y-2">
             @for (u of entries(); track u.id) {
@@ -299,7 +299,7 @@
                         <span class="text-amber-600 dark:text-amber-400">{{ formatQty(u.quantity) }} {{ u.unit }}</span>
                         @if (u.fromPurchase) {
                           <span class="ml-1 inline-block text-[10px] uppercase tracking-wide font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
-                                title="Vytvorené automaticky z nákupu materiálu. Uprav cez Materiál → Nákupy.">
+                                title="Uprav cez Materiál → Nákupy.">
                             z nákupu
                           </span>
                         }

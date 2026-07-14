@@ -6,17 +6,17 @@
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Cross-Pracoviská Excel export. Month input is empty-friendly:
              clear it (×) to export the whole history at historical prices. -->
-        <input type="month" [ngModel]="exportMonth()" (ngModelChange)="exportMonth.set($event)"
-               class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
-        <button (click)="onExportAll()"
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors"
-                title="Stiahnuť Excel so spotrebou všetkých pracovísk (ceny v čase použitia)">
+        <app-month-picker [ngModel]="exportMonth()" (ngModelChange)="exportMonth.set($event)"
+                          [clearable]="true" placeholder="Celá história" clearLabel="Celá história" />
+        <button (click)="onExportAll()" [disabled]="exporting()"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors disabled:opacity-60"
+                title="Spotreba všetkých pracovísk">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          Stiahnuť spotrebu (Excel)
+          {{ exporting() ? 'Pripravujem…' : 'Stiahnuť spotrebu (Excel)' }}
         </button>
         <button (click)="showForm() ? cancelForm() : showForm.set(true)"
                 class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
@@ -83,12 +83,24 @@
     <!-- Slide-over panel for material management on the selected Lokácia -->
     <app-location-manage-panel [location]="manageLocation()" (close)="onPanelClose()" />
 
+    <!-- Permanent-delete confirmation (replaces the old browser confirm()).
+         This cascade wipes ALL attendance records of the site — it deserves
+         the heavy red modal, not a native popup. -->
+    <app-modal
+      [open]="!!deleting()"
+      variant="danger"
+      title="Odstrániť pracovisko"
+      [message]="deleting() ? 'Natrvalo odstrániť pracovisko „' + deleting()!.name + '“ a VŠETKY jeho záznamy dochádzky? Toto sa nedá vrátiť.' : ''"
+      confirmLabel="Natrvalo odstrániť"
+      [busy]="deleteBusy()"
+      busyLabel="Odstraňujem…"
+      (confirm)="confirmHardDelete()"
+      (cancel)="deleting.set(null)" />
+
     @if (loading()) {
       <app-spinner />
     } @else if (locations().length === 0) {
-      <div class="py-12 text-center text-slate-500 dark:text-slate-400">
-        Žiadne pracoviská. Pridajte prvé pracovisko pomocou tlačidla vyššie.
-      </div>
+      <app-empty-state icon="📍" message="Žiadne pracoviská." />
     } @else {
     <!-- One card template, rendered for the active grid and (collapsed by
          default) for the inactive section. -->
@@ -145,12 +157,15 @@
 
     @if (inactiveLocations().length > 0) {
       <button type="button" (click)="showInactive.set(!showInactive())"
-              class="mt-6 inline-flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200">
-        <svg class="w-4 h-4 transition-transform" [class.rotate-90]="showInactive()"
-             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="9 18 15 12 9 6"></polyline>
-        </svg>
-        Neaktívne pracoviská ({{ inactiveLocations().length }})
+              class="mt-6 w-full flex items-center justify-between px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium text-slate-600 dark:text-slate-300 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+        <span class="inline-flex items-center gap-2">
+          <svg class="w-4 h-4 transition-transform" [class.rotate-90]="showInactive()"
+               viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+          Neaktívne pracoviská ({{ inactiveLocations().length }})
+        </span>
+        <span class="text-xs text-slate-400 dark:text-slate-500">{{ showInactive() ? 'Skryť' : 'Zobraziť — tu ich viete znova aktivovať' }}</span>
       </button>
       @if (showInactive()) {
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3 opacity-75">

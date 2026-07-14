@@ -5,7 +5,9 @@ import { ActivatedRoute } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { ModalComponent } from '../../components/modal/modal.component';
 import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
+import { ApiErrorService } from '../../services/api-error.service';
 import { ReportService } from '../../services/report.service';
 import { EmployeeService, Employee } from '../../services/employee.service';
 import { LocationService, Location } from '../../services/location.service';
@@ -17,7 +19,7 @@ import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-u
 
 @Component({
   selector: 'app-time-entries',
-  imports: [NavbarComponent, FormsModule, DatePipe, DecimalPipe, HmPipe, DatepickerDirective, SpinnerComponent],
+  imports: [NavbarComponent, FormsModule, DatePipe, DecimalPipe, HmPipe, DatepickerDirective, SpinnerComponent, ModalComponent],
   templateUrl: './time-entries.page.html'
 })
 export class TimeEntriesPage implements OnInit {
@@ -74,6 +76,7 @@ export class TimeEntriesPage implements OnInit {
     private locationService: LocationService,
     private carService: CarService,
     private toast: ToastService,
+    private apiError: ApiErrorService,
     private route: ActivatedRoute
   ) {}
 
@@ -146,14 +149,26 @@ export class TimeEntriesPage implements OnInit {
     });
   }
 
+  /** Busy flag shared by both export buttons — these subscriptions DO
+   *  complete (blob download), so the state resets on real completion. */
+  exporting = signal(false);
+
   exportCsv() {
-    this.reportService.exportCsv(this.getFilters()).subscribe(blob => {
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'zaznamy-dochadzky.csv';
-      a.click();
-      window.URL.revokeObjectURL(url);
+    this.exporting.set(true);
+    this.reportService.exportCsv(this.getFilters()).subscribe({
+      next: blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'zaznamy-dochadzky.csv';
+        a.click();
+        window.URL.revokeObjectURL(url);
+        this.exporting.set(false);
+      },
+      error: e => {
+        this.exporting.set(false);
+        this.toast.error(this.apiError.friendly(e, 'Export CSV zlyhal'));
+      }
     });
   }
 
@@ -163,23 +178,49 @@ export class TimeEntriesPage implements OnInit {
     const date = `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`;
     const fromDate = this.from ? new Date(this.from) : now;
     const month = `${pad(fromDate.getMonth() + 1)}.${fromDate.getFullYear()}`;
-    this.reportService.exportXlsx(this.getFilters()).subscribe(blob => {
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Stiahnuté-${date}_${month}.xlsx`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+    this.exporting.set(true);
+    this.reportService.exportXlsx(this.getFilters()).subscribe({
+      next: blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Stiahnuté-${date}_${month}.xlsx`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        this.exporting.set(false);
+      },
+      error: e => {
+        this.exporting.set(false);
+        this.toast.error(this.apiError.friendly(e, 'Export Excel zlyhal'));
+      }
     });
   }
 
+  /** Entry pending delete confirmation (null = modal closed). */
+  deletingEntry = signal<TimeEntry | null>(null);
+  deleteBusy = signal(false);
+
   onDelete(entry: TimeEntry) {
-    if (confirm('Odstrániť záznam dochádzky pre ' + entry.employeeName + '?')) {
-      this.timeEntryService.delete(entry.id).subscribe({
-        next: () => { this.toast.success('Záznam dochádzky odstránený'); this.load(); },
-        error: () => this.toast.error('Záznam sa nepodarilo odstrániť')
-      });
-    }
+    this.deletingEntry.set(entry);
+  }
+
+  confirmDeleteEntry() {
+    const entry = this.deletingEntry();
+    if (!entry || this.deleteBusy()) return;
+    this.deleteBusy.set(true);
+    this.timeEntryService.delete(entry.id).subscribe({
+      next: () => {
+        this.deleteBusy.set(false);
+        this.deletingEntry.set(null);
+        this.toast.success('Záznam dochádzky odstránený');
+        this.load();
+      },
+      error: e => {
+        this.deleteBusy.set(false);
+        this.deletingEntry.set(null);
+        this.toast.error(this.apiError.friendly(e, 'Záznam sa nepodarilo odstrániť'));
+      }
+    });
   }
 
   /** Parse a photoUrl that may be a single URL or comma-separated list of URLs. */
