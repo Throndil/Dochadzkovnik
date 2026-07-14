@@ -151,6 +151,10 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
    *  Full-res stills, native night mode/flash, zero in-tab memory. */
   openNativeCamera() {
     this.preferLive = false;
+    // Release any in-app viewfinder stream first — a leftover live stream would
+    // otherwise reroute later navigation (e.g. "add another") into the live
+    // view even though the manager is on the native camera.
+    this.stopStream();
     this.cameraInputRef()?.nativeElement.click();
   }
 
@@ -674,8 +678,12 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
       if (removed) URL.revokeObjectURL(removed.thumbUrl);
       return arr.filter(p => p.id !== id);
     });
-    // If they deleted the last page, bounce back to streaming.
-    if (this.pages().length === 0) this.state.set('streaming');
+    // Deleted the last page → go back to the flow the manager was using: the
+    // live viewfinder for live users, otherwise the idle screen (native/file
+    // users retake from there instead of being dropped into the in-app view).
+    if (this.pages().length === 0) {
+      this.state.set(this.preferLive ? 'streaming' : 'idle');
+    }
   }
 
   movePage(id: number, dir: -1 | 1) {
@@ -693,6 +701,10 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   // ─── File-picker fallback (when camera permission denied) ─────
 
   openFilePicker() {
+    // A file-picker user isn't on the live viewfinder — treat them like the
+    // native flow for return-navigation (so removing the last page lands on
+    // idle, not the in-app camera).
+    this.preferLive = false;
     this.fileInputRef()?.nativeElement.click();
   }
 

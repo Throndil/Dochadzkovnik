@@ -151,6 +151,10 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
                             .GetProperty("text")
                             .GetString();
                         if (string.IsNullOrWhiteSpace(json)) return null;
+                        // Diagnostic: the exact JSON the model returned, so we can
+                        // see whether missing line data is the model's fault or ours.
+                        _log.LogInformation("[InvoiceScanning] Gemini raw JSON ({Len} chars): {Json}",
+                            json.Length, Truncate(json, 12000));
                         var dto = JsonSerializer.Deserialize<LlmInvoice>(json, JsonOpts);
                         _status.MarkAiOk();
                         return dto == null ? null : Map(dto);
