@@ -111,7 +111,7 @@ public class InvoicesController : ControllerBase
 
     [HttpPost("upload")]
     [RequestSizeLimit(20 * 1024 * 1024)]   // 20 MB cap
-    public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file)
+    public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file, bool photoScan = false)
     {
         if (_ocr == null)
             return StatusCode(503, "OCR nie je nakonfigurované. Skontrolujte Google Document AI nastavenia.");
@@ -136,6 +136,13 @@ public class InvoicesController : ControllerBase
             bytes = ms.ToArray();
         }
 
+        // Native digital PDF vs. image-derived (photo/scan)? This decides which
+        // engine we trust when Gemini doesn't reconcile: a PDF's text layer
+        // parses EXACTLY, so PDFs keep the Document AI + parser fallback; photos
+        // don't, so on those Gemini wins. Camera uploads pass photoScan=true;
+        // direct image uploads are flagged in the enhancement step below.
+        var imageDerived = photoScan;
+
         // If the manager uploaded a PHOTO rather than a PDF, run it through the
         // same enhancement the camera path uses (auto-orient, ≤3000 px,
         // shadow-flatten + sharpen, 4:4:4 JPEG) so the model gets the best
@@ -144,6 +151,7 @@ public class InvoicesController : ControllerBase
         // Falls back to the original bytes on any decode error (e.g. HEIC).
         if (mime.StartsWith("image/", StringComparison.Ordinal))
         {
+            imageDerived = true;
             var enhancedPdf = await EnhanceImageToPdfAsync(bytes);
             if (enhancedPdf != null)
             {
@@ -181,16 +189,18 @@ public class InvoicesController : ControllerBase
                     aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
                 accepted = aiRead;
             }
-            else if (aiRead != null
+            else if (imageDerived
+                     && aiRead != null
                      && !string.IsNullOrWhiteSpace(aiRead.Header.InvoiceNumber)
                      && aiRead.Header.TotalInclVat != null)
             {
-                // Usable read (has číslo + total) that just doesn't cent-reconcile.
-                // Accept it FOR REVIEW and skip Document AI — the manager fixes the
-                // numbers on the Nesedí banner. The deterministic Document AI parser
-                // ($0.10/doc, and unreliable on photos/receipts) is now reserved for
-                // the rare case Gemini returns nothing usable at all.
-                _log.LogInformation("[InvoiceScanning] Gemini primary usable but not reconciled (číslo={Num}, spolu={Total}) — accepted for review, Document AI skipped.",
+                // IMAGE-DERIVED input (photo/scan) whose Gemini read has číslo +
+                // total but doesn't cent-reconcile: accept it FOR REVIEW and skip
+                // Document AI — on photos the deterministic parser only produces
+                // gibberish, so it cannot do better. Native digital PDFs are the
+                // opposite (text layer parses exactly), so they fall through to
+                // Document AI + parser below and keep that reconciling result.
+                _log.LogInformation("[InvoiceScanning] Gemini primary usable but not reconciled on image scan (číslo={Num}, spolu={Total}) — accepted for review, Document AI skipped.",
                     aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
                 accepted = aiRead;
             }
@@ -558,7 +568,7 @@ public class InvoicesController : ControllerBase
         // assembled below so all pages reach OCR as ONE document.
         if (files.Count == 1)
         {
-            var singleResult = await Upload(files[0]);
+            var singleResult = await Upload(files[0], photoScan: true);
             if (singleResult.Result is OkObjectResult okSingle && okSingle.Value is InvoiceDocumentDto okSingleDto)
             {
                 await StampScanProvenanceAsync(okSingleDto.Id, 1);
@@ -600,7 +610,7 @@ public class InvoicesController : ControllerBase
             Headers = new HeaderDictionary(),
             ContentType = "application/pdf"
         };
-        var result = await Upload(pdfFormFile);
+        var result = await Upload(pdfFormFile, photoScan: true);
 
         // 3) Stamp scan provenance on the newly-created InvoiceDocument so
         //    the list page can render a different icon for camera-scanned
