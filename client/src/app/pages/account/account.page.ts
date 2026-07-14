@@ -1,12 +1,13 @@
 import { Component, signal, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
+import { AlertComponent } from '../../components/alert/alert.component';
 import { AuthService } from '../../services/auth.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 
 @Component({
   selector: 'app-account',
-  imports: [NavbarComponent, FormsModule],
+  imports: [NavbarComponent, FormsModule, AlertComponent],
   templateUrl: './account.page.html'
 })
 export class AccountPage implements OnInit {

@@ -44,10 +44,10 @@
 
     @if (!enabled()) {
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-sm text-slate-600 dark:text-slate-300">
-        Funkcia Commander je vypnutá. Zapnite ju v Účet → Funkcie.
+        Funkcia je vypnutá. Zapnite v Účet → Funkcie.
       </div>
     } @else if (loading() && vehicles().length === 0) {
-      <p class="text-sm text-slate-500 dark:text-slate-400">Načítavam Commander údaje…</p>
+      <app-spinner size="sm" [inline]="true" label="Načítavam Commander údaje…" />
     } @else if (error(); as err) {
       <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-4 rounded-lg text-sm flex flex-col gap-2">
         <span><strong>Chyba:</strong> {{ err.error }}</span>
@@ -187,7 +187,6 @@
                       <span class="text-slate-500 dark:text-slate-400 font-mono text-base">({{ v.registrationPlate }})</span>
                     }
                   </h2>
-                  <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Informácie o objekte</p>
                 </div>
 
                 <!-- Card row 1 -->
@@ -238,7 +237,7 @@
                   <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
                     <div class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-2">Tachometer</div>
                     @if (selectedTachoLoading()) {
-                      <div class="text-slate-400 text-sm">Načítavam…</div>
+                      <app-spinner size="sm" [inline]="true" label="Načítavam…" />
                     } @else if (selectedTacho()?.km != null) {
                       <div class="text-base sm:text-lg font-semibold text-slate-900 dark:text-white">
                         {{ selectedTacho()!.km | number:'1.0-0' }} <span class="text-sm text-slate-500 dark:text-slate-400">km</span>
@@ -344,13 +343,13 @@
                     <div #mapDetail class="w-full h-72 sm:h-96 md:h-[28rem] xl:h-[32rem] max-h-[60dvh] xl:max-h-none"></div>
                   } @else if (activeRide) {
                     <div class="p-6 text-sm text-slate-500 dark:text-slate-400 text-center">
-                      Pre súkromné jazdy Commander neposkytuje GPS súradnice.
+                      Súkromná jazda — bez GPS súradníc.
                     </div>
                   } @else if (p?.latitude != null && p?.longitude != null) {
                     <div #mapDetail class="w-full h-72 sm:h-96 md:h-[28rem] xl:h-[32rem] max-h-[60dvh] xl:max-h-none"></div>
                   } @else {
                     <div class="p-6 text-sm text-slate-500 dark:text-slate-400 text-center">
-                      Pre toto vozidlo nie sú k dispozícii GPS súradnice.
+                      Bez GPS súradníc.
                     </div>
                   }
                 </div>
@@ -360,14 +359,14 @@
                   <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">Prehľad jázd</h3>
                     @if (selectedRideSummary()?.truncated) {
-                      <span class="text-xs font-medium text-amber-600 dark:text-amber-400" title="Vozidlo má viac jázd, než dokážeme načítať jedným volaním. Zobrazené súčty sú dolné odhady.">
+                      <span class="text-xs font-medium text-amber-600 dark:text-amber-400" title="Zobrazené súčty sú dolné odhady.">
                         Skrátené
                       </span>
                     }
                   </div>
 
                   @if (selectedRideSummaryLoading()) {
-                    <p class="text-sm text-slate-500 dark:text-slate-400">Načítavam jazdy…</p>
+                    <app-spinner size="sm" [inline]="true" label="Načítavam jazdy…" />
                   } @else if (selectedRideSummary(); as rs) {
                     <!-- On phones (default) the row is a 2-column grid: label + count
                          on the first line, distance/duration wrapping below right-aligned.
@@ -435,10 +434,12 @@
                 <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
                   <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
                     <h3 class="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wide">Posledné jazdy</h3>
-                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Posledných 7 dní · klikni na jazdu pre zobrazenie na mape.</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Posledných 7 dní</p>
                   </div>
                   @if (selectedRecentRidesLoading()) {
-                    <p class="p-4 text-sm text-slate-500 dark:text-slate-400">Načítavam jazdy…</p>
+                    <div class="p-4">
+                      <app-spinner size="sm" [inline]="true" label="Načítavam jazdy…" />
+                    </div>
                   } @else if (selectedRecentRides().length === 0) {
                     <p class="p-4 text-sm text-slate-500 dark:text-slate-400">Za posledných 7 dní žiadne jazdy.</p>
                   } @else {
@@ -502,7 +503,7 @@
                               </div>
                             }
                             @if (!plottable && !isPrivate) {
-                              <div class="text-xs text-slate-400 mt-1">Pre túto jazdu nie sú k dispozícii GPS súradnice.</div>
+                              <div class="text-xs text-slate-400 mt-1">Bez GPS súradníc.</div>
                             }
                           </button>
                         </li>
@@ -743,7 +744,7 @@
             } @else {
               <div class="p-6 text-sm text-slate-500 dark:text-slate-400 text-center">
                 @if (selectedVehicle()) {
-                  Pre vybrané vozidlo nie sú k dispozícii GPS súradnice.
+                  Bez GPS súradníc.
                 } @else {
                   Vyberte vozidlo z tabuľky.
                 }

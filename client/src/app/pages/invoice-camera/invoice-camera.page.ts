@@ -95,6 +95,10 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   private lastCaptureLowRes = false;
   /** Rate limit for the degradation watchdog's camera restarts. */
   private lastCameraRestart = 0;
+  /** Consecutive failed captures. After 2 we stop retrying the in-tab camera
+   *  and steer to the native flow — the degraded→black→crash spiral on
+   *  low-memory phones starts exactly here. Reset on any successful grab. */
+  private grabFails = 0;
   /** Which capture flow the manager chose — "Pridať ďalšiu stranu" follows
    *  it (live viewfinder users stay in live mode even though the camera is
    *  released between shots; native users get the native camera again). */
@@ -301,9 +305,24 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
   private stopStream() {
     this.stopLumaSampling();
     this.torchOn.set(false);
-    if (!this.stream) return;
-    for (const track of this.stream.getTracks()) track.stop();
-    this.stream = null;
+    // Release the <video>'s decoded media surface, not just the camera tracks.
+    // iOS Safari keeps the old GPU video layer allocated until srcObject is
+    // explicitly cleared; across a few restart cycles those dead surfaces pile
+    // up → degraded/black preview → tab OOM-crash. pause + null + load() forces
+    // WebKit to let go. Guarded because the element may already be torn down
+    // (the <video> lives inside @if(state === 'streaming')).
+    const video = this.videoRef()?.nativeElement;
+    if (video) {
+      try {
+        video.pause();
+        video.srcObject = null;
+        video.load();
+      } catch { /* element already gone */ }
+    }
+    if (this.stream) {
+      for (const track of this.stream.getTracks()) track.stop();
+      this.stream = null;
+    }
   }
 
   private translatePermissionError(e: any): string {
@@ -337,6 +356,16 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
         .withTimeout(this.grabStill(), 15_000)
         .catch(() => null);
       if (!originalBlob) {
+        // Two misses in a row means the in-tab camera pipeline is spiralling
+        // (degraded → black → tab crash on this device). Stop before it OOMs
+        // and steer the manager to the rock-solid native camera / file picker.
+        if (++this.grabFails >= 2) {
+          this.grabFails = 0;
+          this.stopStream();
+          this.errorMsg.set('Fotoaparát v aplikácii je na tomto telefóne nestabilný — použite „Odfotiť stranu“ (fotoaparát telefónu) alebo vyberte fotky zo zariadenia.');
+          this.state.set('error');
+          return;
+        }
         this.errorMsg.set('Fotenie zlyhalo — skúste znova.');
         // The camera layer/track often dies together with the failure —
         // reset zoom and revive the preview.
@@ -345,12 +374,13 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
         return;
       }
       this.errorMsg.set(null);
+      this.grabFails = 0;
 
       this.pending.set({
         blob: originalBlob,
         thumbUrl: URL.createObjectURL(originalBlob),
         warning: this.lastCaptureLowRes
-          ? 'Nízke rozlíšenie záberu — text nemusí byť čitateľný. Skúste 1× priblíženie a vyplňte rámik stranou.'
+          ? 'Nízke rozlíšenie — skúste 1× priblíženie.'
           : null
       });
       this.state.set('review-page');
@@ -501,6 +531,10 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
       }
       if (i < 1) await new Promise(r => setTimeout(r, 140));
     }
+    // Release the small scoring scratch buffer now (the full-res buffer is
+    // reused and freed by grabStill once it has encoded the JPEG).
+    small.width = 0;
+    small.height = 0;
     return best >= 0 ? full : null;
   }
 
@@ -597,8 +631,14 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
    */
   private ensureLiveStream() {
     const track = this.stream?.getVideoTracks()[0];
+    const set = track?.getSettings?.();
+    const edge = Math.max(set?.width ?? 0, set?.height ?? 0);
     const live = !!track && track.readyState === 'live' && !track.muted;
-    if (!live) {
+    // A track can read as "live" while WebKit has silently DOWNSCALED it after
+    // a heavy capture — that's the "next photo comes out unusably low-res"
+    // case. Treat a degraded (<1000 px) stream as dead and re-acquire cleanly
+    // instead of letting the manager shoot a blurry page.
+    if (!live || (edge > 0 && edge < 1000)) {
       this.stopStream();
       // Give the dead track a moment to fully release the camera —
       // re-acquiring instantly tends to hand back a degraded (blurry)

@@ -13,6 +13,8 @@ import { MaterialPurchaseService } from '../../services/material-purchase.servic
 import { WorkDiaryService } from '../../services/work-diary.service';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { NakupFlowComponent } from '../../components/nakup-flow/nakup-flow.component';
+import { DatepickerDirective } from '../../directives/datepicker.directive';
+import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
 
 type View = 'main' | 'photo-upload' | 'my-hours';
 /**
@@ -33,7 +35,7 @@ type WuStep = 'pin' | 'location' | 'photo' | 'result';
 
 @Component({
   selector: 'app-kiosk',
-  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe, SpinnerComponent, NakupFlowComponent],
+  imports: [FormsModule, DatePipe, DecimalPipe, HmPipe, SpinnerComponent, NakupFlowComponent, DatepickerDirective, MonthPickerComponent],
   templateUrl: './kiosk.page.html',
   changeDetection: ChangeDetectionStrategy.OnPush
 })

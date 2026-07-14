@@ -37,12 +37,14 @@
             }
           </select>
         </div>
-        <button (click)="exportCsv()"
-                class="w-full sm:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors">
-          Exportovať CSV
+        <button (click)="exportCsv()" [disabled]="exporting()"
+                class="w-full sm:w-auto bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors">
+          {{ exporting() ? 'Pripravujem…' : 'Exportovať CSV' }}
         </button>
       </div>
     </div>
+
+    <app-alert variant="error" [message]="error()" class="block mb-4" />
 
     @if (entries().length > 0) {
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
@@ -55,6 +57,12 @@
 
     @if (loading()) {
       <app-spinner />
+    } @else if (entries().length === 0) {
+      <!-- An outage is not "no data": the empty state renders only when the
+           load actually succeeded (no error). -->
+      @if (!error()) {
+        <app-empty-state message="Žiadne dáta. Upravte filtre." />
+      }
     } @else {
     <!-- Desktop table -->
     <div class="hidden sm:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -90,9 +98,6 @@
           }
         </tbody>
       </table>
-      @if (entries().length === 0) {
-        <div class="p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
-      }
     </div>
 
     <!-- Mobile cards -->
@@ -116,9 +121,6 @@
             <div class="text-sm text-slate-500 mt-1">{{ entry.note }}</div>
           }
         </div>
-      }
-      @if (entries().length === 0) {
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500">Žiadne dáta. Upravte filtre.</div>
       }
     </div>
     }

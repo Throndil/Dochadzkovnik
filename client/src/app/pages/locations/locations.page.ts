@@ -8,10 +8,13 @@ import { LocationService, Location, CreateLocation } from '../../services/locati
 import { MaterialService } from '../../services/material.service';
 import { ToastService } from '../../services/toast.service';
 import { LocationManagePanelComponent } from '../../components/location-manage-panel/location-manage-panel.component';
+import { ModalComponent } from '../../components/modal/modal.component';
+import { EmptyStateComponent } from '../../components/empty-state/empty-state.component';
+import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
 
 @Component({
   selector: 'app-locations',
-  imports: [NavbarComponent, RouterLink, FormsModule, LocationManagePanelComponent, SpinnerComponent, NgTemplateOutlet],
+  imports: [NavbarComponent, RouterLink, FormsModule, LocationManagePanelComponent, SpinnerComponent, NgTemplateOutlet, ModalComponent, EmptyStateComponent, MonthPickerComponent],
   templateUrl: './locations.page.html'
 })
 export class LocationsPage implements OnInit {
@@ -36,9 +39,12 @@ export class LocationsPage implements OnInit {
   private materialService = inject(MaterialService);
   /** Year-month filter for the export, e.g. "2026-05". Empty = whole history. */
   exportMonth = signal<string>(this.currentYearMonth());
+  /** Busy state for the export button. */
+  exporting = signal(false);
 
   /** Trigger the all-locations Excel download. Snake_case to match SK preferences. */
   onExportAll() {
+    this.exporting.set(true);
     const ym = this.exportMonth();
     if (ym) {
       const [y, m] = ym.split('-').map(Number);
@@ -47,6 +53,10 @@ export class LocationsPage implements OnInit {
     } else {
       this.materialService.downloadAllLocationsExcel();
     }
+    // downloadAllLocationsExcel is fire-and-forget (no completion callback),
+    // so clear the busy state after a bounded ~4s delay — a bounded visual
+    // busy beats a permanently dead button.
+    setTimeout(() => this.exporting.set(false), 4000);
   }
 
   private currentYearMonth(): string {
@@ -155,16 +165,38 @@ export class LocationsPage implements OnInit {
   onToggleActive(loc: Location) {
     this.locationService.toggleActive(loc.id).subscribe(() => {
       this.toast.success(loc.isActive ? 'Pracovisko deaktivované' : 'Pracovisko aktivované');
+      // Deactivation moves the card into the collapsed section — expand it
+      // so the site visibly lands there (with its Aktivovať button) instead
+      // of appearing to vanish for good.
+      if (loc.isActive) this.showInactive.set(true);
       this.load();
     });
   }
 
+  /** Location pending permanent delete (null = modal closed). */
+  deleting = signal<Location | null>(null);
+  deleteBusy = signal(false);
+
   onHardDelete(loc: Location) {
-    if (confirm('Natrvalo odstrániť pracovisko ' + loc.name + ' a VŠETKY jeho záznamy dochádzky? Toto sa nedá vrátiť.')) {
-      this.locationService.hardDelete(loc.id).subscribe({
-        next: () => { this.toast.success('Pracovisko odstránené'); this.load(); },
-        error: () => this.toast.error('Pracovisko sa nepodarilo odstrániť')
-      });
-    }
+    this.deleting.set(loc);
+  }
+
+  confirmHardDelete() {
+    const loc = this.deleting();
+    if (!loc || this.deleteBusy()) return;
+    this.deleteBusy.set(true);
+    this.locationService.hardDelete(loc.id).subscribe({
+      next: () => {
+        this.deleteBusy.set(false);
+        this.deleting.set(null);
+        this.toast.success('Pracovisko odstránené');
+        this.load();
+      },
+      error: () => {
+        this.deleteBusy.set(false);
+        this.deleting.set(null);
+        this.toast.error('Pracovisko sa nepodarilo odstrániť');
+      }
+    });
   }
 }

@@ -49,7 +49,7 @@ export interface PnlMaterialRow {
 }
 
 export interface LocationPnl {
-  location: { id: number; name: string; contractValue: number | null };
+  location: { id: number; name: string; contractValue: number | null; isActive: boolean };
   labour: { hoursWorked: number; cost: number; breakdownByEmployee: PnlLabourRow[] };
   /** Null when the MaterialPurchases flag is off for the caller. */
   material: { cost: number; breakdownByMaterial: PnlMaterialRow[] } | null;

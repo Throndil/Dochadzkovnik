@@ -13,6 +13,7 @@ import {
   UpdateInvoiceDeliveryListPayload
 } from '../../services/invoice.service';
 import { LocationService, Location } from '../../services/location.service';
+import { DatepickerDirective } from '../../directives/datepicker.directive';
 
 /**
  * /admin/invoices/:id — review one scanned invoice. The manager edits line
@@ -23,7 +24,7 @@ import { LocationService, Location } from '../../services/location.service';
 @Component({
   selector: 'app-invoice-review',
   standalone: true,
-  imports: [CommonModule, FormsModule, DatePipe, RouterLink, NavbarComponent, SpinnerComponent, ModalComponent],
+  imports: [CommonModule, FormsModule, DatePipe, RouterLink, NavbarComponent, SpinnerComponent, ModalComponent, DatepickerDirective],
   templateUrl: './invoice-review.page.html'
 })
 export class InvoiceReviewPage implements OnInit {

@@ -103,11 +103,23 @@
       }
 
       @if (cars().length === 0) {
-        <div class="col-span-3 py-12 text-center text-slate-500">
-          Žiadne vozidlá. Pridajte prvé vozidlo pomocou tlačidla vyššie.
+        <div class="col-span-3">
+          <app-empty-state icon="🚚" message="Žiadne vozidlá." />
         </div>
       }
     </div>
     }
+
+    <!-- Permanent-delete confirmation (replaces the old browser confirm()) -->
+    <app-modal
+      [open]="!!deleting()"
+      variant="danger"
+      title="Odstrániť vozidlo"
+      [message]="deleteMessage()"
+      confirmLabel="Natrvalo odstrániť"
+      [busy]="deleteBusy()"
+      busyLabel="Odstraňujem…"
+      (confirm)="confirmDelete()"
+      (cancel)="deleting.set(null)" />
   </div>
 </div>

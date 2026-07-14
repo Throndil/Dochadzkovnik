@@ -14,14 +14,14 @@
           }
         </button>
       } @else if (tab() === 'nakupy') {
-        <button (click)="exportPurchasesExcel()"
-                class="touch-target bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg transition-colors text-sm sm:text-base">
-          Stiahnuť Excel
+        <button (click)="exportPurchasesExcel()" [disabled]="exporting()"
+                class="touch-target bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg transition-colors text-sm sm:text-base">
+          {{ exporting() ? 'Pripravujem…' : 'Stiahnuť Excel' }}
         </button>
       } @else if (tab() === 'inventar') {
-        <button (click)="exportInventoryExcel()"
-                class="touch-target bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-lg transition-colors text-sm sm:text-base">
-          Stiahnuť Excel
+        <button (click)="exportInventoryExcel()" [disabled]="exporting()"
+                class="touch-target bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-lg transition-colors text-sm sm:text-base">
+          {{ exporting() ? 'Pripravujem…' : 'Stiahnuť Excel' }}
         </button>
       }
     </div>
@@ -61,9 +61,7 @@
     @if (tab() === 'katalog') {
 
       @if (errorMsg()) {
-        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
-          {{ errorMsg() }}
-        </div>
+        <app-alert variant="error" [message]="errorMsg()" class="block mb-4" />
       }
 
       @if (showForm()) {
@@ -190,9 +188,7 @@
             </div>
           }
           } @empty {
-            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
-              Žiadny aktívny materiál v katalógu.
-            </div>
+            <app-empty-state message="Žiadny aktívny materiál v katalógu." />
           }
 
           <!-- Inactive: collapsed behind a counter toggle -->
@@ -274,9 +270,7 @@
                 </table>
               </div>
             } @empty {
-              <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
-                Žiadny aktívny materiál v katalógu.
-              </div>
+              <app-empty-state message="Žiadny aktívny materiál v katalógu." />
             }
           </div>
 
@@ -371,9 +365,7 @@
       </div>
 
       @if (purchasesError()) {
-        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
-          {{ purchasesError() }}
-        </div>
+        <app-alert variant="error" [message]="purchasesError()" class="block mb-4" />
       }
 
       @if (purchasesLoading()) {
@@ -395,7 +387,7 @@
                     <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
                     @if (p.invoiceDocumentId) {
                       <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
-                            title="Nákup vznikol zo skenovanej faktúry">faktúra</span>
+                            title="Zo skenovanej faktúry">faktúra</span>
                     } @else {
                       <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
                     }
@@ -483,9 +475,7 @@
               }
             </div>
           } @empty {
-            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
-              Pre zvolené filtre nie sú žiadne nákupy.
-            </div>
+            <app-empty-state message="Žiadne nákupy." />
           }
         </div>
       }
@@ -519,9 +509,7 @@
       </div>
 
       @if (inventoryError()) {
-        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
-          {{ inventoryError() }}
-        </div>
+        <app-alert variant="error" [message]="inventoryError()" class="block mb-4" />
       }
 
       @if (inventoryLoading()) {
@@ -573,7 +561,7 @@
                     <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
                     @if (p.invoiceDocumentId) {
                       <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
-                            title="Nákup vznikol zo skenovanej faktúry">faktúra</span>
+                            title="Zo skenovanej faktúry">faktúra</span>
                     } @else {
                       <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
                     }
@@ -655,9 +643,7 @@
               }
             </div>
           } @empty {
-            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
-              V inventári nie sú žiadne položky.
-            </div>
+            <app-empty-state message="V inventári nie sú žiadne položky." />
           }
         </div>
       }
@@ -669,9 +655,7 @@
     @if (tab() === 'neid') {
 
       @if (unknownError()) {
-        <div class="mb-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm px-3 py-2">
-          {{ unknownError() }}
-        </div>
+        <app-alert variant="error" [message]="unknownError()" class="block mb-4" />
       }
 
       @if (unknownLoading()) {
@@ -704,9 +688,7 @@
               </div>
             </div>
           } @empty {
-            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 text-center text-slate-500 dark:text-slate-400 italic">
-              Žiadne nezaradené položky.
-            </div>
+            <app-empty-state message="Žiadne nezaradené položky." />
           }
         </div>
       }
@@ -732,9 +714,7 @@
         }
 
         @if (promoteError()) {
-          <div class="mb-3 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 text-sm px-3 py-2">
-            {{ promoteError() }}
-          </div>
+          <app-alert variant="error" [message]="promoteError()" class="block mb-3" />
         }
 
         <!-- Mode picker -->
@@ -790,7 +770,7 @@
                   }
                 </button>
               } @empty {
-                <div class="p-3 text-center text-sm text-slate-500 dark:text-slate-400 italic">
+                <div class="p-3 text-center text-sm text-slate-500 dark:text-slate-400">
                   Žiadny materiál v katalógu vyhovujúci hľadaniu.
                 </div>
               }
@@ -829,9 +809,7 @@
 
       <div class="p-5 space-y-4">
         @if (editPurchaseError()) {
-          <div class="rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 text-sm px-3 py-2">
-            {{ editPurchaseError() }}
-          </div>
+          <app-alert variant="error" [message]="editPurchaseError()" class="block" />
         }
 
         <!-- Header fields -->
@@ -867,7 +845,7 @@
         <div>
           <h4 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Položky</h4>
           @if (editPurchaseLines().length === 0) {
-            <div class="text-sm text-slate-500 dark:text-slate-400 italic">Žiadne položky.</div>
+            <div class="text-sm text-slate-500 dark:text-slate-400">Žiadne položky.</div>
           }
           <div class="space-y-2">
             @for (l of editPurchaseLines(); track $index) {
@@ -933,7 +911,7 @@
                       }
                     </button>
                   } @empty {
-                    <div class="p-2 text-center text-xs text-slate-500 dark:text-slate-400 italic">Žiadny materiál nevyhovuje hľadaniu.</div>
+                    <div class="p-2 text-center text-xs text-slate-500 dark:text-slate-400">Žiadny materiál nevyhovuje hľadaniu.</div>
                   }
                 </div>
                 <button (click)="editNewMaterialOpen.set(true)"

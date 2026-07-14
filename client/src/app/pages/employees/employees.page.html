@@ -1,7 +1,7 @@
 <app-navbar />
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
   <div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
-    <div class="flex justify-between items-center mb-4 sm:mb-6">
+    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6">
       <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Zamestnanci</h1>
       <button (click)="showForm() ? cancelForm() : showForm.set(true)"
               class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
@@ -29,7 +29,7 @@
               <input type="text" [(ngModel)]="newEmployee.pin" name="pin" required maxlength="6" pattern="[0-9]{4,6}"
                      class="w-24 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono tracking-widest text-center" />
               <button type="button" (click)="generatePin()"
-                      class="px-3 py-2 bg-slate-200 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 border border-slate-400 dark:border-slate-500 rounded-lg text-sm text-slate-700 dark:text-slate-200 transition-colors">
+                      class="px-3 py-2 bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 border border-slate-400 dark:border-slate-500 rounded-lg text-sm text-slate-700 dark:text-slate-200 transition-colors">
                 Generovať
               </button>
             </div>
@@ -93,9 +93,7 @@
     @if (loading()) {
       <app-spinner />
     } @else if (employees().length === 0) {
-      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500 dark:text-slate-400">
-        Žiadni zamestnanci. Pridajte prvého pomocou tlačidla vyššie.
-      </div>
+      <app-empty-state message="Žiadni zamestnanci." />
     } @else {
     <!-- Desktop table -->
     <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -270,5 +268,17 @@
         <div class="p-6 text-center text-slate-500">Žiadne záznamy za toto obdobie.</div>
       }
     </div>
+
+    <!-- Delete-confirm modal -->
+    <app-modal
+      [open]="!!deleting()"
+      variant="danger"
+      title="Odstrániť zamestnanca"
+      [message]="deleteMessage()"
+      confirmLabel="Natrvalo odstrániť"
+      [busy]="deleteBusy()"
+      busyLabel="Odstraňujem…"
+      (confirm)="confirmDelete()"
+      (cancel)="deleting.set(null)" />
   </div>
 </div>

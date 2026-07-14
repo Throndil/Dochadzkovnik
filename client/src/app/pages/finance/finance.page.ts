@@ -4,12 +4,17 @@ import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { AlertComponent } from '../../components/alert/alert.component';
 import { AuthService } from '../../services/auth.service';
+import { ApiErrorService } from '../../services/api-error.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import { PayrollService } from '../../services/payroll.service';
 import { MaterialPurchaseService } from '../../services/material-purchase.service';
 import { InvoiceService } from '../../services/invoice.service';
 import { LocationService, LocationPnl } from '../../services/location.service';
+import { DatepickerDirective } from '../../directives/datepicker.directive';
+import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
+import { FormsModule } from '@angular/forms';
 
 /**
  * /admin/finance — landing/overview for the Finance ("Financie") side.
@@ -24,7 +29,7 @@ import { LocationService, LocationPnl } from '../../services/location.service';
 @Component({
   selector: 'app-finance',
   standalone: true,
-  imports: [CommonModule, RouterLink, NavbarComponent, SpinnerComponent],
+  imports: [CommonModule, FormsModule, RouterLink, NavbarComponent, SpinnerComponent, AlertComponent, DatepickerDirective, MonthPickerComponent],
   templateUrl: './finance.page.html'
 })
 export class FinancePage {
@@ -34,6 +39,7 @@ export class FinancePage {
   private purchases = inject(MaterialPurchaseService);
   private invoices = inject(InvoiceService);
   private locations = inject(LocationService);
+  private apiError = inject(ApiErrorService);
 
   /** Selected month as 'YYYY-MM'; defaults to the current month. */
   month = signal(new Date().toISOString().slice(0, 7));
@@ -61,6 +67,9 @@ export class FinancePage {
   reportTo = signal('');
   reportRows = signal<LocationPnl[] | null>(null);
   reportLoading = signal(false);
+  /** Error channel for the spending report ONLY — the per-card load()
+   *  failures stay silent by design (feature-flag-gated, best-effort). */
+  error = signal<string | null>(null);
 
   /** Rows with any activity in the range — a site where nothing was worked,
    *  bought or invoiced is noise for the customer. Totals still sum over
@@ -111,10 +120,12 @@ export class FinancePage {
   async loadReport() {
     if (!this.canPayroll()) return;
     this.reportLoading.set(true);
+    this.error.set(null);
     try {
       const rows = await firstValueFrom(this.locations.getPnlSummary(this.reportFrom(), this.reportTo()));
       this.reportRows.set(rows);
-    } catch {
+    } catch (e) {
+      this.error.set(this.apiError.friendly(e, 'Načítanie reportu nákladov zlyhalo'));
       this.reportRows.set(null);
     } finally {
       this.reportLoading.set(false);

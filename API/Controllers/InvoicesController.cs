@@ -165,6 +165,19 @@ public class InvoicesController : ControllerBase
                     aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
                 accepted = aiRead;
             }
+            else if (aiRead != null
+                     && !string.IsNullOrWhiteSpace(aiRead.Header.InvoiceNumber)
+                     && aiRead.Header.TotalInclVat != null)
+            {
+                // Usable read (has číslo + total) that just doesn't cent-reconcile.
+                // Accept it FOR REVIEW and skip Document AI — the manager fixes the
+                // numbers on the Nesedí banner. The deterministic Document AI parser
+                // ($0.10/doc, and unreliable on photos/receipts) is now reserved for
+                // the rare case Gemini returns nothing usable at all.
+                _log.LogInformation("[InvoiceScanning] Gemini primary usable but not reconciled (číslo={Num}, spolu={Total}) — accepted for review, Document AI skipped.",
+                    aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
+                accepted = aiRead;
+            }
         }
 
         if (accepted == null)

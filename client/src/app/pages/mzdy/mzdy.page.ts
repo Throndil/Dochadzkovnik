@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { ModalComponent } from '../../components/modal/modal.component';
+import { AlertComponent } from '../../components/alert/alert.component';
 import {
   PayrollService,
   PayrollRow,
@@ -12,6 +13,9 @@ import {
   EmployeeAdvance
 } from '../../services/payroll.service';
 import { EmployeeService } from '../../services/employee.service';
+import { ApiErrorService } from '../../services/api-error.service';
+import { DatepickerDirective } from '../../directives/datepicker.directive';
+import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
 
 type PeriodMode = 'month' | 'week' | 'custom';
 
@@ -26,12 +30,13 @@ type PeriodMode = 'month' | 'week' | 'custom';
 @Component({
   selector: 'app-mzdy',
   standalone: true,
-  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, ModalComponent],
+  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, ModalComponent, AlertComponent, DatepickerDirective, MonthPickerComponent],
   templateUrl: './mzdy.page.html'
 })
 export class MzdyPage implements OnInit {
   private svc = inject(PayrollService);
   private empSvc = inject(EmployeeService);
+  private apiError = inject(ApiErrorService);
 
   // ─── Period selection ─────────────────────────────────────────
   /** Mesiac | Týždeň | Vlastné. Persists in localStorage. */
@@ -274,7 +279,7 @@ export class MzdyPage implements OnInit {
       }
       await this.load();
     } catch (e: any) {
-      alert('Uloženie sadzby zlyhalo. ' + this.errMsg(e));
+      alert(this.apiError.friendly(e, 'Uloženie sadzby zlyhalo'));
     } finally {
       this.savingRate.set(false);
     }
@@ -373,14 +378,16 @@ export class MzdyPage implements OnInit {
   }
 
   async deleteAdvance(advance: EmployeeAdvance) {
-    if (!confirm(`Naozaj zmazať zálohu ${this.formatMoney(advance.amount)} z ${this.formatDate(advance.date)}?`)) return;
+    const emp = this.advancesEmployee();
+    const who = emp ? ` (${emp.firstName} ${emp.lastName})` : '';
+    if (!confirm(`Naozaj zmazať zálohu ${this.formatMoney(advance.amount)} €${who} z ${this.formatDate(advance.date)}?`)) return;
     try {
       await this.svc.deleteAdvance(advance.id);
       this.advances.update(arr => arr.filter(a => a.id !== advance.id));
       await this.load();
       this.refreshDrawerEmployee();
     } catch (e: any) {
-      alert('Zmazanie zálohy zlyhalo: ' + this.errMsg(e));
+      alert(this.apiError.friendly(e, 'Zmazanie zálohy zlyhalo'));
     }
   }
 
@@ -436,12 +443,23 @@ export class MzdyPage implements OnInit {
 
   // ─── Excel exports ────────────────────────────────────────────
 
+  /** Shared busy state for both Excel export buttons. */
+  exporting = signal(false);
+
   downloadMonthlySummary() {
+    this.exporting.set(true);
     this.svc.downloadMonthlySummary(this.periodParam());
+    // The download helper is fire-and-forget (no completion callback), so
+    // clear the busy state after a bounded ~4s delay — a bounded visual
+    // busy beats a permanently dead button.
+    setTimeout(() => this.exporting.set(false), 4000);
   }
 
   downloadEmployeeReport(row: PayrollRow) {
+    this.exporting.set(true);
     this.svc.downloadEmployeeReport(row.employeeId, this.periodParam(), `${row.firstName} ${row.lastName}`);
+    // Same fire-and-forget download helper — bounded reset, see above.
+    setTimeout(() => this.exporting.set(false), 4000);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────

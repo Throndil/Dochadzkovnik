@@ -1,15 +1,18 @@
-import { Component, signal, OnInit } from '@angular/core';
+import { Component, signal, computed, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { ModalComponent } from '../../components/modal/modal.component';
+import { EmptyStateComponent } from '../../components/empty-state/empty-state.component';
 import { CarService, Car, CreateCar } from '../../services/car.service';
 import { ToastService } from '../../services/toast.service';
+import { ApiErrorService } from '../../services/api-error.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-cars',
-  imports: [NavbarComponent, RouterLink, FormsModule, SpinnerComponent],
+  imports: [NavbarComponent, RouterLink, FormsModule, SpinnerComponent, ModalComponent, EmptyStateComponent],
   templateUrl: './cars.page.html'
 })
 export class CarsPage implements OnInit {
@@ -21,7 +24,18 @@ export class CarsPage implements OnInit {
   photoPreview = signal<string | null>(null);
   isDragOver = signal(false);
 
-  constructor(private carService: CarService, private toast: ToastService) {}
+  /** Row pending delete confirmation (null = modal closed). */
+  deleting = signal<Car | null>(null);
+  deleteBusy = signal(false);
+
+  deleteMessage = computed(() => {
+    const car = this.deleting();
+    return car
+      ? `Natrvalo odstrániť vozidlo "${car.name}"? Záznamy dochádzky zostanú, ale budú bez vozidla.`
+      : '';
+  });
+
+  constructor(private carService: CarService, private toast: ToastService, private apiError: ApiErrorService) {}
 
   ngOnInit() { this.load(); }
 
@@ -91,11 +105,25 @@ export class CarsPage implements OnInit {
   }
 
   onDelete(car: Car) {
-    if (confirm(`Natrvalo odstrániť vozidlo "${car.name}"? Záznamy dochádzky zostanú, ale budú bez vozidla.`)) {
-      this.carService.delete(car.id).subscribe({
-        next: () => { this.toast.success('Vozidlo odstránené'); this.load(); },
-        error: () => this.toast.error('Vozidlo sa nepodarilo odstrániť')
-      });
-    }
+    this.deleting.set(car);
+  }
+
+  confirmDelete() {
+    const car = this.deleting();
+    if (!car || this.deleteBusy()) return;
+    this.deleteBusy.set(true);
+    this.carService.delete(car.id).subscribe({
+      next: () => {
+        this.toast.success('Vozidlo odstránené');
+        this.deleting.set(null);
+        this.deleteBusy.set(false);
+        this.load();
+      },
+      error: e => {
+        this.toast.error(this.apiError.friendly(e, 'Vozidlo sa nepodarilo odstrániť'));
+        this.deleting.set(null);
+        this.deleteBusy.set(false);
+      }
+    });
   }
 }

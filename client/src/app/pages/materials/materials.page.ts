@@ -2,6 +2,8 @@ import { Component, OnInit, signal, computed, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { AlertComponent } from '../../components/alert/alert.component';
+import { EmptyStateComponent } from '../../components/empty-state/empty-state.component';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { MaterialService, Material, CreateMaterial, UpdateMaterial } from '../../services/material.service';
 import {
@@ -17,12 +19,13 @@ import { LocationService, Location as Loc } from '../../services/location.servic
 import { EmployeeService, Employee } from '../../services/employee.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import { AuthService } from '../../services/auth.service';
+import { ApiErrorService } from '../../services/api-error.service';
 
 type Tab = 'katalog' | 'nakupy' | 'inventar' | 'neid';
 
 @Component({
   selector: 'app-materials',
-  imports: [NavbarComponent, FormsModule, SpinnerComponent, DatepickerDirective],
+  imports: [NavbarComponent, FormsModule, SpinnerComponent, AlertComponent, EmptyStateComponent, DatepickerDirective],
   templateUrl: './materials.page.html'
 })
 export class MaterialsPage implements OnInit {
@@ -78,6 +81,9 @@ export class MaterialsPage implements OnInit {
   purchasesError   = signal('');
   /** Expanded purchase row id — only one open at a time to keep the table compact. */
   expandedPurchaseId = signal<number | null>(null);
+  /** Busy flag for the Excel export buttons (shared by Nákupy + Inventár —
+   *  only one is visible at a time, the header button is tab-specific). */
+  exporting = signal(false);
 
   // Filters — defaults to current month so the page opens with a useful subset.
   filterFrom: string = '';
@@ -183,6 +189,7 @@ export class MaterialsPage implements OnInit {
   private mpService   = inject(MaterialPurchaseService);
   private locationSvc = inject(LocationService);
   private employeeSvc = inject(EmployeeService);
+  private apiError    = inject(ApiErrorService);
 
   ngOnInit() {
     // Default filter range = current calendar month (mirrors the location panel).
@@ -218,7 +225,7 @@ export class MaterialsPage implements OnInit {
     this.loading.set(true);
     this.materialSvc.getCatalogue().subscribe({
       next: ms => { this.materials.set(ms); this.loading.set(false); },
-      error: () => { this.errorMsg.set('Nepodarilo sa načítať materiály.'); this.loading.set(false); }
+      error: e => { this.errorMsg.set(this.apiError.friendly(e, 'Načítanie materiálov zlyhalo')); this.loading.set(false); }
     });
   }
 
@@ -239,7 +246,7 @@ export class MaterialsPage implements OnInit {
     }
     this.materialSvc.createMaterial(this.newMaterial).subscribe({
       next: () => { this.toggleForm(); this.load(); },
-      error: e => this.errorMsg.set(typeof e?.error === 'string' ? e.error : 'Vytvorenie zlyhalo.')
+      error: e => this.errorMsg.set(this.apiError.friendly(e, 'Vytvorenie materiálu zlyhalo'))
     });
   }
 
@@ -257,7 +264,7 @@ export class MaterialsPage implements OnInit {
     }
     this.materialSvc.updateMaterial(id, this.editForm).subscribe({
       next: () => { this.editingId.set(null); this.load(); },
-      error: e => this.errorMsg.set(typeof e?.error === 'string' ? e.error : 'Úprava zlyhala.')
+      error: e => this.errorMsg.set(this.apiError.friendly(e, 'Úprava materiálu zlyhala'))
     });
   }
 
@@ -269,7 +276,7 @@ export class MaterialsPage implements OnInit {
     if (!confirm(`Odstrániť materiál "${m.name}"? Ak bol už použitý, bude iba deaktivovaný.`)) return;
     this.materialSvc.deleteMaterial(m.id).subscribe({
       next: res => { if (res?.message) alert(res.message); this.load(); },
-      error: () => this.errorMsg.set('Odstránenie zlyhalo.')
+      error: e => this.errorMsg.set(this.apiError.friendly(e, 'Odstránenie materiálu zlyhalo'))
     });
   }
 
@@ -292,7 +299,7 @@ export class MaterialsPage implements OnInit {
     this.purchasesLoading.set(true);
     this.mpService.list(this.buildFilters()).subscribe({
       next: ps => { this.purchases.set(ps); this.purchasesLoading.set(false); },
-      error: () => { this.purchasesError.set('Nepodarilo sa načítať nákupy.'); this.purchasesLoading.set(false); }
+      error: e => { this.purchasesError.set(this.apiError.friendly(e, 'Načítanie nákupov zlyhalo')); this.purchasesLoading.set(false); }
     });
   }
 
@@ -317,7 +324,11 @@ export class MaterialsPage implements OnInit {
     this.purchases().reduce((sum, p) => sum + p.totalCost, 0));
 
   exportPurchasesExcel() {
+    this.exporting.set(true);
     this.mpService.downloadExcel(this.buildFilters());
+    // downloadExcel is fire-and-forget (no completion callback on the download
+    // helper), so the busy state is reset via a bounded timeout instead.
+    setTimeout(() => this.exporting.set(false), 4000);
   }
 
   /** Hard delete a purchase from the admin Nákupy tab. Receipt photo cleanup is handled server-side. */
@@ -325,7 +336,7 @@ export class MaterialsPage implements OnInit {
     if (!confirm(`Vymazať nákup z ${this.fmtDate(p.purchaseDate)} (${this.formatEur(p.totalCost)})?`)) return;
     this.mpService.delete(p.id).subscribe({
       next: () => this.loadPurchases(),
-      error: () => this.purchasesError.set('Vymazanie zlyhalo.')
+      error: e => this.purchasesError.set(this.apiError.friendly(e, 'Vymazanie nákupu zlyhalo'))
     });
   }
 
@@ -467,7 +478,7 @@ export class MaterialsPage implements OnInit {
         this.editPurchaseTarget.set({ ...target, receiptPhotoUrl: null });
         this.purchases.set([]); // invalidate Nákupy cache
       },
-      error: () => this.editPurchaseError.set('Vymazanie účtenky zlyhalo.')
+      error: e => this.editPurchaseError.set(this.apiError.friendly(e, 'Vymazanie účtenky zlyhalo'))
     });
   }
 
@@ -533,7 +544,7 @@ export class MaterialsPage implements OnInit {
       },
       error: e => {
         this.editPurchaseSaving.set(false);
-        this.editPurchaseError.set(typeof e?.error === 'string' ? e.error : 'Uloženie zlyhalo.');
+        this.editPurchaseError.set(this.apiError.friendly(e, 'Uloženie nákupu zlyhalo'));
       }
     });
   }
@@ -549,7 +560,7 @@ export class MaterialsPage implements OnInit {
       inventoryOnly: true
     }).subscribe({
       next: ps => { this.inventoryPurchases.set(ps); this.inventoryLoading.set(false); },
-      error: () => { this.inventoryError.set('Nepodarilo sa načítať inventár.'); this.inventoryLoading.set(false); }
+      error: e => { this.inventoryError.set(this.apiError.friendly(e, 'Načítanie inventára zlyhalo')); this.inventoryLoading.set(false); }
     });
   }
 
@@ -560,18 +571,22 @@ export class MaterialsPage implements OnInit {
   }
 
   exportInventoryExcel() {
+    this.exporting.set(true);
     this.mpService.downloadExcel({
       from: this.inventoryFilterFrom || undefined,
       to:   this.inventoryFilterTo   || undefined,
       inventoryOnly: true
     });
+    // downloadExcel is fire-and-forget (no completion callback on the download
+    // helper), so the busy state is reset via a bounded timeout instead.
+    setTimeout(() => this.exporting.set(false), 4000);
   }
 
   onDeleteInventoryPurchase(p: MaterialPurchase) {
     if (!confirm(`Vymazať nákup z ${this.fmtDate(p.purchaseDate)} (${this.formatEur(p.totalCost)})?`)) return;
     this.mpService.delete(p.id).subscribe({
       next: () => this.loadInventory(),
-      error: () => this.inventoryError.set('Vymazanie zlyhalo.')
+      error: e => this.inventoryError.set(this.apiError.friendly(e, 'Vymazanie nákupu zlyhalo'))
     });
   }
 
@@ -582,7 +597,7 @@ export class MaterialsPage implements OnInit {
     this.unknownLoading.set(true);
     this.mpService.getUnknownGroups().subscribe({
       next: gs => { this.unknownGroups.set(gs); this.unknownLoading.set(false); },
-      error: () => { this.unknownError.set('Nepodarilo sa načítať neidentifikované položky.'); this.unknownLoading.set(false); }
+      error: e => { this.unknownError.set(this.apiError.friendly(e, 'Načítanie neidentifikovaných položiek zlyhalo')); this.unknownLoading.set(false); }
     });
   }
 
@@ -668,13 +683,13 @@ export class MaterialsPage implements OnInit {
           },
           error: e => {
             this.promoteSaving.set(false);
-            this.promoteError.set(typeof e?.error === 'string' ? e.error : 'Premapovanie zlyhalo.');
+            this.promoteError.set(this.apiError.friendly(e, 'Premapovanie zlyhalo'));
           }
         });
       },
-      error: () => {
+      error: e => {
         this.promoteSaving.set(false);
-        this.promoteError.set('Nepodarilo sa nájsť cieľovú položku. Skús znova.');
+        this.promoteError.set(this.apiError.friendly(e, 'Vyhľadanie cieľovej položky zlyhalo'));
       }
     });
   }

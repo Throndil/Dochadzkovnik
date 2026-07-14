@@ -1,12 +1,15 @@
-﻿import { Component, signal, OnInit } from '@angular/core';
+﻿import { Component, signal, computed, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
+import { ModalComponent } from '../../components/modal/modal.component';
+import { EmptyStateComponent } from '../../components/empty-state/empty-state.component';
 import { EmployeeService, Employee, CreateEmployee } from '../../services/employee.service';
 import { TimeEntryService } from '../../services/time-entry.service';
 import { ToastService } from '../../services/toast.service';
+import { ApiErrorService } from '../../services/api-error.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
 
@@ -19,7 +22,7 @@ export interface EmployeeHours {
 
 @Component({
   selector: 'app-employees',
-  imports: [NavbarComponent, RouterLink, FormsModule, HmPipe, DatepickerDirective, SpinnerComponent],
+  imports: [NavbarComponent, RouterLink, FormsModule, HmPipe, DatepickerDirective, SpinnerComponent, ModalComponent, EmptyStateComponent],
   templateUrl: './employees.page.html'
 })
 export class EmployeesPage implements OnInit {
@@ -31,6 +34,17 @@ export class EmployeesPage implements OnInit {
   photoPreview = signal<string | null>(null);
   isDragOver = signal(false);
 
+  /** Row pending delete confirmation (null = modal closed). */
+  deleting = signal<Employee | null>(null);
+  deleteBusy = signal(false);
+
+  deleteMessage = computed(() => {
+    const emp = this.deleting();
+    return emp
+      ? `Natrvalo odstrániť ${emp.firstName} ${emp.lastName} a VŠETKY ich záznamy dochádzky? Toto sa nedá vrátiť.`
+      : '';
+  });
+
   summaryFrom = '';
   summaryTo = '';
   hoursSummary = signal<EmployeeHours[]>([]);
@@ -41,7 +55,8 @@ export class EmployeesPage implements OnInit {
   constructor(
     private employeeService: EmployeeService,
     private timeEntryService: TimeEntryService,
-    private toast: ToastService
+    private toast: ToastService,
+    private apiError: ApiErrorService
   ) {}
 
   ngOnInit() {
@@ -181,12 +196,26 @@ export class EmployeesPage implements OnInit {
   }
 
   onHardDelete(emp: Employee) {
-    if (confirm('Natrvalo odstrániť ' + emp.firstName + ' ' + emp.lastName + ' a VŠETKY ich záznamy dochádzky? Toto sa nedá vrátiť.')) {
-      this.employeeService.hardDelete(emp.id).subscribe({
-        next: () => { this.toast.success('Zamestnanec odstránený'); this.load(); },
-        error: () => this.toast.error('Zamestnanca sa nepodarilo odstrániť')
-      });
-    }
+    this.deleting.set(emp);
+  }
+
+  confirmDelete() {
+    const emp = this.deleting();
+    if (!emp || this.deleteBusy()) return;
+    this.deleteBusy.set(true);
+    this.employeeService.hardDelete(emp.id).subscribe({
+      next: () => {
+        this.toast.success('Zamestnanec odstránený');
+        this.deleting.set(null);
+        this.deleteBusy.set(false);
+        this.load();
+      },
+      error: e => {
+        this.toast.error(this.apiError.friendly(e, 'Zamestnanca sa nepodarilo odstrániť'));
+        this.deleting.set(null);
+        this.deleteBusy.set(false);
+      }
+    });
   }
 
   loadSummary() {
