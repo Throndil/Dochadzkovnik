@@ -78,7 +78,7 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
         try
         {
             var prompt =
-                "You are extracting a Slovak supplier invoice or cash-register receipt (pokladničný blok) for accounting.\n" +
+                "You are extracting a Slovak supplier invoice or cash-register receipt (pokladničný blok / bloček) for accounting. The entire document is in Slovak.\n" +
                 "Rules — follow ALL of them:\n" +
                 "1. Extract ONLY what is printed. If a value is unreadable or absent, use null. NEVER guess or invent numbers.\n" +
                 "2. 'AZ Profistav' (IČO 47208368) is always the CUSTOMER (odberateľ). The supplier (dodávateľ) is the OTHER company.\n" +
@@ -87,6 +87,9 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
                 "5. totalInclVat is the printed grand total actually payable (po zaokrúhlení when the receipt shows rounding).\n" +
                 "6. If the invoice groups items under delivery notes ('za dodací list DL-…'), create one deliveryLists entry per group with its reference and site name ('akcia'); otherwise return a single group with deliveryNoteRef null.\n" +
                 "7. vatRatePercent 0 means reverse charge (prenesenie daňovej povinnosti).\n" +
+                "8. RECONCILE — the printed grand total (totalInclVat) is ground truth and is usually correct even when the line items are hard to read; the lines are what you most often get wrong. After extracting the lines, check that the sum of every lineTotalExclVat plus its VAT equals totalInclVat (allow a few cents for rounding). If it does NOT match, the LINES are wrong: re-read their quantities, unit prices, discountPercent and vatRatePercent from the image and correct them so they reconcile to the printed total. NEVER change totalInclVat to fit the lines, and NEVER invent, split or pad line items just to reach the total — if the printed lines genuinely will not reconcile, keep your best honest reading of them and leave totalInclVat as printed.\n" +
+                "9. Discounts: if a line shows a 'Zľava' (a percent or an amount off), lineTotalExclVat is the value AFTER the discount; record the percentage in discountPercent.\n" +
+                "10. On receipts each item's net base is often printed as 'Základ' beneath the gross price — use that printed 'Základ' as lineTotalExclVat when it is shown. Summary rows ('Medzisúčet', 'Zaokrúhlenie', 'Na úhradu', 'Spolu', 'Hotovosť', VAT-rate recap tables) are NOT items — never create line entries for them.\n" +
                 (string.IsNullOrWhiteSpace(ocrText)
                     ? ""
                     : "\nFor reference, an OCR pass produced this (possibly scrambled) text layer:\n---\n" + Truncate(ocrText, 12000) + "\n---\n") +
@@ -109,7 +112,11 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
                 {
                     temperature = 0,
                     responseMimeType = "application/json",
-                    responseSchema = Schema
+                    responseSchema = Schema,
+                    // Give the vision model the largest per-page token budget so
+                    // dense line-item / receipt text stays legible. Free-tier
+                    // token cost is negligible per document.
+                    mediaResolution = "MEDIA_RESOLUTION_HIGH"
                 }
             };
 

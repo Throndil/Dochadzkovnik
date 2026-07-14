@@ -136,6 +136,22 @@ public class InvoicesController : ControllerBase
             bytes = ms.ToArray();
         }
 
+        // If the manager uploaded a PHOTO rather than a PDF, run it through the
+        // same enhancement the camera path uses (auto-orient, ≤3000 px,
+        // shadow-flatten + sharpen, 4:4:4 JPEG) so the model gets the best
+        // raster no matter which upload button was used. PDFs pass through
+        // untouched — rasterising a clean digital PDF would only degrade it.
+        // Falls back to the original bytes on any decode error (e.g. HEIC).
+        if (mime.StartsWith("image/", StringComparison.Ordinal))
+        {
+            var enhancedPdf = await EnhanceImageToPdfAsync(bytes);
+            if (enhancedPdf != null)
+            {
+                bytes = enhancedPdf;
+                mime = "application/pdf";
+            }
+        }
+
         // ── Extraction, Gemini-first ─────────────────────────────────
         // The vision model reads the document for ~$0.002; the Document AI
         // Invoice Parser costs $0.10 per document — and on phone photos the
@@ -645,8 +661,12 @@ public class InvoicesController : ControllerBase
             await using var inStream = file.OpenReadStream();
             using var image = await Image.LoadAsync(inStream);
 
-            // ImageSharp's LoadAsync already honours EXIF orientation by default
-            // (it autoRotate's during decode), so the pixels we have are upright.
+            // Ensure the page is upright before anything else — a sideways photo
+            // is much harder for the model to read. AutoOrient applies the EXIF
+            // orientation and clears it; it's a harmless no-op if the decoder
+            // already rotated the pixels.
+            image.Mutate(x => x.AutoOrient());
+
             // Downscale only if the long edge exceeds the cap.
             var longEdge = Math.Max(image.Width, image.Height);
             if (longEdge > maxLongEdge)
@@ -667,19 +687,61 @@ public class InvoicesController : ControllerBase
             EnhanceForOcr(image);
 
             // Re-encode as JPEG — the bytes go into the PDF verbatim
-            // (DCTDecode), so this is the exact raster Document AI will see.
-            // Force 3-component YCbCr so the /DeviceRGB colour space in the
-            // PDF object is always correct, even for grayscale sources.
+            // (DCTDecode), so this is the exact raster the model will see.
+            // Full 4:4:4 chroma (no subsampling) keeps fine text edges crisp for
+            // the vision model. Still 3-component YCbCr, so the PDF's /DeviceRGB
+            // colour space stays correct, even for grayscale sources.
             using var jpegStream = new MemoryStream();
             await image.SaveAsJpegAsync(jpegStream, new JpegEncoder
             {
                 Quality = jpegQuality,
-                ColorType = JpegEncodingColor.YCbCrRatio420
+                ColorType = JpegEncodingColor.YCbCrRatio444
             });
             pages.Add((jpegStream.ToArray(), image.Width, image.Height));
         }
 
         return BuildJpegPdf(pages);
+    }
+
+    /// <summary>
+    /// Enhance a single uploaded photo (buffered bytes) into a 1-page JPEG PDF,
+    /// applying the same pipeline as the camera path (auto-orient, ≤3000 px,
+    /// shadow-flatten + sharpen, 4:4:4 JPEG). Returns null when the bytes aren't
+    /// a decodable raster (e.g. HEIC without a plugin) so the caller can fall
+    /// back to sending the original file untouched.
+    /// </summary>
+    private static async Task<byte[]?> EnhanceImageToPdfAsync(byte[] imageBytes)
+    {
+        const int maxLongEdge = 3000;
+        const int jpegQuality = 90;
+        try
+        {
+            await using var ms = new MemoryStream(imageBytes);
+            using var image = await Image.LoadAsync(ms);
+
+            image.Mutate(x => x.AutoOrient());
+            var longEdge = Math.Max(image.Width, image.Height);
+            if (longEdge > maxLongEdge)
+            {
+                var scale = (double)maxLongEdge / longEdge;
+                image.Mutate(x => x.Resize(
+                    (int)Math.Round(image.Width  * scale),
+                    (int)Math.Round(image.Height * scale)));
+            }
+            EnhanceForOcr(image);
+
+            using var jpegStream = new MemoryStream();
+            await image.SaveAsJpegAsync(jpegStream, new JpegEncoder
+            {
+                Quality = jpegQuality,
+                ColorType = JpegEncodingColor.YCbCrRatio444
+            });
+            return BuildJpegPdf(new[] { (jpegStream.ToArray(), image.Width, image.Height) });
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
