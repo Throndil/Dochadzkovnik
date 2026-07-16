@@ -478,6 +478,12 @@ export class MzdyPage implements OnInit {
     return new Intl.NumberFormat('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
   }
 
+  /** 1–2 letter monogram for the row avatar. */
+  initials(row: PayrollRow): string {
+    const s = ((row.firstName || '').trim().charAt(0) + (row.lastName || '').trim().charAt(0)).toUpperCase();
+    return s || '?';
+  }
+
   formatDate(iso: string): string {
     const d = new Date(iso);
     return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;

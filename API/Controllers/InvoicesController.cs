@@ -87,6 +87,19 @@ public class InvoicesController : ControllerBase
         });
     }
 
+    // All stored timestamps are Bratislava LOCAL time (the DB uses "timestamp
+    // without time zone" + UtcDateTimeConverter writes no 'Z'). Server-generated
+    // "now" must therefore be converted from UTC, not the raw UtcNow — otherwise
+    // it lands ~2 h behind and the browser shows the wrong wall-clock time.
+    private static readonly TimeZoneInfo BratislavaTz = ResolveBratislavaTz();
+    private static TimeZoneInfo ResolveBratislavaTz()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava"); } catch { }
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time"); } catch { }
+        return TimeZoneInfo.Utc;
+    }
+    private static DateTime NowLocal => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, BratislavaTz);
+
     /// <summary>
     /// In-memory version of the reconciliation gate: do the parsed lines
     /// (+ their VAT) land on the printed total? Same tolerance as
@@ -111,7 +124,7 @@ public class InvoicesController : ControllerBase
 
     [HttpPost("upload")]
     [RequestSizeLimit(20 * 1024 * 1024)]   // 20 MB cap
-    public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file)
+    public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file, bool photoScan = false)
     {
         if (_ocr == null)
             return StatusCode(503, "OCR nie je nakonfigurované. Skontrolujte Google Document AI nastavenia.");
@@ -134,6 +147,30 @@ public class InvoicesController : ControllerBase
         {
             await file.CopyToAsync(ms);
             bytes = ms.ToArray();
+        }
+
+        // Native digital PDF vs. image-derived (photo/scan)? This decides which
+        // engine we trust when Gemini doesn't reconcile: a PDF's text layer
+        // parses EXACTLY, so PDFs keep the Document AI + parser fallback; photos
+        // don't, so on those Gemini wins. Camera uploads pass photoScan=true;
+        // direct image uploads are flagged in the enhancement step below.
+        var imageDerived = photoScan;
+
+        // If the manager uploaded a PHOTO rather than a PDF, run it through the
+        // same enhancement the camera path uses (auto-orient, ≤3000 px,
+        // shadow-flatten + sharpen, 4:4:4 JPEG) so the model gets the best
+        // raster no matter which upload button was used. PDFs pass through
+        // untouched — rasterising a clean digital PDF would only degrade it.
+        // Falls back to the original bytes on any decode error (e.g. HEIC).
+        if (mime.StartsWith("image/", StringComparison.Ordinal))
+        {
+            imageDerived = true;
+            var enhancedPdf = await EnhanceImageToPdfAsync(bytes);
+            if (enhancedPdf != null)
+            {
+                bytes = enhancedPdf;
+                mime = "application/pdf";
+            }
         }
 
         // ── Extraction, Gemini-first ─────────────────────────────────
@@ -165,16 +202,18 @@ public class InvoicesController : ControllerBase
                     aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
                 accepted = aiRead;
             }
-            else if (aiRead != null
+            else if (imageDerived
+                     && aiRead != null
                      && !string.IsNullOrWhiteSpace(aiRead.Header.InvoiceNumber)
                      && aiRead.Header.TotalInclVat != null)
             {
-                // Usable read (has číslo + total) that just doesn't cent-reconcile.
-                // Accept it FOR REVIEW and skip Document AI — the manager fixes the
-                // numbers on the Nesedí banner. The deterministic Document AI parser
-                // ($0.10/doc, and unreliable on photos/receipts) is now reserved for
-                // the rare case Gemini returns nothing usable at all.
-                _log.LogInformation("[InvoiceScanning] Gemini primary usable but not reconciled (číslo={Num}, spolu={Total}) — accepted for review, Document AI skipped.",
+                // IMAGE-DERIVED input (photo/scan) whose Gemini read has číslo +
+                // total but doesn't cent-reconcile: accept it FOR REVIEW and skip
+                // Document AI — on photos the deterministic parser only produces
+                // gibberish, so it cannot do better. Native digital PDFs are the
+                // opposite (text layer parses exactly), so they fall through to
+                // Document AI + parser below and keep that reconciling result.
+                _log.LogInformation("[InvoiceScanning] Gemini primary usable but not reconciled on image scan (číslo={Num}, spolu={Total}) — accepted for review, Document AI skipped.",
                     aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
                 accepted = aiRead;
             }
@@ -331,7 +370,7 @@ public class InvoicesController : ControllerBase
         // supplier, letting a true duplicate through), but the number alone
         // is too weak for cash receipts (č.bloku 815 / č.d. 145 are short
         // and two vendors can share one), so the date disambiguates.
-        var effectiveIssueDate = parsed.Header.IssueDate ?? DateTime.UtcNow.Date;
+        var effectiveIssueDate = parsed.Header.IssueDate ?? NowLocal.Date;
         var dupExists = await _db.InvoiceDocuments.AnyAsync(d =>
             d.InvoiceNumber == parsed.Header.InvoiceNumber
             && d.IssueDate == effectiveIssueDate);
@@ -343,7 +382,7 @@ public class InvoicesController : ControllerBase
         // normalisation). Photo uploads (when a manager scans with their
         // phone instead of a PDF) go through the normal image path so
         // HEIC/PNG/WebP/BMP get JPEG-normalised like work photos.
-        var ym = (parsed.Header.IssueDate ?? DateTime.UtcNow).ToString("yyyy-MM");
+        var ym = (parsed.Header.IssueDate ?? NowLocal).ToString("yyyy-MM");
         var folder = $"{PdfFolderRoot}/{ym}";
         var isPdf = mime == "application/pdf";
         var ext = isPdf ? ".pdf" : Path.GetExtension(file.FileName ?? "") ?? "";
@@ -370,7 +409,7 @@ public class InvoicesController : ControllerBase
             SupplierIco         = Clip(parsed.Header.SupplierIco, 50),
             SupplierIcDph       = Clip(parsed.Header.SupplierIcDph, 50),
             SupplierIban        = Clip(parsed.Header.SupplierIban, 50),
-            IssueDate           = parsed.Header.IssueDate ?? DateTime.UtcNow.Date,
+            IssueDate           = parsed.Header.IssueDate ?? NowLocal.Date,
             DeliveryDate        = parsed.Header.DeliveryDate,
             DueDate             = parsed.Header.DueDate,
             PeriodFrom          = parsed.Header.PeriodFrom,
@@ -386,7 +425,7 @@ public class InvoicesController : ControllerBase
             Status              = "review",
             DocumentKind        = parsed.Header.IsReceipt ? "receipt" : "invoice",
             UploadedBy          = uploader,
-            UploadedAt          = DateTime.UtcNow
+            UploadedAt          = NowLocal
         };
         _db.InvoiceDocuments.Add(doc);
         await _db.SaveChangesAsync();   // get the doc.Id
@@ -542,7 +581,7 @@ public class InvoicesController : ControllerBase
         // assembled below so all pages reach OCR as ONE document.
         if (files.Count == 1)
         {
-            var singleResult = await Upload(files[0]);
+            var singleResult = await Upload(files[0], photoScan: true);
             if (singleResult.Result is OkObjectResult okSingle && okSingle.Value is InvoiceDocumentDto okSingleDto)
             {
                 await StampScanProvenanceAsync(okSingleDto.Id, 1);
@@ -579,12 +618,12 @@ public class InvoicesController : ControllerBase
         await using var pdfStream = new MemoryStream(pdfBytes);
         var pdfFormFile = new FormFile(pdfStream, 0, pdfBytes.Length,
             name: "file",
-            fileName: $"camera-scan-{DateTime.UtcNow:yyyyMMdd-HHmmss}.pdf")
+            fileName: $"camera-scan-{NowLocal:yyyyMMdd-HHmmss}.pdf")
         {
             Headers = new HeaderDictionary(),
             ContentType = "application/pdf"
         };
-        var result = await Upload(pdfFormFile);
+        var result = await Upload(pdfFormFile, photoScan: true);
 
         // 3) Stamp scan provenance on the newly-created InvoiceDocument so
         //    the list page can render a different icon for camera-scanned
@@ -645,8 +684,12 @@ public class InvoicesController : ControllerBase
             await using var inStream = file.OpenReadStream();
             using var image = await Image.LoadAsync(inStream);
 
-            // ImageSharp's LoadAsync already honours EXIF orientation by default
-            // (it autoRotate's during decode), so the pixels we have are upright.
+            // Ensure the page is upright before anything else — a sideways photo
+            // is much harder for the model to read. AutoOrient applies the EXIF
+            // orientation and clears it; it's a harmless no-op if the decoder
+            // already rotated the pixels.
+            image.Mutate(x => x.AutoOrient());
+
             // Downscale only if the long edge exceeds the cap.
             var longEdge = Math.Max(image.Width, image.Height);
             if (longEdge > maxLongEdge)
@@ -667,19 +710,61 @@ public class InvoicesController : ControllerBase
             EnhanceForOcr(image);
 
             // Re-encode as JPEG — the bytes go into the PDF verbatim
-            // (DCTDecode), so this is the exact raster Document AI will see.
-            // Force 3-component YCbCr so the /DeviceRGB colour space in the
-            // PDF object is always correct, even for grayscale sources.
+            // (DCTDecode), so this is the exact raster the model will see.
+            // Full 4:4:4 chroma (no subsampling) keeps fine text edges crisp for
+            // the vision model. Still 3-component YCbCr, so the PDF's /DeviceRGB
+            // colour space stays correct, even for grayscale sources.
             using var jpegStream = new MemoryStream();
             await image.SaveAsJpegAsync(jpegStream, new JpegEncoder
             {
                 Quality = jpegQuality,
-                ColorType = JpegEncodingColor.YCbCrRatio420
+                ColorType = JpegEncodingColor.YCbCrRatio444
             });
             pages.Add((jpegStream.ToArray(), image.Width, image.Height));
         }
 
         return BuildJpegPdf(pages);
+    }
+
+    /// <summary>
+    /// Enhance a single uploaded photo (buffered bytes) into a 1-page JPEG PDF,
+    /// applying the same pipeline as the camera path (auto-orient, ≤3000 px,
+    /// shadow-flatten + sharpen, 4:4:4 JPEG). Returns null when the bytes aren't
+    /// a decodable raster (e.g. HEIC without a plugin) so the caller can fall
+    /// back to sending the original file untouched.
+    /// </summary>
+    private static async Task<byte[]?> EnhanceImageToPdfAsync(byte[] imageBytes)
+    {
+        const int maxLongEdge = 3000;
+        const int jpegQuality = 90;
+        try
+        {
+            await using var ms = new MemoryStream(imageBytes);
+            using var image = await Image.LoadAsync(ms);
+
+            image.Mutate(x => x.AutoOrient());
+            var longEdge = Math.Max(image.Width, image.Height);
+            if (longEdge > maxLongEdge)
+            {
+                var scale = (double)maxLongEdge / longEdge;
+                image.Mutate(x => x.Resize(
+                    (int)Math.Round(image.Width  * scale),
+                    (int)Math.Round(image.Height * scale)));
+            }
+            EnhanceForOcr(image);
+
+            using var jpegStream = new MemoryStream();
+            await image.SaveAsJpegAsync(jpegStream, new JpegEncoder
+            {
+                Quality = jpegQuality,
+                ColorType = JpegEncodingColor.YCbCrRatio444
+            });
+            return BuildJpegPdf(new[] { (jpegStream.ToArray(), image.Width, image.Height) });
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -1210,7 +1295,7 @@ public class InvoicesController : ControllerBase
                 edits.Add(new EditRecord("discountPercent",
                     line.DiscountPercent?.ToString(CultureInfo.InvariantCulture),
                     newDisc?.ToString(CultureInfo.InvariantCulture),
-                    editor, DateTime.UtcNow));
+                    editor, NowLocal));
                 line.DiscountPercent = newDisc;
             }
         }
@@ -1234,7 +1319,7 @@ public class InvoicesController : ControllerBase
                 edits.Add(new EditRecord("locationId",
                     line.LocationId?.ToString(CultureInfo.InvariantCulture),
                     newLoc?.ToString(CultureInfo.InvariantCulture),
-                    editor, DateTime.UtcNow));
+                    editor, NowLocal));
                 line.LocationId = newLoc;
             }
         }
@@ -1312,7 +1397,7 @@ public class InvoicesController : ControllerBase
             var recomputed = Round2(line.Quantity * line.UnitPrice);
             if (line.LineTotal != recomputed)
             {
-                edits.Add(new EditRecord("lineTotal", line.LineTotal.ToString(CultureInfo.InvariantCulture), recomputed.ToString(CultureInfo.InvariantCulture), editor, DateTime.UtcNow, AutoCalc: true));
+                edits.Add(new EditRecord("lineTotal", line.LineTotal.ToString(CultureInfo.InvariantCulture), recomputed.ToString(CultureInfo.InvariantCulture), editor, NowLocal, AutoCalc: true));
                 line.LineTotal = recomputed;
             }
         }
@@ -1374,7 +1459,7 @@ public class InvoicesController : ControllerBase
             DiscountPercent  = dto.DiscountPercent is > 0m ? dto.DiscountPercent : null,
             IsReverseCharge  = false,
             IsService        = false,
-            LineEditHistory  = SerializeHistory([new EditRecord("manualAdd", null, name, editor, DateTime.UtcNow)])
+            LineEditHistory  = SerializeHistory([new EditRecord("manualAdd", null, name, editor, NowLocal)])
         };
         _db.MaterialPurchaseLines.Add(line);
         await _db.SaveChangesAsync();
@@ -1758,7 +1843,7 @@ public class InvoicesController : ControllerBase
 
         doc.Status      = "committed";
         doc.CommittedBy = User.Identity?.Name ?? "unknown";
-        doc.CommittedAt = DateTime.UtcNow;
+        doc.CommittedAt = NowLocal;
         if (!ok)
             doc.ReconciliationNote = Clip(
                 $"{doc.ReconciliationNote} Uložené napriek nezhode používateľom {doc.CommittedBy}.", 500);
@@ -2182,7 +2267,7 @@ public class InvoicesController : ControllerBase
         if (incoming == null) return;
         var normalized = string.IsNullOrWhiteSpace(incoming) ? null : incoming.Trim();
         if (current == normalized) return;
-        edits.Add(new EditRecord(field, current, normalized, editor, DateTime.UtcNow));
+        edits.Add(new EditRecord(field, current, normalized, editor, NowLocal));
         apply(normalized);
     }
 
@@ -2191,7 +2276,7 @@ public class InvoicesController : ControllerBase
         if (incoming == null) return;
         var rounded = Round2(incoming.Value);
         if (current == rounded) return;
-        edits.Add(new EditRecord(field, current.ToString(CultureInfo.InvariantCulture), rounded.ToString(CultureInfo.InvariantCulture), editor, DateTime.UtcNow));
+        edits.Add(new EditRecord(field, current.ToString(CultureInfo.InvariantCulture), rounded.ToString(CultureInfo.InvariantCulture), editor, NowLocal));
         apply(rounded);
     }
 
@@ -2199,7 +2284,7 @@ public class InvoicesController : ControllerBase
     {
         if (incoming == null) return;
         if (current == incoming.Value) return;
-        edits.Add(new EditRecord(field, current.ToString(), incoming.Value.ToString(), editor, DateTime.UtcNow));
+        edits.Add(new EditRecord(field, current.ToString(), incoming.Value.ToString(), editor, NowLocal));
         apply(incoming.Value);
     }
 }

@@ -7,52 +7,40 @@
       <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Mzdy</h1>
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Period mode toggle -->
-        <div class="inline-flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
+        <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-700 p-1">
           <button type="button" (click)="setPeriodMode('month')"
-                  class="px-3 py-2 text-sm font-medium"
+                  class="px-3 py-1.5 text-sm rounded-md transition-colors"
                   [class]="periodMode() === 'month'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'">
-            Mesiac
-          </button>
+                    ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                    : 'text-slate-600 dark:text-slate-300'">Mesiac</button>
           <button type="button" (click)="setPeriodMode('week')"
-                  class="px-3 py-2 text-sm font-medium border-l border-slate-300 dark:border-slate-600"
+                  class="px-3 py-1.5 text-sm rounded-md transition-colors"
                   [class]="periodMode() === 'week'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'">
-            Týždeň
-          </button>
+                    ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                    : 'text-slate-600 dark:text-slate-300'">Týždeň</button>
           <button type="button" (click)="setPeriodMode('custom')"
-                  class="px-3 py-2 text-sm font-medium border-l border-slate-300 dark:border-slate-600"
+                  class="px-3 py-1.5 text-sm rounded-md transition-colors"
                   [class]="periodMode() === 'custom'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'">
-            Vlastné
-          </button>
+                    ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                    : 'text-slate-600 dark:text-slate-300'">Vlastné</button>
         </div>
 
         @if (periodMode() === 'month') {
-          <button type="button" (click)="shiftMonth(-1)"
-                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
-            ‹
-          </button>
-          <app-month-picker [ngModel]="month()" (ngModelChange)="onMonthChange($event)" />
-          <button type="button" (click)="shiftMonth(1)"
-                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
-            ›
-          </button>
+          <div class="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+            <button type="button" (click)="shiftMonth(-1)" aria-label="Predošlý mesiac"
+                    class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">‹</button>
+            <app-month-picker [ngModel]="month()" (ngModelChange)="onMonthChange($event)" />
+            <button type="button" (click)="shiftMonth(1)" aria-label="Nasledujúci mesiac"
+                    class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">›</button>
+          </div>
         } @else if (periodMode() === 'week') {
-          <button type="button" (click)="shiftWeek(-1)"
-                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
-            ‹
-          </button>
-          <span class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm tabular-nums whitespace-nowrap">
-            {{ weekLabel() }}
-          </span>
-          <button type="button" (click)="shiftWeek(1)"
-                  class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200">
-            ›
-          </button>
+          <div class="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+            <button type="button" (click)="shiftWeek(-1)" aria-label="Predošlý týždeň"
+                    class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">‹</button>
+            <span class="px-2 text-sm tabular-nums whitespace-nowrap text-slate-900 dark:text-white">{{ weekLabel() }}</span>
+            <button type="button" (click)="shiftWeek(1)" aria-label="Nasledujúci týždeň"
+                    class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">›</button>
+          </div>
         } @else {
           <span class="date-field w-36">
             <input type="date" appDate [ngModel]="customFrom()" (ngModelChange)="onCustomChange('from', $event)" aria-label="Od dátumu" />
@@ -64,176 +52,126 @@
         }
 
         <button type="button" (click)="downloadMonthlySummary()" [disabled]="exporting()"
-                class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold transition-colors">
-          {{ exporting() ? 'Pripravujem…' : 'Stiahnuť Excel' }}
+                class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-semibold transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+          {{ exporting() ? 'Pripravujem…' : 'Excel' }}
         </button>
       </div>
     </div>
 
-    <div class="text-sm text-slate-500 dark:text-slate-400">{{ periodLabel() }}</div>
-
-    @if (error()) {
-      <div class="bg-red-100 dark:bg-red-900/40 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm">
-        {{ error() }}
-      </div>
-    }
+    <app-alert variant="error" [message]="error()" class="block" />
 
     @if (loading()) {
       <app-spinner />
     } @else if (!data() || data()!.rows.length === 0) {
-      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500">
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-8 text-center text-slate-500 dark:text-slate-400">
         Vo zvolenom období nie je žiadna aktivita.
       </div>
     } @else {
-      <!-- ── Desktop table ────────────────────────────────────────── -->
-      <div class="hidden md:block bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <table class="w-full">
-          <thead class="bg-slate-100 dark:bg-slate-700/50">
-            <tr>
-              <th class="text-left px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Meno</th>
-              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hodiny</th>
-              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hodinová sadzba</th>
-              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Hrubá mzda</th>
-              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Zálohy</th>
-              <th class="text-right px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Výplata</th>
-              <th class="px-4 py-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of data()!.rows; track row.employeeId) {
-              <tr class="border-t border-slate-200 dark:border-slate-700" [class.opacity-60]="!row.isActive">
-                <td class="px-4 py-3 text-slate-900 dark:text-white font-medium">
-                  {{ row.firstName }} {{ row.lastName }}
-                  @if (!row.isActive) {
-                    <span class="ml-2 text-xs text-slate-500 dark:text-slate-400">(neaktívny)</span>
-                  }
-                </td>
-                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap text-slate-700 dark:text-slate-200">{{ formatHours(row.hoursWorked) }} h</td>
-                <td class="px-4 py-3 text-right whitespace-nowrap">
-                  @if (editingRateFor() === row.employeeId) {
-                    <div class="flex flex-col items-end gap-1">
-                      <span class="inline-flex items-center gap-1">
-                        <input type="number" step="0.01" min="0"
-                               [ngModel]="rateDraft()" (ngModelChange)="rateDraft.set($event)"
-                               placeholder="€/h"
-                               class="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-right tabular-nums text-sm"
-                               [disabled]="savingRate()"
-                               (keyup.enter)="saveRate(row)" (keyup.escape)="cancelEditRate()" />
-                        <button type="button" (click)="saveRate(row)" [disabled]="savingRate()"
-                                class="text-emerald-600 hover:text-emerald-500 text-sm">✓</button>
-                        <button type="button" (click)="cancelEditRate()" [disabled]="savingRate()"
-                                class="text-slate-400 hover:text-slate-300 text-sm">✕</button>
-                      </span>
-                      <label class="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
-                        <input type="checkbox" [checked]="rateBackfillEnabled()"
-                               (change)="rateBackfillEnabled.set($any($event.target).checked)"
-                               class="accent-amber-500" />
-                        Aplikovať od
-                        <input type="date" appDate [ngModel]="rateApplyFromDraft()" (ngModelChange)="rateApplyFromDraft.set($event)"
-                               [disabled]="!rateBackfillEnabled()"
-                               class="px-1 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs disabled:opacity-50" />
-                      </label>
-                    </div>
-                  } @else if (row.hourlyWageSnapshotAvg == null) {
-                    <button type="button" (click)="startEditRate(row)"
-                            class="text-amber-600 dark:text-amber-400 hover:underline text-sm">Sadzba nenastavená</button>
-                  } @else {
-                    <button type="button" (click)="startEditRate(row)"
-                            class="tabular-nums text-slate-700 dark:text-slate-200 hover:underline">
-                      {{ formatMoney(row.hourlyWageSnapshotAvg) }} €/h
-                    </button>
-                    @if (row.hourlyWageCurrent != null && row.hourlyWageCurrent !== row.hourlyWageSnapshotAvg) {
-                      <div class="text-xs text-slate-500">(katalóg: {{ formatMoney(row.hourlyWageCurrent) }} €/h)</div>
-                    }
-                  }
-                </td>
-                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap text-slate-700 dark:text-slate-200">
-                  {{ formatMoney(row.gross) }} €
-                </td>
-                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap">
-                  @if (row.advancesTotal > 0) {
-                    <button type="button" (click)="openAdvancesDrawer(row)"
-                            class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:underline font-medium"
-                            title="Upraviť zálohy">
-                      {{ formatMoney(row.advancesTotal) }} €
-                      <svg class="w-3.5 h-3.5 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                      </svg>
-                    </button>
-                  } @else {
-                    <button type="button" (click)="openAdvancesDrawer(row)"
-                            class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 border border-dashed border-amber-400/60 dark:border-amber-500/40 rounded-md px-2 py-1 text-sm font-medium transition-colors">
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14"/>
-                      </svg>
-                      Pridať zálohu
-                    </button>
-                  }
-                </td>
-                <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap font-semibold text-slate-900 dark:text-white">
-                  @if (row.wageMissing && row.hoursWorked > 0) {
-                    <span class="text-amber-600 dark:text-amber-400">Sadzba nenastavená</span>
-                  } @else if (isOverdrawn(row)) {
-                    <span class="text-red-600 dark:text-red-400">{{ formatMoney(row.payout) }} €</span>
-                    <div class="text-xs font-normal text-red-600 dark:text-red-400">Zálohy prevyšujú mzdu</div>
-                  } @else {
-                    {{ formatMoney(row.payout) }} €
-                  }
-                </td>
-                <td class="px-4 py-3 text-right whitespace-nowrap">
-                  <button type="button" (click)="downloadEmployeeReport(row)" [disabled]="exporting()"
-                          class="text-green-600 dark:text-green-400 hover:underline disabled:opacity-60 text-sm">
-                    {{ exporting() ? 'Pripravujem…' : 'Mzdový list' }}
-                  </button>
-                </td>
-              </tr>
-            }
-          </tbody>
-          <tfoot class="bg-slate-100 dark:bg-slate-700/50 border-t-2 border-slate-300 dark:border-slate-600">
-            <tr>
-              <td class="px-4 py-3 font-semibold text-slate-900 dark:text-white">Spolu</td>
-              <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{{ formatHours(data()!.totals.hoursWorked) }} h</td>
-              <td></td>
-              <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.gross) }} €</td>
-              <td class="px-4 py-3 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.advancesTotal) }} €</td>
-              <td class="px-4 py-3 text-right tabular-nums font-bold text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.payout) }} €</td>
-              <td></td>
-            </tr>
-          </tfoot>
-        </table>
+      <!-- ── Hero: total payout for the period ────────────────────── -->
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
+        <div class="text-sm text-slate-500 dark:text-slate-400">Výplaty spolu · {{ periodLabel() }}</div>
+        <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ formatMoney(data()!.totals.payout) }} €</div>
+        <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
+          <span>Hrubé mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.gross) }} €</span></span>
+          <span>Zálohy <span class="font-semibold tabular-nums text-amber-600 dark:text-amber-400">− {{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+          <span>Odpracované <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatHours(data()!.totals.hoursWorked) }} h</span></span>
+          <span>Zamestnanci <span class="font-semibold text-slate-900 dark:text-white">{{ data()!.rows.length }}</span></span>
+        </div>
       </div>
 
-      <!-- ── Mobile cards ─────────────────────────────────────────── -->
-      <div class="md:hidden space-y-3">
+      <!-- ── Employee list ────────────────────────────────────────── -->
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div class="flex items-center justify-between px-4 sm:px-5 py-3 bg-slate-50 dark:bg-slate-700/40 border-b border-slate-200 dark:border-slate-700">
+          <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">Zamestnanci</span>
+          <span class="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sky-500"></span> Výplata</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-amber-400"></span> Záloha</span>
+          </span>
+        </div>
+
         @for (row of data()!.rows; track row.employeeId) {
-          <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 space-y-2"
-               [class.opacity-60]="!row.isActive">
-            <div class="flex items-center justify-between">
-              <div class="font-medium text-slate-900 dark:text-white">{{ row.firstName }} {{ row.lastName }}</div>
-              @if (!row.isActive) { <span class="text-xs text-slate-500">(neaktívny)</span> }
-            </div>
-            <div class="grid grid-cols-2 gap-2 text-sm">
-              <div><span class="text-slate-500">Hodiny</span><br /><span class="tabular-nums">{{ formatHours(row.hoursWorked) }} h</span></div>
-              <div>
-                <span class="text-slate-500">Sadzba</span><br />
-                @if (row.hourlyWageSnapshotAvg == null) {
-                  <button type="button" (click)="startEditRate(row)" class="text-amber-500 underline">Nenastavená</button>
-                } @else {
-                  <button type="button" (click)="startEditRate(row)" class="tabular-nums underline">{{ formatMoney(row.hourlyWageSnapshotAvg) }} €/h</button>
+          <div class="px-4 sm:px-5 py-4 border-t border-slate-100 dark:border-slate-700/50" [class.opacity-60]="!row.isActive">
+            <div class="flex items-start gap-3">
+              <div class="w-9 h-9 shrink-0 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs font-semibold">{{ initials(row) }}</div>
+              <div class="flex-1 min-w-0">
+                <!-- Name + payout -->
+                <div class="flex items-start justify-between gap-3">
+                  <div class="font-medium text-slate-900 dark:text-white truncate">
+                    {{ row.firstName }} {{ row.lastName }}
+                    @if (!row.isActive) { <span class="text-xs font-normal text-slate-400 dark:text-slate-500">· neaktívny</span> }
+                  </div>
+                  <div class="text-right shrink-0">
+                    @if (row.wageMissing && row.hoursWorked > 0) {
+                      <div class="text-sm font-semibold text-amber-600 dark:text-amber-400">Sadzba nenastavená</div>
+                    } @else if (isOverdrawn(row)) {
+                      <div class="font-semibold tabular-nums text-red-600 dark:text-red-400">{{ formatMoney(row.payout) }} €</div>
+                      <div class="text-[11px] text-red-600 dark:text-red-400">Zálohy prevyšujú mzdu</div>
+                    } @else {
+                      <div class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatMoney(row.payout) }} €</div>
+                      <div class="text-[11px] text-slate-400 dark:text-slate-500">výplata</div>
+                    }
+                  </div>
+                </div>
+
+                <!-- Gross split: payout (sky) + advance (amber). Full sky when no advance. -->
+                @if (!(row.wageMissing && row.hoursWorked > 0) && row.gross > 0) {
+                  <div class="flex h-1.5 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 my-2 max-w-[240px]">
+                    <span class="bg-sky-500" [style.flexGrow]="row.payout > 0 ? row.payout : 0"></span>
+                    <span class="bg-amber-400" [style.flexGrow]="row.advancesTotal"></span>
+                  </div>
                 }
+
+                <!-- Breakdown: hours · rate · gross · advance -->
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+                  <span class="tabular-nums">{{ formatHours(row.hoursWorked) }} h</span>
+                  <span class="text-slate-300 dark:text-slate-600">·</span>
+                  @if (row.hourlyWageSnapshotAvg == null) {
+                    <button type="button" (click)="startEditRate(row)" class="text-amber-600 dark:text-amber-400 hover:underline">Sadzba nenastavená</button>
+                  } @else {
+                    <button type="button" (click)="startEditRate(row)"
+                            class="inline-flex items-center gap-1 tabular-nums hover:underline hover:text-slate-700 dark:hover:text-slate-200">
+                      {{ formatMoney(row.hourlyWageSnapshotAvg) }} €/h
+                      <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                  }
+                  <span class="text-slate-300 dark:text-slate-600">·</span>
+                  <span class="tabular-nums">hrubá {{ formatMoney(row.gross) }} €</span>
+                  <span class="text-slate-300 dark:text-slate-600">·</span>
+                  @if (row.advancesTotal > 0) {
+                    <button type="button" (click)="openAdvancesDrawer(row)"
+                            class="inline-flex items-center gap-1 tabular-nums text-amber-600 dark:text-amber-400 hover:underline" title="Upraviť zálohy">
+                      záloha {{ formatMoney(row.advancesTotal) }} €
+                      <svg class="w-3 h-3 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                    </button>
+                  } @else {
+                    <button type="button" (click)="openAdvancesDrawer(row)"
+                            class="text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:underline">+ záloha</button>
+                  }
+                </div>
+
+                @if (row.hourlyWageCurrent != null && row.hourlyWageSnapshotAvg != null && row.hourlyWageCurrent !== row.hourlyWageSnapshotAvg) {
+                  <div class="text-[11px] text-slate-400 dark:text-slate-500 mt-1 tabular-nums">katalóg: {{ formatMoney(row.hourlyWageCurrent) }} €/h</div>
+                }
+
+                <!-- Inline rate edit -->
                 @if (editingRateFor() === row.employeeId) {
-                  <div class="mt-1 space-y-1">
-                    <div class="flex items-center gap-1">
+                  <div class="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 space-y-2 max-w-sm">
+                    <div class="flex items-center gap-2">
                       <input type="number" step="0.01" min="0" placeholder="€/h"
                              [ngModel]="rateDraft()" (ngModelChange)="rateDraft.set($event)"
-                             class="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-sm" />
-                      <button type="button" (click)="saveRate(row)" class="text-emerald-600 text-sm">✓</button>
-                      <button type="button" (click)="cancelEditRate()" class="text-slate-400 text-sm">✕</button>
+                             [disabled]="savingRate()"
+                             (keyup.enter)="saveRate(row)" (keyup.escape)="cancelEditRate()"
+                             class="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-right tabular-nums text-sm" />
+                      <button type="button" (click)="saveRate(row)" [disabled]="savingRate()"
+                              class="text-sm px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white disabled:opacity-50">Uložiť</button>
+                      <button type="button" (click)="cancelEditRate()" [disabled]="savingRate()"
+                              class="text-sm text-slate-500 hover:text-slate-400">Zrušiť</button>
                     </div>
-                    <label class="flex items-center gap-1 text-xs text-slate-500">
+                    <label class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 flex-wrap">
                       <input type="checkbox" [checked]="rateBackfillEnabled()"
                              (change)="rateBackfillEnabled.set($any($event.target).checked)"
-                             class="accent-amber-500" />
+                             class="accent-sky-500" />
                       Aplikovať od
                       <input type="date" appDate [ngModel]="rateApplyFromDraft()" (ngModelChange)="rateApplyFromDraft.set($event)"
                              [disabled]="!rateBackfillEnabled()"
@@ -241,49 +179,28 @@
                     </label>
                   </div>
                 }
-              </div>
-              <div><span class="text-slate-500">Hrubá mzda</span><br /><span class="tabular-nums">{{ formatMoney(row.gross) }} €</span></div>
-              <div>
-                <span class="text-slate-500">Zálohy</span><br />
-                @if (row.advancesTotal > 0) {
-                  <button type="button" (click)="openAdvancesDrawer(row)" class="tabular-nums text-amber-600 underline">{{ formatMoney(row.advancesTotal) }} €</button>
-                } @else {
-                  <button type="button" (click)="openAdvancesDrawer(row)"
-                          class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 border border-dashed border-amber-400/60 rounded-md px-2 py-0.5 text-xs font-medium mt-0.5">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14M5 12h14"/>
-                    </svg>
-                    Pridať
+
+                <!-- Per-employee export -->
+                <div class="mt-2">
+                  <button type="button" (click)="downloadEmployeeReport(row)" [disabled]="exporting()"
+                          class="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400 hover:underline disabled:opacity-60">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                    {{ exporting() ? 'Pripravujem…' : 'Mzdový list' }}
                   </button>
-                }
+                </div>
               </div>
-            </div>
-            <div class="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
-              <span class="font-bold text-slate-900 dark:text-white">
-                @if (row.wageMissing && row.hoursWorked > 0) {
-                  <span class="text-amber-600">Sadzba nenastavená</span>
-                } @else if (isOverdrawn(row)) {
-                  <span class="text-red-600 dark:text-red-400">Výplata: {{ formatMoney(row.payout) }} €</span>
-                  <span class="block text-xs font-normal text-red-600 dark:text-red-400">Zálohy prevyšujú mzdu</span>
-                } @else {
-                  Výplata: {{ formatMoney(row.payout) }} €
-                }
-              </span>
-              <button type="button" (click)="downloadEmployeeReport(row)" [disabled]="exporting()"
-                      class="text-green-600 hover:underline disabled:opacity-60 text-sm">{{ exporting() ? 'Pripravujem…' : 'Mzdový list' }}</button>
             </div>
           </div>
         }
 
-        <!-- Mobile totals -->
-        <div class="bg-slate-100 dark:bg-slate-700 rounded-xl p-4 border border-slate-200 dark:border-slate-600">
-          <div class="font-semibold text-slate-900 dark:text-white mb-2">Spolu</div>
-          <div class="grid grid-cols-2 gap-2 text-sm">
-            <div>Hodiny: <span class="tabular-nums font-medium">{{ formatHours(data()!.totals.hoursWorked) }} h</span></div>
-            <div>Hrubá: <span class="tabular-nums font-medium">{{ formatMoney(data()!.totals.gross) }} €</span></div>
-            <div>Zálohy: <span class="tabular-nums font-medium">{{ formatMoney(data()!.totals.advancesTotal) }} €</span></div>
-            <div>Výplata: <span class="tabular-nums font-bold">{{ formatMoney(data()!.totals.payout) }} €</span></div>
-          </div>
+        <!-- Totals -->
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 sm:px-5 py-3 bg-slate-50 dark:bg-slate-700/40 border-t-2 border-slate-200 dark:border-slate-600">
+          <span class="text-sm font-semibold text-slate-900 dark:text-white">Spolu · {{ formatHours(data()!.totals.hoursWorked) }} h</span>
+          <span class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-slate-500 dark:text-slate-400">
+            <span>Hrubé <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ formatMoney(data()!.totals.gross) }} €</span></span>
+            <span>Zálohy <span class="tabular-nums text-amber-600 dark:text-amber-400">{{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+            <span class="font-semibold text-slate-900 dark:text-white">Výplaty {{ formatMoney(data()!.totals.payout) }} €</span>
+          </span>
         </div>
       </div>
     }

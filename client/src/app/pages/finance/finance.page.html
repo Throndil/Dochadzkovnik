@@ -1,12 +1,12 @@
 <app-navbar />
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
-  <div class="max-w-7xl mx-auto px-4 py-4 sm:p-6">
+  <div class="max-w-6xl mx-auto px-4 py-4 sm:p-6 space-y-4">
 
-    <!-- Header + month selector -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 sm:mb-6">
+    <!-- Header + month -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
       <div>
-        <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Financie — Prehľad</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5 capitalize">{{ monthLabel() }}</p>
+        <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Financie</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5 capitalize">Náklady za {{ monthLabel() }}</p>
       </div>
       <label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
         <span class="whitespace-nowrap">Mesiac</span>
@@ -14,57 +14,57 @@
       </label>
     </div>
 
+    <!-- Invoices waiting for review -->
+    @if (canInvoices() && (invoicePending() ?? 0) > 0) {
+      <a routerLink="/admin/invoices"
+         class="flex items-center gap-3 p-3 rounded-xl bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-sm hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+        <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <span class="flex-1"><strong class="font-semibold">{{ invoicePending() }}</strong> {{ invoicePending() === 1 ? 'faktúra čaká' : 'faktúr čaká' }} na kontrolu</span>
+        <span class="font-medium inline-flex items-center gap-1 whitespace-nowrap">Skontrolovať
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+        </span>
+      </a>
+    }
+
+    <app-alert variant="error" [message]="error()" class="block" />
+
     @if (loading()) {
       <app-spinner />
     } @else {
-      <!-- Summary cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        @if (canPayroll()) {
-          <a routerLink="/admin/mzdy"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="text-sm text-slate-500 dark:text-slate-400">Mzdy — výplaty</div>
-            <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">
-              {{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}
-            </div>
-          </a>
-        }
 
-        @if (canMaterial()) {
-          <a routerLink="/admin/materials"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="text-sm text-slate-500 dark:text-slate-400">Materiál — náklady</div>
-            <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">
-              {{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}
-            </div>
-          </a>
-        }
+      <!-- Hero: total month cost = wages + material (invoices are inside material) -->
+      @if (canPayroll() || canMaterial()) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
+          <div class="text-sm text-slate-500 dark:text-slate-400 capitalize">Náklady spolu · {{ monthLabel() }}</div>
+          <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ costTotal() | number:'1.2-2' }} €</div>
 
-        @if (canInvoices()) {
-          <a routerLink="/admin/invoices"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="flex items-center justify-between">
-              <div class="text-sm text-slate-500 dark:text-slate-400">Faktúry — spolu (s DPH)</div>
-              @if (invoicePending()) {
-                <span class="text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-2 py-0.5 rounded-full font-medium">
-                  {{ invoicePending() }} na kontrolu
-                </span>
-              }
-            </div>
-            <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">
-              {{ invoiceTotal() !== null ? (invoiceTotal() | number:'1.2-2') + ' €' : '—' }}
-            </div>
-            @if (invoiceCount() !== null) {
-              <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ invoiceCount() }} faktúr</div>
+          <div class="flex h-3 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 mt-4">
+            <span class="bg-sky-500" [style.flexGrow]="wagesPayout() ?? 0"></span>
+            <span class="bg-amber-500" [style.flexGrow]="materialSpend() ?? 0"></span>
+          </div>
+          <div class="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm">
+            @if (canPayroll()) {
+              <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}</span></span>
             }
-          </a>
-        }
-      </div>
+            @if (canMaterial()) {
+              <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Materiál <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}</span></span>
+            }
+          </div>
+          @if (canInvoices() && invoiceTotal() !== null) {
+            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
+              Materiál zahŕňa aj položky z faktúr od dodávateľov ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }). Faktúry sa nepripočítavajú zvlášť.
+            </div>
+          }
+        </div>
+      }
 
-      <!-- Spending report: wages + material per Pracovisko for a time frame -->
+      <!-- Costs per pracovisko -->
       @if (canPayroll()) {
-        <app-alert variant="error" [message]="error()" class="block mb-4" />
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Náklady podľa pracoviska</h2>
             <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <span>Od</span>
@@ -80,106 +80,97 @@
             </div>
           </div>
 
+          <div class="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mb-4">
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sky-500"></span> Mzdy</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-amber-500"></span> Materiál</span>
+          </div>
+
           @if (reportLoading()) {
             <app-spinner size="sm" [inline]="true" />
           } @else if (visibleReportRows().length === 0) {
-            <!-- A failed load is not "no costs" — the alert above already says so. -->
             @if (!error()) {
               <div class="text-sm text-slate-500 dark:text-slate-400 py-2">V zvolenom období neboli žiadne náklady.</div>
             }
           } @else {
-            <div class="overflow-x-auto -mx-6 px-6">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
-                    <th class="py-2 pr-4 font-medium">Pracovisko</th>
-                    <th class="py-2 px-4 font-medium text-right">Hodiny</th>
-                    <th class="py-2 px-4 font-medium text-right">Mzdy</th>
-                    <th class="py-2 px-4 font-medium text-right" title="Spotrebovaný materiál (bez DPH)">Materiál</th>
-                    <th class="py-2 px-4 font-medium text-right" title="Faktúry priradené pracovisku">Faktúry (s DPH)</th>
-                    <th class="py-2 pl-4 font-medium text-right" title="Mzdy + materiál">Spolu</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (r of visibleReportRows(); track r.location.id) {
-                    <tr class="border-b border-slate-100 dark:border-slate-700/50">
-                      <td class="py-2 pr-4">
-                        @if (r.location.id > 0) {
-                          <a [routerLink]="['/admin/locations', r.location.id]"
-                             class="text-slate-900 dark:text-white hover:text-amber-400 hover:underline">{{ r.location.name }}</a>
-                          @if (r.location.isActive === false) {
-                            <span class="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium text-red-400 bg-red-900/30 align-middle">neaktívne</span>
-                          }
-                        } @else {
-                          <!-- Synthetic bucket (id 0): purchases in range with no
-                               pracovisko assigned — makes the column sum match the
-                               Materiál card. -->
-                          <span class="text-slate-600 dark:text-slate-300 italic"
-                                title="Nákupy bez priradeného pracoviska">{{ r.location.name }}</span>
-                        }
-                      </td>
-                      <td class="py-2 px-4 text-right tabular-nums text-slate-600 dark:text-slate-300">{{ r.labour.hoursWorked | number:'1.1-1' }} h</td>
-                      <td class="py-2 px-4 text-right tabular-nums text-slate-900 dark:text-white">{{ r.labour.cost | number:'1.2-2' }} €</td>
-                      <td class="py-2 px-4 text-right tabular-nums text-slate-900 dark:text-white">
-                        {{ r.material !== null ? (r.material!.cost | number:'1.2-2') + ' €' : '—' }}
-                      </td>
-                      <td class="py-2 px-4 text-right tabular-nums text-slate-600 dark:text-slate-300">
-                        {{ r.invoicedInclVat != null ? (r.invoicedInclVat | number:'1.2-2') + ' €' : '—' }}
-                      </td>
-                      <td class="py-2 pl-4 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
-                        {{ (r.labour.cost + (r.material?.cost ?? 0)) | number:'1.2-2' }} €
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-                <tfoot>
-                  <tr class="border-t-2 border-slate-300 dark:border-slate-600 font-semibold text-slate-900 dark:text-white">
-                    <td class="py-2 pr-4">Spolu</td>
-                    <td class="py-2 px-4 text-right tabular-nums">{{ reportTotals().hours | number:'1.1-1' }} h</td>
-                    <td class="py-2 px-4 text-right tabular-nums">{{ reportTotals().wages | number:'1.2-2' }} €</td>
-                    <td class="py-2 px-4 text-right tabular-nums">{{ reportTotals().material | number:'1.2-2' }} €</td>
-                    <td class="py-2 px-4 text-right tabular-nums">{{ reportTotals().invoiced | number:'1.2-2' }} €</td>
-                    <td class="py-2 pl-4 text-right tabular-nums">{{ reportTotals().total | number:'1.2-2' }} €</td>
-                  </tr>
-                </tfoot>
-              </table>
+            <div class="space-y-4">
+              @for (r of visibleReportRows(); track r.location.id) {
+                <div class="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 items-center">
+                  <div class="min-w-0">
+                    @if (r.location.id > 0) {
+                      <a [routerLink]="['/admin/locations', r.location.id]"
+                         class="text-sm font-medium text-slate-900 dark:text-white hover:text-amber-400 hover:underline">{{ r.location.name }}</a>
+                      @if (r.location.isActive === false) {
+                        <span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium text-red-400 bg-red-900/30 align-middle">neaktívne</span>
+                      }
+                    } @else {
+                      <span class="text-sm text-slate-600 dark:text-slate-300 italic" title="Nákupy bez priradeného pracoviska">{{ r.location.name }}</span>
+                    }
+                  </div>
+                  <div class="text-sm font-semibold tabular-nums text-slate-900 dark:text-white text-right whitespace-nowrap">{{ rowTotal(r) | number:'1.2-2' }} €</div>
+
+                  <div class="col-span-2 flex h-2 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700">
+                    <span class="bg-sky-500" [style.width.%]="barPct(r.labour.cost)"></span>
+                    <span class="bg-amber-500" [style.width.%]="barPct(r.material?.cost)"></span>
+                  </div>
+
+                  <div class="col-span-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    <span>Mzdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.labour.cost | number:'1.2-2' }} €</span> · {{ r.labour.hoursWorked | number:'1.1-1' }} h</span>
+                    <span>Materiál <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.material !== null ? (r.material!.cost | number:'1.2-2') + ' €' : '—' }}</span></span>
+                    @if (r.invoicedInclVat != null && r.invoicedInclVat > 0) {
+                      <span>Faktúry <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.invoicedInclVat | number:'1.2-2' }} €</span> s DPH</span>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+
+            <div class="flex flex-wrap justify-between items-baseline gap-2 mt-5 pt-3 border-t-2 border-slate-200 dark:border-slate-600">
+              <span class="text-sm font-semibold text-slate-900 dark:text-white">Spolu · {{ reportTotals().hours | number:'1.1-1' }} h</span>
+              <span class="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-4 items-baseline">
+                <span>Mzdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().wages | number:'1.2-2' }} €</span></span>
+                <span>Materiál <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().material | number:'1.2-2' }} €</span></span>
+                <span class="font-semibold text-slate-900 dark:text-white">= {{ reportTotals().total | number:'1.2-2' }} €</span>
+              </span>
             </div>
           }
         </div>
       }
 
       <!-- Quick access -->
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">Rýchly prístup</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        @if (canMaterial()) {
-          <a routerLink="/admin/materials"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="font-semibold text-slate-900 dark:text-white">Materiál</div>
-            <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a inventár</div>
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-3">Rýchly prístup</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          @if (canMaterial()) {
+            <a routerLink="/admin/materials"
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+              <div class="font-semibold text-slate-900 dark:text-white">Materiál</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a inventár</div>
+            </a>
+          }
+          @if (canInvoices()) {
+            <a routerLink="/admin/invoices"
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+              <div class="font-semibold text-slate-900 dark:text-white flex items-center gap-2">Faktúry
+                @if ((invoicePending() ?? 0) > 0) {
+                  <span class="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ invoicePending() }} na kontrolu</span>
+                }
+              </div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Faktúry od dodávateľov</div>
+            </a>
+          }
+          @if (canPayroll()) {
+            <a routerLink="/admin/mzdy"
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+              <div class="font-semibold text-slate-900 dark:text-white">Mzdy</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</div>
+            </a>
+          }
+          <a routerLink="/admin/locations"
+             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+            <div class="font-semibold text-slate-900 dark:text-white">Náklady a zisk (P&amp;L)</div>
+            <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Podľa pracoviska</div>
           </a>
-        }
-
-        @if (canInvoices()) {
-          <a routerLink="/admin/invoices"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="font-semibold text-slate-900 dark:text-white">Faktúry</div>
-            <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Skenovanie a spracovanie faktúr</div>
-          </a>
-        }
-
-        @if (canPayroll()) {
-          <a routerLink="/admin/mzdy"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="font-semibold text-slate-900 dark:text-white">Mzdy</div>
-            <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</div>
-          </a>
-        }
-
-        <a routerLink="/admin/locations"
-           class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-          <div class="font-semibold text-slate-900 dark:text-white">Náklady a zisk (P&amp;L)</div>
-          <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Podľa pracoviska</div>
-        </a>
+        </div>
       </div>
     }
   </div>

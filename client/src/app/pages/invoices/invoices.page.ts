@@ -69,6 +69,16 @@ export class InvoicesPage implements OnInit {
   receiptsFiltered = computed(() =>
     this.baseFiltered().filter(i => (i.documentKind ?? 'invoice') === 'receipt'));
 
+  // ─── Overview tiles (over ALL loaded docs, not the filtered view) ───
+  pendingCount = computed(() => this.invoices().filter(i => i.status === 'review').length);
+  pendingSum = computed(() =>
+    this.invoices().filter(i => i.status === 'review').reduce((s, i) => s + (i.totalInclVat || 0), 0));
+  committedCount = computed(() => this.invoices().filter(i => i.status === 'committed').length);
+  addedTodayCount = computed(() => {
+    const today = new Date().toDateString();
+    return this.invoices().filter(i => i.uploadedAt && new Date(i.uploadedAt).toDateString() === today).length;
+  });
+
   /** Row pending delete confirmation (null = modal closed). */
   deleting = signal<InvoiceDocument | null>(null);
   deleteBusy = signal(false);
@@ -184,6 +194,23 @@ export class InvoicesPage implements OnInit {
       case 'parsing':   return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
       default:          return 'bg-slate-100 text-slate-600';
     }
+  }
+
+  /** Left-edge accent colour on each card, by status. */
+  statusAccentClass(status: string): string {
+    switch (status) {
+      case 'review':    return 'border-amber-400';
+      case 'committed': return 'border-emerald-400';
+      default:          return 'border-slate-300 dark:border-slate-600';
+    }
+  }
+
+  /** 1–2 letter supplier monogram for the card avatar. */
+  initials(name: string): string {
+    const words = (name || '').split(/[\s.,-]+/).filter(w => w.length >= 2 && !/^(spol|sro|as)$/i.test(w));
+    if (words.length === 0) return '?';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
   }
 
   // SK number formatter for the table totals.
