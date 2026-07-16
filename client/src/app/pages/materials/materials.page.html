@@ -28,28 +28,28 @@
 
     <!-- ── Tab bar (only when MaterialPurchases flag is on or superadmin) ── -->
     @if (purchasesAvailable()) {
-      <div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg flex mb-4 overflow-hidden" role="tablist">
+      <div class="flex gap-1 bg-slate-100 dark:bg-slate-700/60 rounded-lg p-1 mb-4" role="tablist">
         <button (click)="setTab('katalog')" role="tab"
-                [class]="tab() === 'katalog' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
-                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+                class="touch-target flex-1 px-2 sm:px-4 py-2 text-sm font-medium rounded-md transition-colors"
+                [class]="tab() === 'katalog' ? 'bg-white dark:bg-slate-800 shadow-sm text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'">
           Katalóg
         </button>
         <button (click)="setTab('nakupy')" role="tab"
-                [class]="tab() === 'nakupy' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
-                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+                class="touch-target flex-1 px-2 sm:px-4 py-2 text-sm font-medium rounded-md transition-colors"
+                [class]="tab() === 'nakupy' ? 'bg-white dark:bg-slate-800 shadow-sm text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'">
           Nákupy
         </button>
         <button (click)="setTab('inventar')" role="tab"
-                [class]="tab() === 'inventar' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
-                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+                class="touch-target flex-1 px-2 sm:px-4 py-2 text-sm font-medium rounded-md transition-colors"
+                [class]="tab() === 'inventar' ? 'bg-white dark:bg-slate-800 shadow-sm text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'">
           Inventár
         </button>
         <button (click)="setTab('neid')" role="tab"
-                [class]="tab() === 'neid' ? 'border-b-2 border-amber-500 text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'"
-                class="touch-target flex-1 py-3 text-sm sm:text-base font-medium transition-colors">
+                class="touch-target flex-1 px-2 sm:px-4 py-2 text-sm font-medium rounded-md transition-colors inline-flex items-center justify-center gap-1.5"
+                [class]="tab() === 'neid' ? 'bg-white dark:bg-slate-800 shadow-sm text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'">
           Nezaradené
           @if (unknownGroups().length > 0) {
-            <span class="ml-1.5 inline-block bg-amber-500 text-white text-xs font-bold rounded-full px-2 py-0.5">{{ unknownGroups().length }}</span>
+            <span class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 bg-amber-500 text-white text-xs font-bold rounded-full">{{ unknownGroups().length }}</span>
           }
         </button>
       </div>
@@ -104,12 +104,28 @@
       @if (loading()) {
         <app-spinner />
       } @else {
+        <!-- Hero: catalogue summary -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6 mb-4">
+          <div class="text-sm text-slate-500 dark:text-slate-400">Katalóg materiálu</div>
+          <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">{{ activeMaterialCount() }} {{ activeMaterialCount() === 1 ? 'materiál' : 'materiálov' }}</div>
+          <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
+            <span>Jednotiek <span class="font-semibold text-slate-900 dark:text-white">{{ catalogGroups().length }}</span></span>
+            @if (unpricedCount() > 0) {
+              <span class="text-amber-600 dark:text-amber-400">{{ unpricedCount() }} bez ceny</span>
+            }
+            @if (inactiveMaterials().length > 0) {
+              <span>Neaktívnych <span class="font-semibold text-slate-900 dark:text-white">{{ inactiveMaterials().length }}</span></span>
+            }
+          </div>
+        </div>
+
         <!-- Stacked card list — phones + narrow tablets. Active materials
              grouped by jednotka; inactive collapsed at the bottom. -->
         <div class="md:hidden space-y-2">
           @for (g of catalogGroups(); track g.unit) {
-            <div class="text-xs uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 pt-2">
-              {{ g.unit }} · {{ g.items.length }}
+            <div class="flex items-center gap-2 pt-3 pb-0.5">
+              <span class="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-xs font-semibold">{{ g.unit }}</span>
+              <span class="text-xs text-slate-400 dark:text-slate-500">{{ g.items.length }} {{ g.items.length === 1 ? 'položka' : 'položiek' }}</span>
             </div>
           @for (m of g.items; track m.id) {
             <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-3"
@@ -156,8 +172,8 @@
                     <div class="text-base font-semibold tabular-nums whitespace-nowrap"
                          [class.text-amber-600]="!m.pricePerUnit"
                          [class.dark:text-amber-400]="!m.pricePerUnit"
-                         [class.text-slate-900]="m.pricePerUnit"
-                         [class.dark:text-white]="m.pricePerUnit">
+                         [class.text-emerald-600]="m.pricePerUnit"
+                         [class.dark:text-emerald-400]="m.pricePerUnit">
                       {{ formatEur(m.pricePerUnit) }}
                     </div>
                     <span class="px-2 py-0.5 rounded-full text-xs font-medium"
@@ -218,61 +234,59 @@
           }
         </div>
 
-        <!-- md+: active materials grouped by jednotka, two group-columns.
-             The flat 100-row table was unusable for the customer. -->
+        <!-- md+: active materials grouped by jednotka — full-width cards,
+             items in a balanced 2-up grid so long names never clip. -->
         <div class="hidden md:block space-y-4">
-          <div class="grid md:grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-            @for (g of catalogGroups(); track g.unit) {
-              <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <div class="px-4 py-2.5 bg-slate-50 dark:bg-slate-900/40 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                  <span class="font-semibold text-slate-700 dark:text-slate-200">{{ g.unit }}</span>
-                  <span class="text-xs text-slate-500 dark:text-slate-400">{{ g.items.length }}</span>
-                </div>
-                <table class="w-full text-sm">
-                  <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
-                    @for (m of g.items; track m.id) {
-                      <tr class="text-slate-800 dark:text-slate-200">
-                        @if (editingId() === m.id) {
-                          <td class="px-4 py-2">
-                            <div class="flex gap-2">
-                              <input type="text" [(ngModel)]="editForm.name" class="flex-1 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" />
-                              <input type="text" [(ngModel)]="editForm.unit" title="Jednotka" class="w-20 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded" />
-                            </div>
-                          </td>
-                          <td class="px-4 py-2 text-right">
-                            <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit"
-                                   class="w-24 px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-right" />
-                          </td>
-                          <td class="px-4 py-2 text-right whitespace-nowrap">
-                            <button (click)="saveEdit()"   class="text-green-600 hover:text-green-700 text-sm font-semibold mr-3">Uložiť</button>
-                            <button (click)="cancelEdit()" class="text-slate-500 hover:text-slate-700 text-sm">Zrušiť</button>
-                          </td>
-                        } @else {
-                          <td class="px-4 py-2.5 font-medium">{{ m.name }}</td>
-                          <td class="px-4 py-2.5 text-right tabular-nums w-28"
-                              [class.text-amber-600]="!m.pricePerUnit"
-                              [class.dark:text-amber-400]="!m.pricePerUnit"
-                              [title]="m.pricePerUnit ? '' : 'Cena nie je nastavená — náklady budú 0 €'">
-                            {{ formatEur(m.pricePerUnit) }}
-                          </td>
-                          <td class="px-4 py-2.5 text-right whitespace-nowrap w-56">
-                            <button (click)="startEdit(m)"
-                                    class="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-white text-sm font-medium mr-3">Upraviť</button>
-                            <button (click)="onToggleActive(m)"
-                                    class="text-slate-400 hover:text-slate-200 text-sm font-medium mr-3">Deaktivovať</button>
-                            <button (click)="onDelete(m)"
-                                    class="text-red-400 hover:text-red-300 text-sm font-medium">Odstrániť</button>
-                          </td>
-                        }
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+          @for (g of catalogGroups(); track g.unit) {
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <div class="px-4 py-2.5 bg-amber-50 dark:bg-amber-900/10 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <span class="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 text-xs font-semibold">{{ g.unit }}</span>
+                <span class="text-xs text-slate-400 dark:text-slate-500">{{ g.items.length }} {{ g.items.length === 1 ? 'položka' : 'položiek' }}</span>
               </div>
-            } @empty {
-              <app-empty-state message="Žiadny aktívny materiál v katalógu." />
-            }
-          </div>
+              <div class="p-2 grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-0.5">
+                @for (m of g.items; track m.id) {
+                  @if (editingId() === m.id) {
+                    <div class="md:col-span-2 flex flex-wrap items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+                      <input type="text" [(ngModel)]="editForm.name" placeholder="Názov"
+                             class="flex-1 min-w-[12rem] px-2 py-1 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded text-sm" />
+                      <input type="text" [(ngModel)]="editForm.unit" title="Jednotka" placeholder="j."
+                             class="w-16 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded text-sm" />
+                      <input type="number" min="0" step="0.01" [(ngModel)]="editForm.pricePerUnit" placeholder="€"
+                             class="w-24 px-2 py-1 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded text-right tabular-nums text-sm" />
+                      <button (click)="saveEdit()" class="px-3 py-1 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-semibold">Uložiť</button>
+                      <button (click)="cancelEdit()" class="px-2 py-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm">Zrušiť</button>
+                    </div>
+                  } @else {
+                    <div class="flex items-start gap-2 px-3 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                      <span class="flex-1 min-w-0 text-sm font-medium text-slate-800 dark:text-slate-100 leading-snug">{{ m.name }}</span>
+                      <span class="shrink-0 mt-0.5 text-sm font-semibold tabular-nums"
+                            [class.text-emerald-600]="m.pricePerUnit"
+                            [class.dark:text-emerald-400]="m.pricePerUnit"
+                            [class.text-amber-600]="!m.pricePerUnit"
+                            [class.dark:text-amber-400]="!m.pricePerUnit"
+                            [title]="m.pricePerUnit ? '' : 'Cena nie je nastavená — náklady budú 0 €'">{{ formatEur(m.pricePerUnit) }}</span>
+                      <div class="shrink-0 flex items-center gap-0.5">
+                        <button (click)="startEdit(m)" title="Upraviť"
+                                class="p-1.5 rounded-md text-sky-500 hover:bg-sky-50 dark:hover:bg-sky-900/20">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                        </button>
+                        <button (click)="onToggleActive(m)" title="Deaktivovať"
+                                class="p-1.5 rounded-md text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/></svg>
+                        </button>
+                        <button (click)="onDelete(m)" title="Odstrániť"
+                                class="p-1.5 rounded-md text-rose-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20">
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+            </div>
+          } @empty {
+            <app-empty-state message="Žiadny aktívny materiál v katalógu." />
+          }
 
           <!-- Inactive: collapsed behind a counter toggle -->
           @if (inactiveMaterials().length > 0) {
@@ -312,6 +326,21 @@
     <!-- ══ Tab: Nákupy ══════════════════════════════════════════════ -->
     <!-- ══════════════════════════════════════════════════════════════ -->
     @if (tab() === 'nakupy') {
+
+      <!-- Unfiled items nudge -->
+      @if (unknownGroups().length > 0) {
+        <button type="button" (click)="setTab('neid')"
+                class="w-full flex items-center gap-3 p-3 mb-4 rounded-xl bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-sm hover:border-amber-400 dark:hover:border-amber-500 transition-colors text-left">
+          <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span class="flex-1"><strong class="font-semibold">{{ unknownGroups().length }}</strong> {{ unknownGroups().length === 1 ? 'položka čaká' : 'položiek čaká' }} na zaradenie do katalógu</span>
+          <span class="font-medium inline-flex items-center gap-1 whitespace-nowrap">Zaradiť
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+          </span>
+        </button>
+      }
 
       <!-- Filters card -->
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 mb-4">
@@ -371,49 +400,58 @@
       @if (purchasesLoading()) {
         <app-spinner />
       } @else {
-        <!-- Grand total above the list -->
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 mb-4 flex items-center justify-between">
-          <span class="text-sm text-slate-500 dark:text-slate-400">Spolu (filtrované)</span>
-          <span class="text-xl font-bold text-green-600 dark:text-green-400 tabular-nums">{{ formatEur(filteredGrandTotal()) }}</span>
+        <!-- Spend hero -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6 mb-4">
+          <div class="text-sm text-slate-500 dark:text-slate-400">Nákupy spolu · {{ nakupyPeriodLabel() }}</div>
+          <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ formatEur(filteredGrandTotal()) }}</div>
+          <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
+            <span>Nákupy <span class="font-semibold text-slate-900 dark:text-white">{{ purchases().length }}</span></span>
+            <span>Dodávatelia <span class="font-semibold text-slate-900 dark:text-white">{{ supplierCount() }}</span></span>
+            @if (purchases().length > 0) {
+              <span>Priemer <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatEur(averagePurchase()) }}</span></span>
+            }
+          </div>
         </div>
 
         <div class="space-y-2">
           @for (p of purchases(); track p.id) {
             <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <button (click)="togglePurchaseRow(p.id)"
-                      class="w-full text-left p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                      class="w-full text-left p-3 sm:p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                <div class="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-xs font-semibold"
+                     [class]="p.supplierName ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300'">
+                  {{ initials(p.supplierName || p.employeeName) }}
+                </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-baseline gap-2 flex-wrap">
-                    <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
+                  <div class="flex items-center gap-x-2 gap-y-0.5 flex-wrap font-medium text-slate-900 dark:text-white">
+                    <span class="truncate">{{ p.supplierName || p.employeeName }}</span>
+                    <span class="text-xs font-normal text-slate-500 dark:text-slate-400">· {{ fmtDate(p.purchaseDate) }}</span>
                     @if (p.invoiceDocumentId) {
-                      <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
-                            title="Zo skenovanej faktúry">faktúra</span>
-                    } @else {
-                      <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
-                    }
-                    @if (p.supplierName) {
-                      <span class="text-xs text-slate-500 dark:text-slate-400">· {{ p.supplierName }}</span>
+                      <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300" title="Zo skenovanej faktúry">faktúra</span>
                     }
                     @if (p.timeEntryId) {
                       <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300" title="Spojené so šichtou">šichta</span>
                     }
                   </div>
-                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
                     @if (p.locationName) {
-                      Pre: <span class="text-slate-700 dark:text-slate-200">{{ p.locationName }}</span>
+                      <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ p.locationName }}</span>
                     } @else {
-                      Pre: <span class="italic">Inventár</span>
+                      <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 italic">Inventár</span>
                     }
-                    · {{ p.lines.length }} {{ p.lines.length === 1 ? 'položka' : 'položky' }}
+                    <span>{{ p.lines.length }} {{ p.lines.length === 1 ? 'položka' : 'položky' }}</span>
+                    @if (p.receiptPhotoUrl) {
+                      <span class="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400" title="Účtenka priložená">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                        účtenka
+                      </span>
+                    }
                   </div>
                 </div>
-                <div class="flex flex-col items-end gap-1 shrink-0">
-                  <span class="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">{{ formatEur(p.totalCost) }}</span>
-                  @if (p.receiptPhotoUrl) {
-                    <span class="text-xs text-blue-600 dark:text-blue-400">📎 účtenka</span>
-                  }
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-base sm:text-lg font-semibold text-slate-900 dark:text-white tabular-nums">{{ formatEur(p.totalCost) }}</span>
+                  <svg class="w-4 h-4 text-slate-400 transition-transform" [class.rotate-90]="expandedPurchaseId() === p.id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </div>
-                <span class="text-slate-400 text-lg ml-2">{{ expandedPurchaseId() === p.id ? '▾' : '▸' }}</span>
               </button>
 
               @if (expandedPurchaseId() === p.id) {
@@ -515,6 +553,16 @@
       @if (inventoryLoading()) {
         <app-spinner />
       } @else {
+        <!-- Inventory hero -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6 mb-4">
+          <div class="text-sm text-slate-500 dark:text-slate-400">Inventár spolu · {{ inventoryPeriodLabel() }}</div>
+          <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ formatEur(inventoryGrandTotal()) }}</div>
+          <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
+            <span>Nákupy <span class="font-semibold text-slate-900 dark:text-white">{{ inventoryPurchases().length }}</span></span>
+            <span>Druhy materiálu <span class="font-semibold text-slate-900 dark:text-white">{{ inventorySummary().length }}</span></span>
+          </div>
+        </div>
+
         <!-- Per-material aggregate -->
         @if (inventorySummary().length > 0) {
           <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto mb-4">
@@ -555,34 +603,36 @@
           @for (p of inventoryPurchases(); track p.id) {
             <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <button (click)="toggleInventoryRow(p.id)"
-                      class="w-full text-left p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                      class="w-full text-left p-3 sm:p-4 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                <div class="w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-xs font-semibold"
+                     [class]="p.supplierName ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300'">
+                  {{ initials(p.supplierName || p.employeeName) }}
+                </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-baseline gap-2 flex-wrap">
-                    <span class="font-semibold text-slate-900 dark:text-white">{{ fmtDate(p.purchaseDate) }}</span>
+                  <div class="flex items-center gap-x-2 gap-y-0.5 flex-wrap font-medium text-slate-900 dark:text-white">
+                    <span class="truncate">{{ p.supplierName || p.employeeName }}</span>
+                    <span class="text-xs font-normal text-slate-500 dark:text-slate-400">· {{ fmtDate(p.purchaseDate) }}</span>
                     @if (p.invoiceDocumentId) {
-                      <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300"
-                            title="Zo skenovanej faktúry">faktúra</span>
-                    } @else {
-                      <span class="text-sm text-slate-600 dark:text-slate-300">{{ p.employeeName }}</span>
-                    }
-                    @if (p.supplierName) {
-                      <span class="text-xs text-slate-500 dark:text-slate-400">· {{ p.supplierName }}</span>
+                      <span class="text-xs px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300" title="Zo skenovanej faktúry">faktúra</span>
                     }
                     @if (p.timeEntryId) {
-                      <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">šichta</span>
+                      <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300" title="Spojené so šichtou">šichta</span>
                     }
                   </div>
-                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    {{ p.lines.length }} {{ p.lines.length === 1 ? 'položka' : 'položky' }}
+                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
+                    <span>{{ p.lines.length }} {{ p.lines.length === 1 ? 'položka' : 'položky' }}</span>
+                    @if (p.receiptPhotoUrl) {
+                      <span class="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400" title="Účtenka priložená">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                        účtenka
+                      </span>
+                    }
                   </div>
                 </div>
-                <div class="flex flex-col items-end gap-1 shrink-0">
-                  <span class="text-lg font-bold text-green-600 dark:text-green-400 tabular-nums">{{ formatEur(p.totalCost) }}</span>
-                  @if (p.receiptPhotoUrl) {
-                    <span class="text-xs text-blue-600 dark:text-blue-400">📎 účtenka</span>
-                  }
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="text-base sm:text-lg font-semibold text-slate-900 dark:text-white tabular-nums">{{ formatEur(p.totalCost) }}</span>
+                  <svg class="w-4 h-4 text-slate-400 transition-transform" [class.rotate-90]="expandedInventoryId() === p.id" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 </div>
-                <span class="text-slate-400 text-lg ml-2">{{ expandedInventoryId() === p.id ? '▾' : '▸' }}</span>
               </button>
 
               @if (expandedInventoryId() === p.id) {
@@ -661,29 +711,48 @@
       @if (unknownLoading()) {
         <app-spinner />
       } @else {
+        @if (unknownGroups().length > 0) {
+          <!-- Hero: what's waiting to be filed -->
+          <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6 mb-4">
+            <div class="text-sm text-slate-500 dark:text-slate-400">Čaká na zaradenie do katalógu</div>
+            <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1">{{ unknownGroups().length }} {{ unknownGroups().length === 1 ? 'položka' : 'položiek' }}</div>
+            <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
+              <span>Spolu <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatEur(unfiledTotal()) }}</span></span>
+              <span>Výskytov <span class="font-semibold text-slate-900 dark:text-white">{{ unfiledOccurrences() }}</span></span>
+            </div>
+            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
+              Zaradením priradíš položku ku katalógovému materiálu — potom sa ráta do nákladov a inventára správne.
+            </div>
+          </div>
+        }
+
         <div class="space-y-2">
           @for (g of unknownGroups(); track g.materialNameRaw + '|' + g.unit) {
-            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-              <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 border-l-4 border-l-amber-400 p-4">
+              <div class="flex items-start gap-3">
+                <div class="w-9 h-9 shrink-0 rounded-lg bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5a1.99 1.99 0 011.414.586l7 7a2 2 0 010 2.828l-5 5a2 2 0 01-2.828 0l-7-7A1.99 1.99 0 013 12V7a4 4 0 014-4z"/></svg>
+                </div>
                 <div class="min-w-0 flex-1">
                   <div class="font-semibold text-slate-900 dark:text-white">
-                    {{ g.materialNameRaw }} <span class="text-xs text-slate-500 dark:text-slate-400 font-normal">({{ g.unit }})</span>
+                    {{ g.materialNameRaw }} <span class="text-xs text-slate-500 dark:text-slate-400 font-normal">· {{ g.unit }}</span>
                   </div>
                   <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {{ g.lineCount }} {{ g.lineCount === 1 ? 'výskyt' : 'výskytov' }} ·
-                    od {{ fmtDate(g.firstSeenAt) }} do {{ fmtDate(g.lastSeenAt) }} ·
-                    zadal: {{ g.enteredByEmployeeNames.join(', ') }}
+                    {{ fmtDate(g.firstSeenAt) }} – {{ fmtDate(g.lastSeenAt) }} ·
+                    zadal {{ g.enteredByEmployeeNames.join(', ') }}
                   </div>
-                </div>
-                <div class="flex flex-col items-end gap-1">
-                  <span class="text-lg font-bold tabular-nums text-slate-900 dark:text-white">{{ formatEur(g.totalSpend) }}</span>
-                  <span class="text-xs text-slate-500 dark:text-slate-400">priem. {{ formatEur(g.averageUnitPrice) }} / {{ g.unit }}</span>
+                  <div class="mt-2 flex items-baseline gap-3 flex-wrap">
+                    <span class="text-lg font-bold tabular-nums text-slate-900 dark:text-white">{{ formatEur(g.totalSpend) }}</span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400 tabular-nums">⌀ {{ formatEur(g.averageUnitPrice) }} / {{ g.unit }}</span>
+                  </div>
                 </div>
               </div>
               <div class="mt-3 flex justify-end">
                 <button (click)="openPromote(g)"
-                        class="touch-target bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">
-                  Promovať do katalógu
+                        class="touch-target inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                  Zaradiť do katalógu
                 </button>
               </div>
             </div>

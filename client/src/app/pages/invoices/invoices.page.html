@@ -79,6 +79,26 @@
     @if (loading()) {
       <app-spinner />
     } @else {
+      <!-- Summary tiles -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <div class="text-xs text-slate-500 dark:text-slate-400">Čaká na kontrolu</div>
+          <div class="text-2xl font-bold text-amber-500 mt-0.5 tabular-nums">{{ pendingCount() }}</div>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <div class="text-xs text-slate-500 dark:text-slate-400">Suma na kontrolu</div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">{{ formatMoney(pendingSum()) }} €</div>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <div class="text-xs text-slate-500 dark:text-slate-400">Uložené</div>
+          <div class="text-2xl font-bold text-emerald-500 mt-0.5 tabular-nums">{{ committedCount() }}</div>
+        </div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+          <div class="text-xs text-slate-500 dark:text-slate-400">Pridané dnes</div>
+          <div class="text-2xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">{{ addedTodayCount() }}</div>
+        </div>
+      </div>
+
       <!-- Faktúry and Bločky side by side; stacks to one column under lg. -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
         <!-- Faktúry column -->
@@ -119,29 +139,35 @@
 
     <!-- One row card, shared by both columns. -->
     <ng-template #docCard let-inv="inv">
-      <div class="p-4">
+      <div class="p-4 border-l-4 {{ statusAccentClass(inv.status) }}">
         <a [routerLink]="['/admin/invoices', inv.id]" class="block">
-          <div class="flex justify-between items-start gap-3">
-            <div class="min-w-0">
-              <div class="font-medium text-slate-900 dark:text-white truncate">{{ inv.invoiceNumber }}</div>
-              <div class="text-sm text-slate-500 dark:text-slate-400 truncate">{{ inv.supplierName }}</div>
-              <div class="text-xs text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
-                <span>{{ inv.issueDate | date:'dd.MM.yyyy' }}</span>
-                @if (!inv.reconciliationOk) {
-                  <span class="text-red-600 dark:text-red-400 font-medium">Nesedia</span>
-                }
-              </div>
-              @if (inv.locationNames?.length) {
-                <div class="flex flex-wrap gap-1 mt-1">
-                  @for (n of inv.locationNames; track n) {
-                    <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">{{ n }}</span>
+          <div class="flex items-start gap-3">
+            <div class="w-9 h-9 shrink-0 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs font-semibold">{{ initials(inv.supplierName) }}</div>
+            <div class="flex-1 min-w-0 flex justify-between items-start gap-3">
+              <div class="min-w-0">
+                <div class="font-medium text-slate-900 dark:text-white truncate">{{ inv.invoiceNumber }}</div>
+                <div class="text-sm text-slate-500 dark:text-slate-400 truncate">{{ inv.supplierName }}</div>
+                <div class="text-xs text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+                  <span>{{ inv.issueDate | date:'dd.MM.yyyy' }}</span>
+                  @if (!inv.reconciliationOk) {
+                    <span class="text-red-600 dark:text-red-400 font-medium">Nesedia</span>
                   }
                 </div>
-              }
-            </div>
-            <div class="text-right shrink-0">
-              <div class="font-semibold text-slate-900 dark:text-white tabular-nums whitespace-nowrap">{{ formatMoney(inv.totalInclVat) }} €</div>
-              <span [class]="statusClass(inv.status)" class="inline-block text-xs font-medium px-2 py-0.5 rounded-full mt-1 whitespace-nowrap">{{ statusLabel(inv.status) }}</span>
+                @if (inv.uploadedAt) {
+                  <div class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Pridané {{ inv.uploadedAt | date:'dd.MM.yyyy, HH:mm' }}</div>
+                }
+                @if (inv.locationNames?.length) {
+                  <div class="flex flex-wrap gap-1 mt-1">
+                    @for (n of inv.locationNames; track n) {
+                      <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">{{ n }}</span>
+                    }
+                  </div>
+                }
+              </div>
+              <div class="text-right shrink-0">
+                <div class="font-semibold text-slate-900 dark:text-white tabular-nums whitespace-nowrap">{{ formatMoney(inv.totalInclVat) }} €</div>
+                <span [class]="statusClass(inv.status)" class="inline-block text-xs font-medium px-2 py-0.5 rounded-full mt-1 whitespace-nowrap">{{ statusLabel(inv.status) }}</span>
+              </div>
             </div>
           </div>
         </a>

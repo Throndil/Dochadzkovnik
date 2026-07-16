@@ -210,6 +210,18 @@ export class InvoiceReviewPage implements OnInit {
     }
   }
 
+  /** Item name (Popis) edited — free text. Blank is ignored so a row never
+   *  loses its name by accident; retype to change it. */
+  async onDescriptionBlur(line: { id: number; materialNameRaw: string }, val: string) {
+    const name = val.trim();
+    if (name === '' || name === (line.materialNameRaw ?? '')) return;
+    try {
+      this.invoice.set(await this.svc.updateLine(this.id, line.id, { materialNameRaw: name }));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Úprava názvu zlyhala.');
+    }
+  }
+
   /** Zľava % edited — informational only (receipt prices are already
    *  discounted), no total recomputation. */
   async onDiscountBlur(line: { id: number; discountPercent: number | null }, val: string) {

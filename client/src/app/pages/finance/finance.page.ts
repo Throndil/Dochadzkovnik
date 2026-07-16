@@ -92,6 +92,33 @@ export class FinancePage {
     };
   });
 
+  // ─── Overview hero (the two real cost pillars) ───
+  // Month cost = wages + material. Invoices are NOT added: supplier-invoice
+  // material is already counted inside `materialSpend` (the P&L does the same),
+  // so adding faktúry on top would double-count. Faktúry is shown as a source,
+  // not a third pillar.
+  costTotal = computed(() => (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0));
+  wagesPct = computed(() => {
+    const t = this.costTotal();
+    return t > 0 ? Math.round((this.wagesPayout() ?? 0) / t * 100) : 0;
+  });
+
+  /** Largest per-site total in the report — scales the comparison bars. */
+  reportMax = computed(() => {
+    const rows = this.visibleReportRows();
+    const m = Math.max(0, ...rows.map(r => (r.labour?.cost ?? 0) + (r.material?.cost ?? 0)));
+    return m > 0 ? m : 1;
+  });
+
+  /** Bar width (%) for a value relative to the biggest site's total. */
+  barPct(value: number | null | undefined): number {
+    return Math.round(((value ?? 0) / this.reportMax()) * 100);
+  }
+
+  rowTotal(r: LocationPnl): number {
+    return (r.labour?.cost ?? 0) + (r.material?.cost ?? 0);
+  }
+
   constructor() {
     const { from, to } = this.monthRange();
     this.reportFrom.set(from);

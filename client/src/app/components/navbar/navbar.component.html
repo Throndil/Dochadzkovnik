@@ -1,91 +1,73 @@
-<nav class="sticky top-0 z-30 bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-lg border-b border-slate-200 dark:border-slate-700"
+<nav class="sticky top-0 z-30 bg-white/95 dark:bg-slate-800/95 backdrop-blur text-slate-800 dark:text-white border-b border-slate-200 dark:border-slate-700 shadow-sm"
      style="padding-top: env(safe-area-inset-top); padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);">
   <div class="max-w-7xl mx-auto px-4">
-    <div class="flex h-14 items-center gap-4">
+    <div class="flex h-14 items-center gap-3">
+      <!-- Brand -->
       <a routerLink="/admin/dashboard" class="flex items-center gap-2 text-lg font-bold tracking-wide shrink-0">
-        <img src="/profistav_logo.png" alt="Profistav logo" class="h-10 w-auto object-contain shrink-0" />
-        <span class="whitespace-nowrap">Šichtovnica</span>
+        <img src="/profistav_logo.png" alt="Profistav logo" class="h-9 w-auto object-contain shrink-0" />
+        <span class="whitespace-nowrap hidden sm:inline">Šichtovnica</span>
       </a>
 
-      <!-- Desktop primary nav: shared Prehľad + side switcher + the active
-           side's links. Shown from lg up; below that the hamburger menu takes
-           over so the (now two-context) nav never crowds on tablets. -->
-      <div class="hidden lg:flex items-center gap-3">
-        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-500 dark:text-amber-400"
-           class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Prehľad</a>
+      <!-- Desktop primary nav: Prehľad + side switcher + the active side's links.
+           Shown from lg up; below that the hamburger menu takes over. -->
+      <div class="hidden lg:flex items-center gap-1">
+        <a [routerLink]="homeLink.path" routerLinkActive="!bg-amber-100 dark:!bg-amber-900/40 !text-amber-700 dark:!text-amber-300"
+           class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="homeLink.icon" /></svg>
+          {{ homeLink.label }}
+        </a>
 
         <!-- Side switcher (Prevádzka | Financie) -->
-        <div class="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-700 p-0.5">
-          <button type="button" (click)="switchSide('operations')" [class]="segClass(side() === 'operations')">
-            Prevádzka
-          </button>
-          <button type="button" (click)="switchSide('finance')" [class]="segClass(side() === 'finance')">
-            Financie
-          </button>
+        <div class="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-700/60 p-0.5 mx-1.5">
+          <button type="button" (click)="switchSide('operations')" [class]="segClass(side() === 'operations')">Prevádzka</button>
+          <button type="button" (click)="switchSide('finance')" [class]="segClass(side() === 'finance')">Financie</button>
         </div>
 
-        @if (side() === 'operations') {
-          <a routerLink="/admin/employees" routerLinkActive="text-amber-500 dark:text-amber-400"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Zamestnanci</a>
-          <a routerLink="/admin/locations" routerLinkActive="text-amber-500 dark:text-amber-400"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Pracoviská</a>
-          <a routerLink="/admin/cars" routerLinkActive="text-amber-500 dark:text-amber-400"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Autá</a>
-          @if (flags.commanderIntegration() || auth.isSuperAdmin()) {
-            <a routerLink="/admin/commander" routerLinkActive="text-amber-500 dark:text-amber-400"
-               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Commander</a>
-          }
-          @if (flags.notifications() || auth.isSuperAdmin()) {
-            <a routerLink="/admin/notifikacie" routerLinkActive="text-amber-500 dark:text-amber-400"
-               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Notifikácie</a>
-          }
-          <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Záznamy</a>
-        } @else {
-          <a routerLink="/admin/finance" routerLinkActive="text-amber-500 dark:text-amber-400"
-             [routerLinkActiveOptions]="{ exact: true }"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Súhrn</a>
-          <a routerLink="/admin/materials" routerLinkActive="text-amber-500 dark:text-amber-400"
-             class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Materiál</a>
-          @if (flags.invoiceScanning() || auth.isSuperAdmin()) {
-            <a routerLink="/admin/invoices" routerLinkActive="text-amber-500 dark:text-amber-400"
-               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Faktúry</a>
-          }
-          @if (flags.payrollAndPnL() || auth.isSuperAdmin()) {
-            <a routerLink="/admin/mzdy" routerLinkActive="text-amber-500 dark:text-amber-400"
-               class="hover:text-amber-500 dark:hover:text-amber-300 transition-colors">Mzdy</a>
-          }
+        <div class="w-px h-6 bg-slate-200 dark:bg-slate-700 mr-1"></div>
+
+        @for (l of activeLinks; track l.path) {
+          <a [routerLink]="l.path" [routerLinkActiveOptions]="{ exact: !!l.exact }"
+             routerLinkActive="!bg-amber-100 dark:!bg-amber-900/40 !text-amber-700 dark:!text-amber-300"
+             class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="l.icon" /></svg>
+            {{ l.label }}
+          </a>
         }
       </div>
 
       <!-- Desktop account cluster, pushed to the right edge. -->
       <div class="hidden lg:flex items-center gap-2 ml-auto">
-        <span class="text-slate-500 dark:text-slate-400">{{ auth.displayName() }}</span>
+        <div class="flex items-center gap-2 pl-1">
+          <span class="w-7 h-7 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center shrink-0">{{ initials }}</span>
+          <span class="text-sm text-slate-600 dark:text-slate-300 hidden xl:inline whitespace-nowrap">{{ auth.displayName() }}</span>
+        </div>
+
+        <div class="w-px h-6 bg-slate-200 dark:bg-slate-700"></div>
 
         <!-- Theme toggle -->
         <button (click)="theme.toggleTheme()"
-                class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300"
+                class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-500 dark:text-slate-300"
                 [title]="theme.isDark() ? 'Prepnúť na svetlý režim' : 'Prepnúť na tmavý režim'">
           @if (theme.isDark()) {
-            <!-- Sun icon -->
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>
             </svg>
           } @else {
-            <!-- Moon icon -->
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
             </svg>
           }
         </button>
 
-        <a routerLink="/admin/account" routerLinkActive="ring-2 ring-amber-400"
-           class="ml-2 px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-lg font-medium transition-colors">
+        <a routerLink="/admin/account" routerLinkActive="!ring-2 !ring-amber-400"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
           Účet
         </a>
-        <button (click)="onLogout()" class="ml-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-white transition-colors">
+        <button (click)="onLogout()"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
           Odhlásiť
         </button>
       </div>
@@ -93,7 +75,7 @@
       <!-- Mobile/tablet right side: theme toggle + hamburger -->
       <div class="lg:hidden flex items-center gap-1 ml-auto">
         <button (click)="theme.toggleTheme()"
-                class="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300">
+                class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300">
           @if (theme.isDark()) {
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -101,12 +83,11 @@
             </svg>
           } @else {
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
             </svg>
           }
         </button>
-        <button (click)="menuOpen.set(!menuOpen())" class="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+        <button (click)="menuOpen.set(!menuOpen())" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors" aria-label="Menu">
           @if (menuOpen()) {
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -124,46 +105,40 @@
          switcher we show both sides at once under section labels. -->
     @if (menuOpen()) {
       <div class="lg:hidden pb-4 border-t border-slate-200 dark:border-slate-700 mt-1 pt-3 space-y-1">
-        <a routerLink="/admin/dashboard" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Prehľad</a>
+        <a [routerLink]="homeLink.path" routerLinkActive="!bg-amber-100 dark:!bg-amber-900/40 !text-amber-700 dark:!text-amber-300" (click)="menuOpen.set(false)"
+           class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+          <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="homeLink.icon" /></svg>
+          {{ homeLink.label }}
+        </a>
 
         <div class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Prevádzka</div>
-        <a routerLink="/admin/employees" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Zamestnanci</a>
-        <a routerLink="/admin/locations" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Pracoviská</a>
-        <a routerLink="/admin/cars" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Autá</a>
-        @if (flags.commanderIntegration() || auth.isSuperAdmin()) {
-          <a routerLink="/admin/commander" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Commander</a>
+        @for (l of opsLinks; track l.path) {
+          <a [routerLink]="l.path" [routerLinkActiveOptions]="{ exact: !!l.exact }" routerLinkActive="!bg-amber-100 dark:!bg-amber-900/40 !text-amber-700 dark:!text-amber-300" (click)="menuOpen.set(false)"
+             class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="l.icon" /></svg>
+            {{ l.label }}
+          </a>
         }
-        @if (flags.notifications() || auth.isSuperAdmin()) {
-          <a routerLink="/admin/notifikacie" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Notifikácie</a>
-        }
-        <a routerLink="/admin/time-entries" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Záznamy</a>
 
         <div class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Financie</div>
-        <a routerLink="/admin/finance" routerLinkActive="text-amber-500 dark:text-amber-400" [routerLinkActiveOptions]="{ exact: true }" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Súhrn</a>
-        <a routerLink="/admin/materials" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-           class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Materiál</a>
-        @if (flags.invoiceScanning() || auth.isSuperAdmin()) {
-          <a routerLink="/admin/invoices" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Faktúry</a>
-        }
-        @if (flags.payrollAndPnL() || auth.isSuperAdmin()) {
-          <a routerLink="/admin/mzdy" routerLinkActive="text-amber-500 dark:text-amber-400" (click)="menuOpen.set(false)"
-             class="block px-3 py-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">Mzdy</a>
+        @for (l of finLinks; track l.path) {
+          <a [routerLink]="l.path" [routerLinkActiveOptions]="{ exact: !!l.exact }" routerLinkActive="!bg-amber-100 dark:!bg-amber-900/40 !text-amber-700 dark:!text-amber-300" (click)="menuOpen.set(false)"
+             class="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" [attr.d]="l.icon" /></svg>
+            {{ l.label }}
+          </a>
         }
 
-        <div class="border-t border-slate-200 dark:border-slate-700 mt-2 pt-2 px-3 flex items-center gap-3">
-          <span class="text-slate-500 dark:text-slate-400 text-sm">{{ auth.displayName() }}</span>
+        <div class="border-t border-slate-200 dark:border-slate-700 mt-2 pt-3 px-3 flex items-center gap-3">
+          <span class="w-8 h-8 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center shrink-0">{{ initials }}</span>
+          <span class="text-sm text-slate-600 dark:text-slate-300 flex-1 truncate">{{ auth.displayName() }}</span>
           <a routerLink="/admin/account" (click)="menuOpen.set(false)"
-             class="px-4 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-lg font-medium transition-colors">Účet</a>
-          <button (click)="onLogout()" class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-white transition-colors">
+             class="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-slate-600 hover:bg-slate-200 dark:hover:bg-slate-500 rounded-lg text-sm font-medium transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+            Účet
+          </a>
+          <button (click)="onLogout()" class="inline-flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm font-medium text-white transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             Odhlásiť
           </button>
         </div>

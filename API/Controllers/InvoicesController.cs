@@ -87,6 +87,19 @@ public class InvoicesController : ControllerBase
         });
     }
 
+    // All stored timestamps are Bratislava LOCAL time (the DB uses "timestamp
+    // without time zone" + UtcDateTimeConverter writes no 'Z'). Server-generated
+    // "now" must therefore be converted from UTC, not the raw UtcNow — otherwise
+    // it lands ~2 h behind and the browser shows the wrong wall-clock time.
+    private static readonly TimeZoneInfo BratislavaTz = ResolveBratislavaTz();
+    private static TimeZoneInfo ResolveBratislavaTz()
+    {
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Europe/Bratislava"); } catch { }
+        try { return TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time"); } catch { }
+        return TimeZoneInfo.Utc;
+    }
+    private static DateTime NowLocal => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, BratislavaTz);
+
     /// <summary>
     /// In-memory version of the reconciliation gate: do the parsed lines
     /// (+ their VAT) land on the printed total? Same tolerance as
@@ -357,7 +370,7 @@ public class InvoicesController : ControllerBase
         // supplier, letting a true duplicate through), but the number alone
         // is too weak for cash receipts (č.bloku 815 / č.d. 145 are short
         // and two vendors can share one), so the date disambiguates.
-        var effectiveIssueDate = parsed.Header.IssueDate ?? DateTime.UtcNow.Date;
+        var effectiveIssueDate = parsed.Header.IssueDate ?? NowLocal.Date;
         var dupExists = await _db.InvoiceDocuments.AnyAsync(d =>
             d.InvoiceNumber == parsed.Header.InvoiceNumber
             && d.IssueDate == effectiveIssueDate);
@@ -369,7 +382,7 @@ public class InvoicesController : ControllerBase
         // normalisation). Photo uploads (when a manager scans with their
         // phone instead of a PDF) go through the normal image path so
         // HEIC/PNG/WebP/BMP get JPEG-normalised like work photos.
-        var ym = (parsed.Header.IssueDate ?? DateTime.UtcNow).ToString("yyyy-MM");
+        var ym = (parsed.Header.IssueDate ?? NowLocal).ToString("yyyy-MM");
         var folder = $"{PdfFolderRoot}/{ym}";
         var isPdf = mime == "application/pdf";
         var ext = isPdf ? ".pdf" : Path.GetExtension(file.FileName ?? "") ?? "";
@@ -396,7 +409,7 @@ public class InvoicesController : ControllerBase
             SupplierIco         = Clip(parsed.Header.SupplierIco, 50),
             SupplierIcDph       = Clip(parsed.Header.SupplierIcDph, 50),
             SupplierIban        = Clip(parsed.Header.SupplierIban, 50),
-            IssueDate           = parsed.Header.IssueDate ?? DateTime.UtcNow.Date,
+            IssueDate           = parsed.Header.IssueDate ?? NowLocal.Date,
             DeliveryDate        = parsed.Header.DeliveryDate,
             DueDate             = parsed.Header.DueDate,
             PeriodFrom          = parsed.Header.PeriodFrom,
@@ -412,7 +425,7 @@ public class InvoicesController : ControllerBase
             Status              = "review",
             DocumentKind        = parsed.Header.IsReceipt ? "receipt" : "invoice",
             UploadedBy          = uploader,
-            UploadedAt          = DateTime.UtcNow
+            UploadedAt          = NowLocal
         };
         _db.InvoiceDocuments.Add(doc);
         await _db.SaveChangesAsync();   // get the doc.Id
@@ -605,7 +618,7 @@ public class InvoicesController : ControllerBase
         await using var pdfStream = new MemoryStream(pdfBytes);
         var pdfFormFile = new FormFile(pdfStream, 0, pdfBytes.Length,
             name: "file",
-            fileName: $"camera-scan-{DateTime.UtcNow:yyyyMMdd-HHmmss}.pdf")
+            fileName: $"camera-scan-{NowLocal:yyyyMMdd-HHmmss}.pdf")
         {
             Headers = new HeaderDictionary(),
             ContentType = "application/pdf"
@@ -1282,7 +1295,7 @@ public class InvoicesController : ControllerBase
                 edits.Add(new EditRecord("discountPercent",
                     line.DiscountPercent?.ToString(CultureInfo.InvariantCulture),
                     newDisc?.ToString(CultureInfo.InvariantCulture),
-                    editor, DateTime.UtcNow));
+                    editor, NowLocal));
                 line.DiscountPercent = newDisc;
             }
         }
@@ -1306,7 +1319,7 @@ public class InvoicesController : ControllerBase
                 edits.Add(new EditRecord("locationId",
                     line.LocationId?.ToString(CultureInfo.InvariantCulture),
                     newLoc?.ToString(CultureInfo.InvariantCulture),
-                    editor, DateTime.UtcNow));
+                    editor, NowLocal));
                 line.LocationId = newLoc;
             }
         }
@@ -1384,7 +1397,7 @@ public class InvoicesController : ControllerBase
             var recomputed = Round2(line.Quantity * line.UnitPrice);
             if (line.LineTotal != recomputed)
             {
-                edits.Add(new EditRecord("lineTotal", line.LineTotal.ToString(CultureInfo.InvariantCulture), recomputed.ToString(CultureInfo.InvariantCulture), editor, DateTime.UtcNow, AutoCalc: true));
+                edits.Add(new EditRecord("lineTotal", line.LineTotal.ToString(CultureInfo.InvariantCulture), recomputed.ToString(CultureInfo.InvariantCulture), editor, NowLocal, AutoCalc: true));
                 line.LineTotal = recomputed;
             }
         }
@@ -1446,7 +1459,7 @@ public class InvoicesController : ControllerBase
             DiscountPercent  = dto.DiscountPercent is > 0m ? dto.DiscountPercent : null,
             IsReverseCharge  = false,
             IsService        = false,
-            LineEditHistory  = SerializeHistory([new EditRecord("manualAdd", null, name, editor, DateTime.UtcNow)])
+            LineEditHistory  = SerializeHistory([new EditRecord("manualAdd", null, name, editor, NowLocal)])
         };
         _db.MaterialPurchaseLines.Add(line);
         await _db.SaveChangesAsync();
@@ -1830,7 +1843,7 @@ public class InvoicesController : ControllerBase
 
         doc.Status      = "committed";
         doc.CommittedBy = User.Identity?.Name ?? "unknown";
-        doc.CommittedAt = DateTime.UtcNow;
+        doc.CommittedAt = NowLocal;
         if (!ok)
             doc.ReconciliationNote = Clip(
                 $"{doc.ReconciliationNote} Uložené napriek nezhode používateľom {doc.CommittedBy}.", 500);
@@ -2254,7 +2267,7 @@ public class InvoicesController : ControllerBase
         if (incoming == null) return;
         var normalized = string.IsNullOrWhiteSpace(incoming) ? null : incoming.Trim();
         if (current == normalized) return;
-        edits.Add(new EditRecord(field, current, normalized, editor, DateTime.UtcNow));
+        edits.Add(new EditRecord(field, current, normalized, editor, NowLocal));
         apply(normalized);
     }
 
@@ -2263,7 +2276,7 @@ public class InvoicesController : ControllerBase
         if (incoming == null) return;
         var rounded = Round2(incoming.Value);
         if (current == rounded) return;
-        edits.Add(new EditRecord(field, current.ToString(CultureInfo.InvariantCulture), rounded.ToString(CultureInfo.InvariantCulture), editor, DateTime.UtcNow));
+        edits.Add(new EditRecord(field, current.ToString(CultureInfo.InvariantCulture), rounded.ToString(CultureInfo.InvariantCulture), editor, NowLocal));
         apply(rounded);
     }
 
@@ -2271,7 +2284,7 @@ public class InvoicesController : ControllerBase
     {
         if (incoming == null) return;
         if (current == incoming.Value) return;
-        edits.Add(new EditRecord(field, current.ToString(), incoming.Value.ToString(), editor, DateTime.UtcNow));
+        edits.Add(new EditRecord(field, current.ToString(), incoming.Value.ToString(), editor, NowLocal));
         apply(incoming.Value);
     }
 }

@@ -75,6 +75,13 @@ export class MaterialsPage implements OnInit {
       .filter(m => !m.isActive)
       .sort((a, b) => a.name.localeCompare(b.name, 'sk')));
 
+  /** Katalóg hero counts. */
+  activeMaterialCount = computed(() =>
+    this.materials().reduce((n, m) => n + (m.isActive ? 1 : 0), 0));
+  /** How many active materials still have no price (0 €) — a QOL flag on the hero. */
+  unpricedCount = computed(() =>
+    this.materials().reduce((n, m) => n + (m.isActive && !m.pricePerUnit ? 1 : 0), 0));
+
   // ─── Nákupy ──────────────────────────────────────────────────────
   purchases = signal<MaterialPurchase[]>([]);
   purchasesLoading = signal(false);
@@ -130,10 +137,19 @@ export class MaterialsPage implements OnInit {
   inventoryGrandTotal = computed(() =>
     this.inventoryPurchases().reduce((sum, p) => sum + p.totalCost, 0));
 
+  private appliedInvFrom = signal<string>('');
+  private appliedInvTo   = signal<string>('');
+  /** Smart period label for the Inventár hero, same rule as Nákupy. */
+  inventoryPeriodLabel = computed(() => this.periodLabelFor(this.appliedInvFrom(), this.appliedInvTo()));
+
   // ─── Neidentifikované ────────────────────────────────────────────
   unknownGroups = signal<UnknownMaterialGroup[]>([]);
   unknownLoading = signal(false);
   unknownError   = signal('');
+
+  /** Nezaradené hero metrics — spend and occurrences still waiting to be filed. */
+  unfiledTotal = computed(() => this.unknownGroups().reduce((s, g) => s + g.totalSpend, 0));
+  unfiledOccurrences = computed(() => this.unknownGroups().reduce((s, g) => s + g.lineCount, 0));
 
   // ─── Edit purchase modal ─────────────────────────────────────────
   /** When non-null, the edit modal renders for this purchase. */
@@ -207,6 +223,9 @@ export class MaterialsPage implements OnInit {
     if (this.purchasesAvailable()) {
       this.locationSvc.getAll().subscribe({ next: ls => this.locations.set(ls) });
       this.employeeSvc.getAll().subscribe({ next: es => this.employees.set(es) });
+      // Eager-load the unfiled-items count so the tab badge + Nákupy nudge are
+      // accurate on first paint (not only after visiting the Nezaradené tab).
+      this.loadUnknownGroups();
     }
   }
 
@@ -297,6 +316,8 @@ export class MaterialsPage implements OnInit {
   loadPurchases() {
     this.purchasesError.set('');
     this.purchasesLoading.set(true);
+    this.appliedFrom.set(this.filterFrom);
+    this.appliedTo.set(this.filterTo);
     this.mpService.list(this.buildFilters()).subscribe({
       next: ps => { this.purchases.set(ps); this.purchasesLoading.set(false); },
       error: e => { this.purchasesError.set(this.apiError.friendly(e, 'Načítanie nákupov zlyhalo')); this.purchasesLoading.set(false); }
@@ -322,6 +343,29 @@ export class MaterialsPage implements OnInit {
   /** Cross-purchase grand total. Computed from the loaded list (already filtered). */
   filteredGrandTotal = computed(() =>
     this.purchases().reduce((sum, p) => sum + p.totalCost, 0));
+
+  /** Range the currently-loaded Nákupy were fetched with — snapshotted on load so
+   *  the hero label tracks the shown data, not the pending (unapplied) filter inputs. */
+  private appliedFrom = signal<string>('');
+  private appliedTo   = signal<string>('');
+  /** "Júl 2026" when the applied range is exactly one calendar month, else the day range. */
+  nakupyPeriodLabel = computed(() => this.periodLabelFor(this.appliedFrom(), this.appliedTo()));
+
+  /** Distinct named suppliers across the loaded purchases (hero metric). */
+  supplierCount = computed(() => {
+    const set = new Set<string>();
+    for (const p of this.purchases()) {
+      const s = (p.supplierName ?? '').trim().toLowerCase();
+      if (s) set.add(s);
+    }
+    return set.size;
+  });
+
+  /** Mean spend per purchase (hero metric). */
+  averagePurchase = computed(() => {
+    const n = this.purchases().length;
+    return n > 0 ? this.filteredGrandTotal() / n : 0;
+  });
 
   exportPurchasesExcel() {
     this.exporting.set(true);
@@ -554,6 +598,8 @@ export class MaterialsPage implements OnInit {
   loadInventory() {
     this.inventoryError.set('');
     this.inventoryLoading.set(true);
+    this.appliedInvFrom.set(this.inventoryFilterFrom);
+    this.appliedInvTo.set(this.inventoryFilterTo);
     this.mpService.list({
       from: this.inventoryFilterFrom || undefined,
       to:   this.inventoryFilterTo   || undefined,
@@ -705,6 +751,41 @@ export class MaterialsPage implements OnInit {
   fmtDate(iso: string): string {
     const d = new Date(iso);
     return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+  }
+
+  /** 1–2 letter monogram for a supplier/worker avatar. */
+  initials(name: string | null | undefined): string {
+    const words = (name || '').split(/[\s.,\-]+/).filter(w => w.length >= 1);
+    if (words.length === 0) return '?';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+
+  /** Hero label: month name when [from,to] is exactly one whole calendar month,
+   *  otherwise the explicit day range (so a partial/custom range is spelled out). */
+  private periodLabelFor(from: string, to: string): string {
+    if (!from && !to) return 'Celé obdobie';
+    if (!from || !to) return `${from ? this.fmtDay(from) : '…'} – ${to ? this.fmtDay(to) : '…'}`;
+    if (this.isWholeMonth(from, to)) {
+      const [y, m] = from.split('-').map(Number);
+      const names = ['Január', 'Február', 'Marec', 'Apríl', 'Máj', 'Jún', 'Júl', 'August', 'September', 'Október', 'November', 'December'];
+      return `${names[m - 1]} ${y}`;
+    }
+    return `${this.fmtDay(from)} – ${this.fmtDay(to)}`;
+  }
+
+  /** True when [from,to] spans the 1st to the last day of a single month. */
+  private isWholeMonth(from: string, to: string): boolean {
+    const [fy, fm, fd] = from.split('-').map(Number);
+    const [ty, tm, td] = to.split('-').map(Number);
+    if (fy !== ty || fm !== tm || fd !== 1) return false;
+    return td === new Date(fy, fm, 0).getDate();
+  }
+
+  /** dd.MM.yyyy from a YYYY-MM-DD string, no timezone parsing. */
+  private fmtDay(iso: string): string {
+    const [y, m, d] = iso.split('-').map(Number);
+    return `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
   }
 
   /** YYYY-MM-DD for filter inputs. */
