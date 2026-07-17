@@ -128,37 +128,25 @@ builder.Services.AddScoped<IPayrollExcelExportService, PayrollExcelExportService
 // Material purchases Excel export (ClosedXML) — admin Materiál → Nákupy tab
 builder.Services.AddScoped<IMaterialPurchasesExcelExportService, MaterialPurchasesExcelExportService>();
 
-// Invoice scanning — Google Document AI Invoice Parser. Singleton because the
-// client holds a long-lived gRPC channel; per-request scope would tear that
-// down on every upload. Construction throws if credentials are missing, so
-// the API fails loud on the InvoiceScanning code path (controllers only
-// resolve this when the flag is on).
-// Registered when EITHER credentials option is set:
-//   - Google:DocumentAi:CredentialsPath (file path — local dev)
-//   - Google:DocumentAi:CredentialsJson (inline — Railway env var)
-// When neither is set, registration is skipped and the InvoicesController
-// surfaces a Slovak "OCR not configured" error instead of crashing.
-{
-    var hasPath = !string.IsNullOrWhiteSpace(builder.Configuration["Google:DocumentAi:CredentialsPath"]);
-    var hasJson = !string.IsNullOrWhiteSpace(builder.Configuration["Google:DocumentAi:CredentialsJson"]);
-    if (hasPath || hasJson)
-    {
-        builder.Services.AddSingleton<IDocumentAiClient, DocumentAiClient>();
-    }
-}
-// InvoiceParser is the SK-specific mapper from Document AI output to our
-// domain shape (header + delivery lists + lines). Pure logic, no I/O,
-// scoped lifetime is fine. Always registered — the controller decides
-// whether OCR is available and gates accordingly.
+// Invoice scanning is fully LLM-based: Claude Sonnet primary, Gemini free
+// tier fallback. Document AI was dropped 2026-07 — 10¢/doc and it started
+// scrambling previously-fine PDFs. The InvoiceParser text-mapper stays
+// registered: the akcia-backfill path re-parses stored OCR text.
 builder.Services.AddScoped<IInvoiceParser, InvoiceParser>();
 
-// Vision-LLM fallback for scans the deterministic parser can't reconcile
-// (Gemini — same data boundary as Document AI). Always registered;
-// IsConfigured stays false until Gemini__ApiKey is set and every caller
-// treats an unconfigured / failed extraction as "no result".
+// Fallback extractor (Gemini free tier). Always registered; IsConfigured
+// stays false until Gemini__ApiKey is set and every caller treats an
+// unconfigured / failed extraction as "no result".
 builder.Services.AddHttpClient<ILlmInvoiceExtractor, GeminiInvoiceExtractor>(c =>
 {
     c.Timeout = TimeSpan.FromSeconds(60);
+});
+// PRIMARY extractor (Claude Sonnet, ~2–4¢/doc). Anthropic:ApiKey lives in
+// appsettings.Local.json / Railway env, same handling as the Gemini key.
+// Longer timeout: PDFs are read page-by-page.
+builder.Services.AddHttpClient<AnthropicInvoiceExtractor>(c =>
+{
+    c.Timeout = TimeSpan.FromSeconds(100);
 });
 // Scanning pipeline health/quota state (AI quota exhaustion, OCR outages) —
 // singleton so the extractor writes and the scan-status endpoint reads.

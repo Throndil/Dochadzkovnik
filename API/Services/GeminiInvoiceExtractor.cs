@@ -60,11 +60,10 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
         _status = status;
         _log = log;
         _apiKey = cfg["Gemini:ApiKey"];
-        // Flash-Lite default: reading a printed invoice is far below any
-        // current model's ceiling, and the lite tier has the most free-tier
-        // headroom (the flagship flash sheds free-tier traffic first under
-        // load — live: 503 UNAVAILABLE "high demand" on every call).
-        _model = string.IsNullOrWhiteSpace(cfg["Gemini:Model"]) ? "gemini-3.1-flash-lite" : cfg["Gemini:Model"]!;
+        // Flagship flash primary: strongest free-tier vision read. When its
+        // free quota is spent (429 PerDay) or it sheds load (503), the loop
+        // below drops to flash-lite, which has the most free-tier headroom.
+        _model = string.IsNullOrWhiteSpace(cfg["Gemini:Model"]) ? "gemini-3.5-flash" : cfg["Gemini:Model"]!;
         _primary = !string.Equals(cfg["Gemini:Primary"], "false", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -77,25 +76,7 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
         if (!IsConfigured) return null;
         try
         {
-            var prompt =
-                "You are extracting a Slovak supplier invoice or cash-register receipt (pokladničný blok / bloček) for accounting. The entire document is in Slovak.\n" +
-                "Rules — follow ALL of them:\n" +
-                "1. Extract ONLY what is printed. If a value is unreadable or absent, use null. NEVER guess or invent numbers.\n" +
-                "2. 'AZ Profistav' (IČO 47208368) is always the CUSTOMER (odberateľ). The supplier (dodávateľ) is the OTHER company.\n" +
-                "3. All money values are numbers with a dot decimal separator. Dates are YYYY-MM-DD.\n" +
-                "4. lineTotalExclVat is the line total WITHOUT VAT. Cash receipts print line prices WITH VAT — divide by (1 + vatRatePercent/100) and round to 2 decimals in that case.\n" +
-                "5. totalInclVat is the printed grand total actually payable (po zaokrúhlení when the receipt shows rounding).\n" +
-                "6. If the invoice groups items under delivery notes ('za dodací list DL-…'), create one deliveryLists entry per group with its reference and site name ('akcia'); otherwise return a single group with deliveryNoteRef null.\n" +
-                "7. vatRatePercent 0 means reverse charge (prenesenie daňovej povinnosti).\n" +
-                "8. RECONCILE — the printed grand total (totalInclVat) is ground truth and is usually correct even when the line items are hard to read; the lines are what you most often get wrong. After extracting the lines, check that the sum of every lineTotalExclVat plus its VAT equals totalInclVat (allow a few cents for rounding). If it does NOT match, the LINES are wrong: re-read their quantities, unit prices, discountPercent and vatRatePercent from the image and correct them so they reconcile to the printed total. NEVER change totalInclVat to fit the lines, and NEVER invent, split or pad line items just to reach the total — if the printed lines genuinely will not reconcile, keep your best honest reading of them and leave totalInclVat as printed.\n" +
-                "9. Discounts: if a line shows a 'Zľava' (a percent or an amount off), lineTotalExclVat is the value AFTER the discount; record the percentage in discountPercent.\n" +
-                "10. On receipts each item's net base is often printed as 'Základ' beneath the gross price — use that printed 'Základ' as lineTotalExclVat when it is shown. Summary rows ('Medzisúčet', 'Zaokrúhlenie', 'Na úhradu', 'Spolu', 'Hotovosť', VAT-rate recap tables) are NOT items — never create line entries for them.\n" +
-                "11. For EVERY delivery-note group ('za dodací list DL-…') list its individual item rows in `lines` (code, description, quantity, unit price, line total). NEVER summarise a group by its subtotal alone with an empty `lines` array — the delivery-note subtotal is not a substitute for the rows.\n" +
-                (string.IsNullOrWhiteSpace(ocrText)
-                    ? ""
-                    : "\nFor reference, an OCR pass produced this (possibly scrambled) text layer:\n---\n" + Truncate(ocrText, 12000) + "\n---\n") +
-                "Read the attached document and return the JSON.";
-
+            var prompt = BuildPrompt(ocrText);
             var body = new
             {
                 contents = new[]
@@ -139,7 +120,25 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
                     {
                         Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
                     };
-                    using var resp = await _http.SendAsync(req, ct);
+                    HttpResponseMessage resp;
+                    try
+                    {
+                        resp = await _http.SendAsync(req, ct);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                    {
+                        // Transport blip (connection reset, TLS drop, client
+                        // timeout) — treat like an overload: retry once, then
+                        // move to the fallback model instead of failing the
+                        // document outright. A caller-requested cancel still
+                        // propagates via the rethrow filter above.
+                        _status.MarkAiTransientFailure();
+                        _log.LogWarning(ex, "[InvoiceScanning] Gemini {Model} transport failure (attempt {Attempt}).",
+                            model, attempt + 1);
+                        if (attempt == 0) { await Task.Delay(TimeSpan.FromSeconds(2), ct); continue; }
+                        break;
+                    }
+                    using var _ = resp;
                     var respText = await resp.Content.ReadAsStringAsync(ct);
 
                     if (resp.IsSuccessStatusCode)
@@ -172,6 +171,11 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
                         && respText.Contains("PerDay", StringComparison.OrdinalIgnoreCase))
                     {
                         _status.MarkAiQuotaExhausted();
+                        // Daily free quota for THIS model is spent — retrying it
+                        // is pointless; drop straight to the fallback model
+                        // (per-model quota buckets, lite usually still has room).
+                        _log.LogWarning("[InvoiceScanning] Gemini {Model} free quota spent — dropping to fallback model.", model);
+                        break;
                     }
                     else if (overloaded)
                     {
@@ -197,9 +201,34 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
         }
     }
 
+    // ─── Shared prompt (Gemini + Claude use the SAME rules) ─────────
+
+    /// <summary>
+    /// The extraction prompt. Shared by every LLM extractor so a document
+    /// gets identical instructions no matter which provider reads it.
+    /// </summary>
+    internal static string BuildPrompt(string? ocrText) =>
+        "You are extracting a Slovak supplier invoice or cash-register receipt (pokladničný blok / bloček) for accounting. The entire document is in Slovak.\n" +
+        "Rules — follow ALL of them:\n" +
+        "1. Extract ONLY what is printed. If a value is unreadable or absent, use null. NEVER guess or invent numbers.\n" +
+        "2. 'AZ Profistav' (IČO 47208368) is always the CUSTOMER (odberateľ). The supplier (dodávateľ) is the OTHER company.\n" +
+        "3. All money values are numbers with a dot decimal separator. Dates are YYYY-MM-DD.\n" +
+        "4. lineTotalExclVat is the line total WITHOUT VAT. Cash receipts print line prices WITH VAT — divide by (1 + vatRatePercent/100) and round to 2 decimals in that case.\n" +
+        "5. totalInclVat is the printed grand total actually payable (po zaokrúhlení when the receipt shows rounding).\n" +
+        "6. If the invoice groups items under delivery notes ('za dodací list DL-…'), create one deliveryLists entry per group with its reference and site name ('akcia'); otherwise return a single group with deliveryNoteRef null.\n" +
+        "7. vatRatePercent 0 means reverse charge (prenesenie daňovej povinnosti).\n" +
+        "8. RECONCILE — the printed grand total (totalInclVat) is ground truth and is usually correct even when the line items are hard to read; the lines are what you most often get wrong. After extracting the lines, check that the sum of every lineTotalExclVat plus its VAT equals totalInclVat (allow a few cents for rounding). If it does NOT match, the LINES are wrong: re-read their quantities, unit prices, discountPercent and vatRatePercent from the image and correct them so they reconcile to the printed total. NEVER change totalInclVat to fit the lines, and NEVER invent, split or pad line items just to reach the total — if the printed lines genuinely will not reconcile, keep your best honest reading of them and leave totalInclVat as printed.\n" +
+        "9. Discounts: if a line shows a 'Zľava' (a percent or an amount off), lineTotalExclVat is the value AFTER the discount; record the percentage in discountPercent.\n" +
+        "10. On receipts each item's net base is often printed as 'Základ' beneath the gross price — use that printed 'Základ' as lineTotalExclVat when it is shown. Summary rows ('Medzisúčet', 'Zaokrúhlenie', 'Na úhradu', 'Spolu', 'Hotovosť', VAT-rate recap tables) are NOT items — never create line entries for them.\n" +
+        "11. For EVERY delivery-note group ('za dodací list DL-…') list its individual item rows in `lines` (code, description, quantity, unit price, line total). NEVER summarise a group by its subtotal alone with an empty `lines` array — the delivery-note subtotal is not a substitute for the rows.\n" +
+        (string.IsNullOrWhiteSpace(ocrText)
+            ? ""
+            : "\nFor reference, an OCR pass produced this (possibly scrambled) text layer:\n---\n" + Truncate(ocrText, 12000) + "\n---\n") +
+        "Read the attached document and return the JSON.";
+
     // ─── Mapping to the domain shape ────────────────────────────────
 
-    private static ParsedInvoice Map(LlmInvoice d)
+    internal static ParsedInvoice Map(LlmInvoice d)
     {
         var lists = new List<ParsedDeliveryList>();
         foreach (var g in d.DeliveryLists ?? [])
@@ -308,27 +337,28 @@ public sealed class GeminiInvoiceExtractor : ILlmInvoiceExtractor
             ? d.Date
             : null;
 
-    private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
+    internal static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
 
-    private static readonly JsonSerializerOptions JsonOpts = new()
+    internal static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
         NumberHandling = JsonNumberHandling.AllowReadingFromString
     };
 
-    // ─── Wire DTOs (match the responseSchema below) ─────────────────
+    // ─── Wire DTOs (match the responseSchema below; shared with the
+    //     Claude extractor so both providers map identically) ─────────
 
-    private sealed record LlmInvoice(
+    internal sealed record LlmInvoice(
         string? SupplierName, string? SupplierIco, string? SupplierIcDph,
         string? InvoiceNumber, string? IssueDate, string? DeliveryDate, string? DueDate,
         decimal? TotalExclVat, decimal? TotalVat, decimal? TotalInclVat,
         bool? IsReceipt, List<LlmGroup>? DeliveryLists);
 
-    private sealed record LlmGroup(
+    internal sealed record LlmGroup(
         string? DeliveryNoteRef, string? SiteName, string? DeliveryDate,
         decimal? SubtotalExclVat, decimal? SubtotalVat, List<LlmLine>? Lines);
 
-    private sealed record LlmLine(
+    internal sealed record LlmLine(
         string? Code, string? Description, decimal? Quantity, string? Unit,
         decimal? UnitPriceExclVat, decimal? LineTotalExclVat,
         decimal? VatRatePercent, decimal? DiscountPercent);

@@ -34,9 +34,9 @@ public class InvoicesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IBlobStorageService? _blob;
-    private readonly IDocumentAiClient? _ocr;
     private readonly IInvoiceParser _parser;
     private readonly ILlmInvoiceExtractor _ai;
+    private readonly AnthropicInvoiceExtractor _claude;
     private readonly IHttpClientFactory _httpFactory;
     private readonly ILogger<InvoicesController> _log;
 
@@ -46,39 +46,39 @@ public class InvoicesController : ControllerBase
         AppDbContext db,
         IInvoiceParser parser,
         ILlmInvoiceExtractor ai,
+        AnthropicInvoiceExtractor claude,
         IHttpClientFactory httpFactory,
         ScanStatusService scanStatus,
         ILogger<InvoicesController> log,
-        IBlobStorageService? blob = null,
-        IDocumentAiClient? ocr = null)
+        IBlobStorageService? blob = null)
     {
         _db = db;
         _parser = parser;
         _ai = ai;
+        _claude = claude;
         _httpFactory = httpFactory;
         _scanStatus = scanStatus;
         _log = log;
         _blob = blob;
-        _ocr = ocr;
     }
 
     private readonly ScanStatusService _scanStatus;
 
     /// <summary>
     /// GET /api/invoices/scan-status — pipeline health for the client
-    /// banners. Modes: "ok" (both extractors healthy), "fallback" (AI quota
-    /// spent / AI down — Document AI carries, photos may parse worse),
-    /// "ai-only" (Document AI outage — AI carries), "down" (both out).
+    /// banners. Claude Sonnet is the primary extractor: while it's
+    /// configured the pipeline is fully healthy ("ok"). "fallback" =
+    /// Sonnet unavailable, Gemini free tier carries (photos may parse
+    /// worse); "down" = both out.
     /// </summary>
     [HttpGet("scan-status")]
     public ActionResult<object> ScanStatus()
     {
         var aiOk = _ai.IsConfigured && !_scanStatus.AiExhausted && !_scanStatus.AiUnhealthy;
-        var ocrOk = _ocr != null && !_scanStatus.OcrUnhealthy;
-        var mode = aiOk && ocrOk ? "ok"
-                 : aiOk          ? "ai-only"
-                 : ocrOk         ? "fallback"
-                 :                 "down";
+        var claudeOk = _claude.IsConfigured;
+        var mode = claudeOk ? "ok"
+                 : aiOk     ? "fallback"
+                 :            "down";
         return Ok(new
         {
             mode,
@@ -126,8 +126,8 @@ public class InvoicesController : ControllerBase
     [RequestSizeLimit(20 * 1024 * 1024)]   // 20 MB cap
     public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file, bool photoScan = false)
     {
-        if (_ocr == null)
-            return StatusCode(503, "OCR nie je nakonfigurované. Skontrolujte Google Document AI nastavenia.");
+        if (!_ai.IsConfigured && !_claude.IsConfigured)
+            return StatusCode(503, "AI rozpoznávanie nie je nakonfigurované (chýba Gemini aj Anthropic API kľúč).");
         if (_blob == null)
             return StatusCode(503, "Úložisko súborov nie je nakonfigurované.");
         if (file == null || file.Length == 0)
@@ -141,20 +141,13 @@ public class InvoicesController : ControllerBase
             return BadRequest("Povolené sú iba PDF alebo obrázky.");
 
         // Buffer the file once — we need it both for Cloudinary upload and for
-        // Document AI (no second stream from the same IFormFile).
+        // the extractors (no second stream from the same IFormFile).
         byte[] bytes;
         await using (var ms = new MemoryStream())
         {
             await file.CopyToAsync(ms);
             bytes = ms.ToArray();
         }
-
-        // Native digital PDF vs. image-derived (photo/scan)? This decides which
-        // engine we trust when Gemini doesn't reconcile: a PDF's text layer
-        // parses EXACTLY, so PDFs keep the Document AI + parser fallback; photos
-        // don't, so on those Gemini wins. Camera uploads pass photoScan=true;
-        // direct image uploads are flagged in the enhancement step below.
-        var imageDerived = photoScan;
 
         // If the manager uploaded a PHOTO rather than a PDF, run it through the
         // same enhancement the camera path uses (auto-orient, ≤3000 px,
@@ -164,7 +157,6 @@ public class InvoicesController : ControllerBase
         // Falls back to the original bytes on any decode error (e.g. HEIC).
         if (mime.StartsWith("image/", StringComparison.Ordinal))
         {
-            imageDerived = true;
             var enhancedPdf = await EnhanceImageToPdfAsync(bytes);
             if (enhancedPdf != null)
             {
@@ -173,19 +165,40 @@ public class InvoicesController : ControllerBase
             }
         }
 
-        // ── Extraction, Gemini-first ─────────────────────────────────
-        // The vision model reads the document for ~$0.002; the Document AI
-        // Invoice Parser costs $0.10 per document — and on phone photos the
-        // vision read is stronger (it SEES the layout instead of reflowing
-        // it). When Gemini's numbers pass the reconciliation cent-gate we
-        // trust them and skip Document AI entirely; otherwise the
-        // deterministic pipeline runs exactly as before and the acceptance
-        // ladder below picks the better result.
-        DocumentAiResult? ocr = null;
+        // ── Extraction ladder: Claude Sonnet primary → Gemini fallback ──
+        // Sonnet reads first (~2–4¢/doc, ~€1–2/mo at real volume): in live
+        // testing it read receipts Gemini's free tier botched, and Gemini's
+        // endpoint has a history of transport failures that cost the
+        // customer a 50 s hang per scan. Gemini (free) is the fallback when
+        // Sonnet is down/unconfigured. Both face the SAME reconciliation
+        // cent-gate. If neither reconciles, the best read that at least
+        // carries číslo + total is accepted FOR REVIEW (every row is
+        // editable there); Document AI is gone — 10¢/doc and it had started
+        // scrambling previously-fine PDFs.
         ParsedInvoice? accepted = null;
         ParsedInvoice? aiRead = null;
+        ParsedInvoice? claudeRead = null;
 
-        if (_ai.IsPrimary)
+        if (_claude.IsConfigured)
+        {
+            try
+            {
+                using var cCts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+                claudeRead = await _claude.ExtractAsync(bytes, mime, null, cCts.Token);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[InvoiceScanning] Claude read failed — trying Gemini.");
+            }
+            if (claudeRead != null && ParsedReconciles(claudeRead))
+            {
+                _log.LogInformation("[InvoiceScanning] Claude reconciled (číslo={Num}, spolu={Total}).",
+                    claudeRead.Header.InvoiceNumber, claudeRead.Header.TotalInclVat);
+                accepted = claudeRead;
+            }
+        }
+
+        if (accepted == null && _ai.IsConfigured)
         {
             try
             {
@@ -194,79 +207,42 @@ public class InvoicesController : ControllerBase
             }
             catch (Exception ex)
             {
-                _log.LogWarning(ex, "[InvoiceScanning] Gemini primary read failed — falling back to Document AI.");
+                _log.LogWarning(ex, "[InvoiceScanning] Gemini read failed.");
             }
             if (aiRead != null && ParsedReconciles(aiRead))
             {
-                _log.LogInformation("[InvoiceScanning] Gemini primary reconciled (číslo={Num}, spolu={Total}) — Document AI skipped.",
-                    aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
-                accepted = aiRead;
-            }
-            else if (imageDerived
-                     && aiRead != null
-                     && !string.IsNullOrWhiteSpace(aiRead.Header.InvoiceNumber)
-                     && aiRead.Header.TotalInclVat != null)
-            {
-                // IMAGE-DERIVED input (photo/scan) whose Gemini read has číslo +
-                // total but doesn't cent-reconcile: accept it FOR REVIEW and skip
-                // Document AI — on photos the deterministic parser only produces
-                // gibberish, so it cannot do better. Native digital PDFs are the
-                // opposite (text layer parses exactly), so they fall through to
-                // Document AI + parser below and keep that reconciling result.
-                _log.LogInformation("[InvoiceScanning] Gemini primary usable but not reconciled on image scan (číslo={Num}, spolu={Total}) — accepted for review, Document AI skipped.",
+                _log.LogInformation("[InvoiceScanning] Gemini reconciled (číslo={Num}, spolu={Total}) — replacing the Claude read.",
                     aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
                 accepted = aiRead;
             }
         }
+
+        // Neither reconciled: take the best read that still carries the
+        // basics (číslo + total) and send it to review with the Nesedí
+        // banner — the manager fixes rows there. Claude's read wins the
+        // tie: it's the stronger extractor.
+        static bool HasBasics(ParsedInvoice? p) =>
+            p != null && !string.IsNullOrWhiteSpace(p.Header.InvoiceNumber) && p.Header.TotalInclVat != null;
 
         if (accepted == null)
         {
-            try
+            var best = HasBasics(claudeRead) ? claudeRead : HasBasics(aiRead) ? aiRead : null;
+            if (best != null)
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-                ocr = await _ocr.ProcessAsync(bytes, mime, cts.Token);
-                _scanStatus.MarkOcrOk();
-            }
-            catch (Exception ex)
-            {
-                _scanStatus.MarkOcrFailure();
-                _log.LogError(ex, "Document AI failed for upload");
-                // At this point the AI read has ALSO failed or not reconciled
-                // (it runs first) — this is a real outage for this document.
-                return StatusCode(502, "Rozpoznávanie dokladov je momentálne nedostupné (výpadok služby). Fotky si nechajte a skúste ich nahrať o pár minút znova.");
+                _log.LogInformation("[InvoiceScanning] No read reconciled — accepting {Source} for review (číslo={Num}, spolu={Total}).",
+                    ReferenceEquals(best, claudeRead) ? "Claude" : "Gemini",
+                    best.Header.InvoiceNumber, best.Header.TotalInclVat);
+                accepted = best;
             }
         }
 
-        if (ocr != null)
+        var parsed = accepted ?? claudeRead ?? aiRead;
+        if (parsed == null)
         {
-            // Diagnostic log: what entity types did Document AI return? This is
-            // what tells us whether the parser is reading the right fields. Visible
-            // in the dotnet watch console. Safe to log — entity TYPE names are
-            // metadata (e.g. "line_item", "supplier_name"), no PII.
-            var typeCounts = ocr.Entities
-                .GroupBy(e => e.Type)
-                .Select(g => $"{g.Key}({g.Count()})")
-                .OrderBy(s => s);
-            _log.LogInformation("[InvoiceScanning] Document AI returned {Count} entities, types: {Types}",
-                ocr.Entities.Count, string.Join(", ", typeCounts));
-
-            // If any line_item entities exist, log the property types of the FIRST
-            // one so we can see what nested field names Document AI uses.
-            var firstLine = ocr.Entities.FirstOrDefault(e => e.Type.Contains("line", StringComparison.OrdinalIgnoreCase));
-            if (firstLine != null)
-            {
-                _log.LogInformation("[InvoiceScanning] First line-like entity '{Type}' mention='{Mention}' properties: {Props}",
-                    firstLine.Type,
-                    Truncate(firstLine.MentionText, 80),
-                    string.Join(", ", firstLine.Properties.Select(p => $"{p.Type}='{Truncate(p.MentionText, 30)}'")));
-            }
-            else
-            {
-                _log.LogWarning("[InvoiceScanning] Document AI returned ZERO line-item-like entities. Parser will produce empty lines.");
-            }
+            // Both extractors failed outright (network / quota / unreadable).
+            _log.LogWarning("[InvoiceScanning] Upload rejected — no extractor produced a read.");
+            return BadRequest("DOKLAD SA NEPODARILO PREČÍTAŤ — ani s pomocou AI. Odfoťte ho znova pri LEPŠOM OSVETLENÍ (zapnite blesk), zblízka a s celou stranou v zábere.");
         }
-
-        var parsed = accepted ?? _parser.Parse(ocr!);
 
         // Per-line diagnostic: dump what the parser produced for every row.
         // Lets us spot when text-based extraction failed (list/discount null)
@@ -285,82 +261,14 @@ public class InvoicesController : ControllerBase
             }
         }
 
-        // ── AI fallback (Gemini vision) ─────────────────────────────
-        // The deterministic parse doesn't reconcile (or missed key fields)
-        // → let a vision model read the page; photo scans that Document AI
-        // reflows into nonsense are usually trivial for it. Its output
-        // faces the SAME arithmetic gate — it can only replace the parse
-        // when the lines land cent-exact on the printed total, so it can
-        // never invent numbers into the books.
-        if (accepted == null && _ai.IsConfigured && !ParsedReconciles(parsed))
-        {
-            try
-            {
-                // Reuse the primary Gemini read when it already ran; only the
-                // deterministic-first configuration makes a fresh call here
-                // (with the OCR text as a hint).
-                if (aiRead == null)
-                {
-                    using var aiCts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
-                    aiRead = await _ai.ExtractAsync(bytes, mime, ocr?.FullText, aiCts.Token);
-                }
-                var detHasBasics = !string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber)
-                                   && parsed.Header.TotalInclVat != null;
-                var aiHasBasics = aiRead != null
-                                  && !string.IsNullOrWhiteSpace(aiRead.Header.InvoiceNumber)
-                                  && aiRead.Header.TotalInclVat != null;
-                if (aiRead != null && ParsedReconciles(aiRead))
-                {
-                    _log.LogInformation("[InvoiceScanning] AI read reconciled (číslo={Num}, spolu={Total}) — replacing the deterministic parse.",
-                        aiRead.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
-                    parsed = aiRead;
-                }
-                else if (aiHasBasics && !detHasBasics)
-                {
-                    // The deterministic parse would be REJECTED outright
-                    // (no number / no total). The AI's non-reconciling read
-                    // is still far more useful: the document lands in review
-                    // with the Nesedí banner for manual correction instead
-                    // of bouncing the upload back to the customer.
-                    _log.LogInformation("[InvoiceScanning] AI read didn't reconcile but rescued the basics (číslo={Num}, spolu={Total}) — accepting for review.",
-                        aiRead!.Header.InvoiceNumber, aiRead.Header.TotalInclVat);
-                    parsed = aiRead;
-                }
-                else
-                {
-                    _log.LogInformation("[InvoiceScanning] AI read did not improve on the deterministic parse — keeping it.");
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "[InvoiceScanning] AI fallback failed — continuing with the deterministic parse.");
-            }
-        }
-
         // Hard requirements before we even bother uploading the PDF — the
-        // manager needs to see something coherent on review.
+        // manager needs to see something coherent on review. Reads that got
+        // here without the basics (both extractors ran, neither found číslo
+        // + total) genuinely don't carry the information.
         if (string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber) || parsed.Header.TotalInclVat == null)
         {
-            // Dump the text layer: rejected photo uploads leave no stored
-            // RawOcrJson behind, so this is the only way to see what the OCR
-            // produced and teach the parser the layout. Both to the console
-            // and to rejected-scans/ next to the app (best-effort).
-            _log.LogWarning("[InvoiceScanning] Upload rejected (číslo='{Num}', spolu={Total}). Text layer ({Len} chars):\n{Text}",
-                parsed.Header.InvoiceNumber, parsed.Header.TotalInclVat, ocr?.FullText?.Length ?? 0, ocr?.FullText);
-            try
-            {
-                var dumpDir = Path.Combine(Directory.GetCurrentDirectory(), "rejected-scans");
-                Directory.CreateDirectory(dumpDir);
-                var dumpName = $"{DateTime.Now:yyyyMMdd-HHmmss}_{Path.GetFileNameWithoutExtension(file.FileName)}.txt";
-                await System.IO.File.WriteAllTextAsync(Path.Combine(dumpDir, dumpName), ocr?.FullText ?? "");
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "[InvoiceScanning] Could not write rejected-scan dump.");
-            }
-            // Both the deterministic parse AND the AI failed at this point —
-            // the photo genuinely doesn't carry the information. Big, clear
-            // instruction for the customer.
+            _log.LogWarning("[InvoiceScanning] Upload rejected (číslo='{Num}', spolu={Total}) — no read carried the basics.",
+                parsed.Header.InvoiceNumber, parsed.Header.TotalInclVat);
             return BadRequest("DOKLAD SA NEPODARILO PREČÍTAŤ — ani s pomocou AI. Odfoťte ho znova pri LEPŠOM OSVETLENÍ (zapnite blesk), zblízka a s celou stranou v zábere.");
         }
 
@@ -419,9 +327,11 @@ public class InvoicesController : ControllerBase
             TotalVat            = Round2(parsed.Header.TotalVat ?? 0m),
             TotalInclVat        = Round2(parsed.Header.TotalInclVat!.Value),
             PdfUrl              = pdfUrl,
-            // Gemini-primary happy path skips Document AI — store a marker so
-            // ocr-diagnostic shows the source instead of pretending OCR ran.
-            RawOcrJson          = ocr?.RawJson ?? "{\"source\":\"gemini-primary\"}",
+            // Document AI is gone — record which LLM produced the accepted
+            // read so ocr-diagnostic shows the source.
+            RawOcrJson          = ReferenceEquals(parsed, claudeRead)
+                                    ? "{\"source\":\"claude\"}"
+                                    : "{\"source\":\"gemini\"}",
             Status              = "review",
             DocumentKind        = parsed.Header.IsReceipt ? "receipt" : "invoice",
             UploadedBy          = uploader,
@@ -555,8 +465,8 @@ public class InvoicesController : ControllerBase
     [RequestSizeLimit(40 * 1024 * 1024)]   // 40 MB cap across all photos
     public async Task<ActionResult<InvoiceDocumentDto>> UploadPhotos(List<IFormFile> files)
     {
-        if (_ocr == null)
-            return StatusCode(503, "OCR nie je nakonfigurované. Skontrolujte Google Document AI nastavenia.");
+        if (!_ai.IsConfigured && !_claude.IsConfigured)
+            return StatusCode(503, "AI rozpoznávanie nie je nakonfigurované (chýba Gemini aj Anthropic API kľúč).");
         if (_blob == null)
             return StatusCode(503, "Úložisko súborov nie je nakonfigurované.");
         if (files == null || files.Count == 0)
@@ -1710,8 +1620,8 @@ public class InvoicesController : ControllerBase
     [HttpPost("{id}/ai-reparse")]
     public async Task<ActionResult<InvoiceDocumentDto>> AiReparse(int id)
     {
-        if (!_ai.IsConfigured)
-            return StatusCode(503, "AI rozpoznávanie nie je nakonfigurované (Gemini API kľúč chýba).");
+        if (!_ai.IsConfigured && !_claude.IsConfigured)
+            return StatusCode(503, "AI rozpoznávanie nie je nakonfigurované (chýba Gemini aj Anthropic API kľúč).");
 
         var doc = await _db.InvoiceDocuments
             .Include(d => d.Purchases)
@@ -1745,16 +1655,45 @@ public class InvoicesController : ControllerBase
             ? "application/pdf"
             : "image/jpeg";
 
-        ParsedInvoice? ai;
-        try
+        // Claude Sonnet first (primary extractor); Gemini backtrack when
+        // Sonnet fails, doesn't reconcile, or misses the basics — same
+        // ladder as upload.
+        ParsedInvoice? ai = null;
+        if (_claude.IsConfigured)
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
-            ai = await _ai.ExtractAsync(bytes, mime, ocrText, cts.Token);
+            try
+            {
+                using var cCts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+                ai = await _claude.ExtractAsync(bytes, mime, ocrText, cCts.Token);
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[InvoiceScanning] ai-reparse Claude failed for doc {Id}", id);
+            }
         }
-        catch (Exception ex)
+        var claudeUsable = ai != null
+                           && !string.IsNullOrWhiteSpace(ai.Header.InvoiceNumber)
+                           && ai.Header.TotalInclVat != null;
+        if ((!claudeUsable || !ParsedReconciles(ai!)) && _ai.IsConfigured)
         {
-            _log.LogWarning(ex, "[InvoiceScanning] ai-reparse failed for doc {Id}", id);
-            ai = null;
+            try
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
+                var geminiRead = await _ai.ExtractAsync(bytes, mime, ocrText, cts.Token);
+                var geminiUsable = geminiRead != null
+                                   && !string.IsNullOrWhiteSpace(geminiRead.Header.InvoiceNumber)
+                                   && geminiRead.Header.TotalInclVat != null;
+                // Gemini's read wins only when it reconciles, or when Claude's is unusable.
+                if (geminiUsable && (ParsedReconciles(geminiRead!) || !claudeUsable))
+                {
+                    _log.LogInformation("[InvoiceScanning] ai-reparse: using Gemini read for doc {Id}.", id);
+                    ai = geminiRead;
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "[InvoiceScanning] ai-reparse Gemini failed for doc {Id}", id);
+            }
         }
         if (ai == null)
             return StatusCode(502, "AI rozpoznanie zlyhalo. Skúste znova o chvíľu.");
