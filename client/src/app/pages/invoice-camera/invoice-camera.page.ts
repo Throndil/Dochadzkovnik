@@ -469,8 +469,18 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     else ch = cw / targetAspect;
     cw /= zoomF;
     ch /= zoomF;
-    const cx = (sw - cw) / 2;
-    const cy = (sh - ch) / 2;
+    let cx = (sw - cw) / 2;
+    let cy = (sh - ch) / 2;
+
+    // 3) Cut off the guide-frame borders: the overlay dims everything
+    //    outside inset-x-[5%] / inset-y-[3%] of the viewfinder, and the
+    //    photo keeps ONLY what the frame showed (WYSIWYG — table edges and
+    //    background clutter never reach the model). Keep these fractions in
+    //    sync with the template's guide element.
+    cx += cw * 0.05;
+    cy += ch * 0.03;
+    cw *= 0.90;
+    ch *= 0.94;
 
     const canvas = this.canvasRef()?.nativeElement;
     if (!canvas) return null;

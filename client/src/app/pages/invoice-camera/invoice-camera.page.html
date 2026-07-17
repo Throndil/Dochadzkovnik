@@ -104,11 +104,20 @@
             <video #preview autoplay playsinline muted
                    class="absolute inset-0 w-full h-full object-cover"
                    [style.transform]="zoomNative() || zoom() === 1 ? null : 'scale(' + zoom() + ')'"></video>
-            <!-- A4 guide frame: filling it with the page gives every device
-                 the same effective DPI — the key to consistent scans. -->
-            <div class="absolute inset-x-[5%] inset-y-[3%] border-2 border-dashed border-white/40 rounded-md pointer-events-none"></div>
+            <!-- Scanner guide frame. Everything OUTSIDE it is dimmed and CUT
+                 OFF from the photo (grabStill crops to the same 5%/3%
+                 fractions — keep them in sync). Filling it with the page
+                 gives every device the same effective DPI. -->
+            <div class="absolute inset-x-[5%] inset-y-[3%] rounded-lg pointer-events-none"
+                 style="box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);">
+              <!-- Corner brackets -->
+              <span class="absolute -top-px -left-px w-7 h-7 border-t-[3px] border-l-[3px] border-amber-400 rounded-tl-lg"></span>
+              <span class="absolute -top-px -right-px w-7 h-7 border-t-[3px] border-r-[3px] border-amber-400 rounded-tr-lg"></span>
+              <span class="absolute -bottom-px -left-px w-7 h-7 border-b-[3px] border-l-[3px] border-amber-400 rounded-bl-lg"></span>
+              <span class="absolute -bottom-px -right-px w-7 h-7 border-b-[3px] border-r-[3px] border-amber-400 rounded-br-lg"></span>
+            </div>
             <div class="absolute top-[4%] inset-x-0 text-center pointer-events-none">
-              <span class="px-2 py-0.5 rounded bg-black/50 text-[11px] text-white/80">Vyplňte rámik stranou faktúry</span>
+              <span class="px-2 py-0.5 rounded bg-black/50 text-[11px] text-white/80">Vyplňte rámik stranou faktúry — okolie sa oreže</span>
             </div>
           </div>
           @if (pages().length > 0) {
