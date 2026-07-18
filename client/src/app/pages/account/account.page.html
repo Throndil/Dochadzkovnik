@@ -113,6 +113,18 @@
                  (change)="onToggleFlag('payrollAndPnL', $any($event.target).checked)"
                  class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
         </label>
+
+        <label class="flex items-center justify-between gap-4 py-2">
+          <span class="flex flex-col">
+            <span class="text-slate-900 dark:text-white font-medium">Plánovač</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400">Týždenný plán: kto kedy robí na ktorom pracovisku, dovolenky a PN.</span>
+          </span>
+          <input type="checkbox"
+                 [checked]="flags.planner()"
+                 [disabled]="flagSaving()"
+                 (change)="onToggleFlag('planner', $any($event.target).checked)"
+                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
+        </label>
       </div>
     }
 

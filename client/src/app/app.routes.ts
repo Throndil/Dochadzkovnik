@@ -5,6 +5,7 @@ import { notificationsFeatureGuard } from './guards/notifications-feature.guard'
 import { invoiceScanningFeatureGuard } from './guards/invoice-scanning-feature.guard';
 import { invoiceCameraScanFeatureGuard } from './guards/invoice-camera-scan-feature.guard';
 import { payrollAndPnLFeatureGuard } from './guards/payroll-and-pnl-feature.guard';
+import { plannerFeatureGuard } from './guards/planner-feature.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'kiosk', pathMatch: 'full' },
@@ -107,6 +108,11 @@ export const routes: Routes = [
       {
         path: 'palivove-karty',
         loadComponent: () => import('./pages/palivove-karty/palivove-karty.page').then(m => m.PalivoveKartyPage)
+      },
+      {
+        path: 'planner',
+        canActivate: [plannerFeatureGuard],
+        loadComponent: () => import('./pages/planner/planner.page').then(m => m.PlannerPage)
       },
       {
         path: 'time-entries',

@@ -1,0 +1,156 @@
+<app-navbar />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-6xl mx-auto px-4 py-4 sm:p-6 space-y-4">
+
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Plánovač</h1>
+      <div class="flex items-center gap-2">
+        <div class="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+          <button type="button" (click)="shiftWeek(-1)" aria-label="Predošlý týždeň"
+                  class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">‹</button>
+          <span class="px-2 text-sm tabular-nums whitespace-nowrap text-slate-900 dark:text-white">{{ weekLabel() }}</span>
+          <button type="button" (click)="shiftWeek(1)" aria-label="Nasledujúci týždeň"
+                  class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">›</button>
+        </div>
+        <button type="button" (click)="goToday()"
+                class="touch-target px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium">Dnes</button>
+      </div>
+    </div>
+
+    <app-alert variant="error" [message]="error()" class="block" />
+
+    @if (loading() && !entries().length) {
+      <app-spinner />
+    } @else {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto">
+        <div class="min-w-[900px]">
+          <!-- Day header -->
+          <div class="grid" style="grid-template-columns: 11rem repeat(7, 1fr);">
+            <div class="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 border-b border-slate-200 dark:border-slate-700">Zamestnanec</div>
+            @for (day of weekDays(); track day.iso) {
+              <div class="px-2 py-2 text-center border-b border-l border-slate-200 dark:border-slate-700"
+                   [class.bg-amber-50]="day.isToday" [class.dark:bg-amber-900/20]="day.isToday"
+                   [class.bg-slate-50]="day.isWeekend && !day.isToday" [class.dark:bg-slate-700/30]="day.isWeekend && !day.isToday">
+                <div class="text-xs text-slate-500 dark:text-slate-400">{{ day.label }}</div>
+                <div class="text-sm font-semibold" [class]="day.isToday ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-white'">{{ day.dayNum }}</div>
+              </div>
+            }
+          </div>
+
+          <!-- Employee rows -->
+          @for (row of rows(); track row.employee.id) {
+            <div class="grid border-b border-slate-100 dark:border-slate-700/50 last:border-b-0" style="grid-template-columns: 11rem repeat(7, 1fr);">
+              <div class="px-3 py-2 text-sm font-medium text-slate-900 dark:text-white truncate flex items-center">
+                {{ row.employee.firstName }} {{ row.employee.lastName }}
+              </div>
+              <!-- 7-day lane area -->
+              <div class="col-span-7 grid relative" style="grid-template-columns: repeat(7, 1fr);"
+                   [style.gridTemplateRows]="'repeat(' + row.laneCount + ', minmax(2.25rem, auto))'">
+                <!-- Clickable background cells -->
+                @for (day of weekDays(); track day.iso) {
+                  <button type="button" (click)="openCreate(row.employee.id, day.iso)"
+                          [attr.aria-label]="'Plánovať ' + row.employee.firstName + ' ' + row.employee.lastName + ' ' + day.iso"
+                          class="border-l border-slate-100 dark:border-slate-700/50 hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors"
+                          [class.bg-amber-50/60]="day.isToday" [class.dark:bg-amber-900/10]="day.isToday"
+                          [class.bg-slate-50/60]="day.isWeekend && !day.isToday" [class.dark:bg-slate-700/20]="day.isWeekend && !day.isToday"
+                          [style.gridColumn]="$index + 1" [style.gridRow]="'1 / ' + (row.laneCount + 1)"></button>
+                }
+                <!-- Bars -->
+                @for (bar of row.bars; track bar.entry.id) {
+                  <button type="button" (click)="openEdit(bar, $event)"
+                          class="m-0.5 px-2 py-1 rounded border text-left text-xs font-medium truncate self-center {{ bar.colorClass }}"
+                          [class.rounded-l-none]="bar.clippedLeft"
+                          [class.rounded-r-none]="bar.clippedRight"
+                          [style.gridColumn]="bar.colStart + ' / ' + bar.colEnd"
+                          [style.gridRow]="bar.lane + 1"
+                          [title]="bar.label + (bar.entry.note ? ' — ' + bar.entry.note : '')">
+                    {{ bar.label }}@if (bar.entry.note) { <span class="font-normal opacity-75">· {{ bar.entry.note }}</span> }
+                  </button>
+                }
+              </div>
+            </div>
+          } @empty {
+            <div class="p-6 text-center text-sm text-slate-500 dark:text-slate-400">Žiadni aktívni zamestnanci.</div>
+          }
+        </div>
+      </div>
+
+      <p class="text-xs text-slate-400 dark:text-slate-500">Klik na prázdne pole = nový záznam, klik na pás = úprava.</p>
+    }
+  </div>
+</div>
+
+<!-- ── Editor modal ─────────────────────────────────────────────── -->
+@if (editorOpen()) {
+  <div class="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4" (click)="closeEditor()">
+    <div class="w-full max-w-md bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 space-y-3"
+         (click)="$event.stopPropagation()">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white">
+          {{ editingId() != null ? 'Upraviť záznam' : 'Nový záznam' }}
+        </h2>
+        <button type="button" (click)="closeEditor()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">×</button>
+      </div>
+
+      <div class="text-sm text-slate-700 dark:text-slate-200 font-medium">{{ employeeName(formEmployeeId) }}</div>
+
+      <label class="block text-xs text-slate-600 dark:text-slate-300">
+        Typ
+        <select [(ngModel)]="formType"
+                class="mt-1 w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+          <option value="praca">Práca na pracovisku</option>
+          <option value="dovolenka">Dovolenka</option>
+          <option value="pn">PN</option>
+          <option value="volno">Voľno</option>
+        </select>
+      </label>
+
+      @if (formType === 'praca') {
+        <label class="block text-xs text-slate-600 dark:text-slate-300">
+          Pracovisko
+          <select [(ngModel)]="formLocationId"
+                  class="mt-1 w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+            <option [ngValue]="null">— vyberte —</option>
+            @for (l of locations(); track l.id) {
+              <option [ngValue]="l.id">{{ l.name }}</option>
+            }
+          </select>
+        </label>
+      }
+
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-xs text-slate-600 dark:text-slate-300">
+          Od
+          <input type="date" [(ngModel)]="formStart"
+                 class="mt-1 w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+        </label>
+        <label class="block text-xs text-slate-600 dark:text-slate-300">
+          Do
+          <input type="date" [(ngModel)]="formEnd" [min]="formStart"
+                 class="mt-1 w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+        </label>
+      </div>
+
+      <label class="block text-xs text-slate-600 dark:text-slate-300">
+        Poznámka
+        <input type="text" [(ngModel)]="formNote" maxlength="500"
+               class="mt-1 w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+      </label>
+
+      <app-alert variant="error" [message]="editorError()" class="block" />
+
+      <div class="flex items-center gap-2 pt-1">
+        <button type="button" (click)="save()" [disabled]="saving()"
+                class="touch-target px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-sm font-semibold">
+          {{ saving() ? 'Ukladám…' : 'Uložiť' }}
+        </button>
+        <button type="button" (click)="closeEditor()" [disabled]="saving()"
+                class="touch-target px-3 py-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm">Zrušiť</button>
+        @if (editingId() != null) {
+          <button type="button" (click)="remove()" [disabled]="saving()"
+                  class="touch-target ml-auto px-3 py-2 text-red-500 hover:text-red-400 text-sm">Zmazať</button>
+        }
+      </div>
+    </div>
+  </div>
+}

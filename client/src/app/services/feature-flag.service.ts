@@ -34,6 +34,9 @@ export class FeatureFlagService {
   private payrollAndPnLSignal = signal(false);
   payrollAndPnL = computed(() => this.payrollAndPnLSignal());
 
+  private plannerSignal = signal(false);
+  planner = computed(() => this.plannerSignal());
+
   constructor(private http: HttpClient) {}
 
   /**
@@ -55,6 +58,7 @@ export class FeatureFlagService {
       this.invoiceScanningSignal.set(!!flags?.['invoiceScanning']);
       this.invoiceCameraScanSignal.set(!!flags?.['invoiceCameraScan']);
       this.payrollAndPnLSignal.set(!!flags?.['payrollAndPnL']);
+      this.plannerSignal.set(!!flags?.['planner']);
     } catch {
       this.notificationsSignal.set(false);
       this.commanderIntegrationSignal.set(false);
@@ -63,6 +67,7 @@ export class FeatureFlagService {
       this.invoiceScanningSignal.set(false);
       this.invoiceCameraScanSignal.set(false);
       this.payrollAndPnLSignal.set(false);
+      this.plannerSignal.set(false);
     }
   }
 

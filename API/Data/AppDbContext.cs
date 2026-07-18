@@ -29,6 +29,7 @@ public class AppDbContext : IdentityDbContext<AppUser>
     public DbSet<Machine> Machines => Set<Machine>();
     public DbSet<AiSpend> AiSpends => Set<AiSpend>();
     public DbSet<FuelCard> FuelCards => Set<FuelCard>();
+    public DbSet<PlanEntry> PlanEntries => Set<PlanEntry>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -42,6 +43,24 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.Property(x => x.Pin).HasMaxLength(256).IsRequired();
             e.Property(x => x.Division).HasMaxLength(20);
             e.Property(x => x.Position).HasMaxLength(100);
+        });
+
+        builder.Entity<PlanEntry>(e =>
+        {
+            e.Property(x => x.Type).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(500);
+            e.Property(x => x.CreatedBy).HasMaxLength(100);
+            e.HasIndex(x => new { x.EmployeeId, x.StartDate });
+            e.HasOne(x => x.Employee)
+                .WithMany()
+                .HasForeignKey(x => x.EmployeeId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // Deleting a pracovisko orphans the bar rather than deleting it —
+            // the grid shows it as "praca" with no site so the admin re-plans.
+            e.HasOne(x => x.Location)
+                .WithMany()
+                .HasForeignKey(x => x.LocationId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         builder.Entity<FuelCard>(e =>

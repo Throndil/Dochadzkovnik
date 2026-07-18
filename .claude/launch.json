@@ -10,8 +10,8 @@
     {
       "name": "client",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["start", "--prefix", "client"],
-      "port": 4200
+      "runtimeArgs": ["start", "--prefix", "client", "--", "--port", "4400"],
+      "port": 4400
     }
   ]
 }
