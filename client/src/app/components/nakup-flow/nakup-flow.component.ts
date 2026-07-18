@@ -88,7 +88,7 @@ export class NakupFlowComponent implements OnInit {
   generalStockChosen = signal(false);
 
   selectedLocationName = computed(() => {
-    if (this.generalStockChosen()) return 'Inventár';
+    if (this.generalStockChosen()) return 'Sklad';
     const id = this.selectedLocationId();
     return id == null ? '' : (this.locations().find(l => l.id === id)?.name ?? '');
   });

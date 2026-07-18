@@ -12,6 +12,13 @@ public class Employee
     public string? City { get; set; }
     public string? PhotoUrl { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>Company division the employee belongs to: "profistav" (stavby)
+    /// | "stroje". Drives the division-scoped Mzdy view; the driver's wages
+    /// land under AZ Stroje simply by assigning him there.</summary>
+    public string Division { get; set; } = "profistav";
+    /// <summary>Free-text job position (F6): "šofér", "murár"… Kept free-text
+    /// because the customer's positions may be added or changed over time.</summary>
+    public string? Position { get; set; }
     public bool NotificationsEnabled { get; set; } = true;
     public bool WhatsAppEnabled { get; set; } = false;
     public string? WhatsAppNumber { get; set; }

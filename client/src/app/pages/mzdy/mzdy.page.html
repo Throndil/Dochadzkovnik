@@ -1,10 +1,13 @@
-<app-navbar />
-<div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
+<app-navbar class="print:hidden" />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900 print:hidden">
   <div class="max-w-6xl mx-auto px-4 py-4 sm:p-6 space-y-4">
 
     <!-- ── Header + period picker ─────────────────────────────────── -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Mzdy</h1>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+        Mzdy
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">{{ division.label() }}</span>
+      </h1>
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Period mode toggle -->
         <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-700 p-1">
@@ -56,6 +59,15 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
           {{ exporting() ? 'Pripravujem…' : 'Excel' }}
         </button>
+
+        <!-- W3 — výplatné pásky na tlač (viac zamestnancov na A4) -->
+        @if (data() && data()!.rows.length > 0) {
+          <button type="button" (click)="printSlips()"
+                  class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-700 text-white text-sm font-semibold transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+            Tlačiť pásky
+          </button>
+        }
       </div>
     </div>
 
@@ -311,3 +323,33 @@
 
   </div>
 </div>
+
+<!-- ── W3: výplatné pásky — print-only (Tlačiť pásky button) ─────────
+     Hidden on screen; @media print hides the app above and shows this
+     2-column grid, ~6 slips per A4. Black-on-white regardless of theme. -->
+@if (data(); as d) {
+  <div class="hidden print:block bg-white text-black">
+    <div class="grid grid-cols-2 gap-3">
+      @for (row of d.rows; track row.employeeId) {
+        <div class="border border-black/60 rounded p-3 text-[12px] leading-snug break-inside-avoid">
+          <div class="flex justify-between items-baseline border-b border-black/30 pb-1 mb-1.5">
+            <span class="font-bold">Výplatná páska</span>
+            <span>{{ periodLabel() }}</span>
+          </div>
+          <div class="font-bold text-[13px] mb-1.5">{{ row.firstName }} {{ row.lastName }}</div>
+          <div class="flex justify-between"><span>Odpracované hodiny</span><span class="tabular-nums">{{ formatHours(row.hoursWorked) }} h</span></div>
+          <div class="flex justify-between"><span>Hodinová sadzba</span><span class="tabular-nums">{{ row.hourlyWageSnapshotAvg != null ? formatMoney(row.hourlyWageSnapshotAvg) + ' €' : '—' }}</span></div>
+          <div class="flex justify-between"><span>Hrubá mzda</span><span class="tabular-nums">{{ formatMoney(row.gross) }} €</span></div>
+          <div class="flex justify-between"><span>Zálohy</span><span class="tabular-nums">− {{ formatMoney(row.advancesTotal) }} €</span></div>
+          <div class="flex justify-between border-t border-black/30 mt-1 pt-1 font-bold text-[13px]">
+            <span>Výplata</span><span class="tabular-nums">{{ formatMoney(row.payout) }} €</span>
+          </div>
+          <div class="flex justify-between items-end mt-3 pt-1 text-[11px]">
+            <span>Dátum: ____________</span>
+            <span>Podpis: ______________</span>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+}

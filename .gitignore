@@ -506,3 +506,4 @@ claude.exe
 # Local scan artifacts (real customer documents — never commit)
 API/scans/
 API/rejected-scans/
+.claude/settings.local.json

@@ -100,7 +100,7 @@
     @if (loading()) {
       <app-spinner />
     } @else if (locations().length === 0) {
-      <app-empty-state icon="📍" message="Žiadne pracoviská." />
+      <app-empty-state message="Žiadne pracoviská." />
     } @else {
     <!-- One card template, rendered for the active grid and (collapsed by
          default) for the inactive section. -->
@@ -111,7 +111,7 @@
           @if (loc.photoUrl) {
             <img [src]="loc.photoUrl" class="w-full h-40 object-cover hover:opacity-90 transition-opacity" alt="Fotografia pracoviska" />
           } @else {
-            <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-4xl hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">📍</div>
+            <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">Bez fotky</div>
           }
         </a>
         <div class="p-4">

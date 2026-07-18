@@ -461,6 +461,121 @@ public class LocationsController : ControllerBase
         return (f, t);
     }
 
+    // GET /api/locations/{id}/daily-log?from=YYYY-MM-DD&to=YYYY-MM-DD  (P1)
+    // The per-day "zložka" of a workplace: for each day in the range, the
+    // shifts (who worked, hours, notes), diary entries, material, documents
+    // (delivery lists / receipts) and photos of that day. Days with no
+    // activity are omitted; newest day first.
+    [HttpGet("{id}/daily-log")]
+    public async Task<ActionResult<List<DailyLogDayDto>>> GetDailyLog(int id, [FromQuery] string? from, [FromQuery] string? to)
+    {
+        var loc = await _db.Locations.FindAsync(id);
+        if (loc == null) return NotFound();
+
+        var (f, t) = ParseDateRange(from, to);
+
+        var shifts = await _db.TimeEntries
+            .Where(e => e.LocationId == id
+                     && (f == null || e.ClockIn >= f) && (t == null || e.ClockIn < t))
+            .Select(e => new
+            {
+                e.ClockIn,
+                e.ClockOut,
+                EmployeeName = e.Employee.FirstName + " " + e.Employee.LastName,
+                e.Note,
+                CarName = e.Car != null ? e.Car.Name : null,
+                MachineName = e.Machine != null ? e.Machine.Name : null,
+                e.PhotoUrl
+            })
+            .ToListAsync();
+
+        var diaries = await _db.WorkDiaries
+            .Where(d => d.LocationId == id
+                     && (f == null || d.Date >= f) && (t == null || d.Date < t))
+            .Select(d => new
+            {
+                d.Date,
+                EmployeeName = d.Employee != null ? d.Employee.FirstName + " " + d.Employee.LastName : "Admin",
+                d.BodyText,
+                d.AttachmentUrl
+            })
+            .ToListAsync();
+
+        var materials = await BuildUnifiedMaterialEntriesAsync(id, f, t);
+
+        var docs = await _db.MaterialPurchases
+            .Where(p => p.LocationId == id
+                     && (f == null || p.PurchaseDate >= f) && (t == null || p.PurchaseDate < t)
+                     && (p.InvoiceDocument == null || p.InvoiceDocument.Status != "discarded"))
+            .Select(p => new
+            {
+                p.Id,
+                p.PurchaseDate,
+                p.InvoiceDocumentId,
+                SupplierName = p.SupplierName ?? (p.InvoiceDocument != null ? p.InvoiceDocument.SupplierName : null),
+                p.DeliveryNoteRef,
+                p.TotalCost
+            })
+            .ToListAsync();
+
+        // Standalone WorkPhotos; shift photos are added from the entries below.
+        // Note holds the real uploader name on admin uploads (same rule as GetPhotos).
+        var workPhotos = await _db.WorkPhotos
+            .Where(w => w.LocationId == id
+                     && (f == null || w.CreatedAt >= f) && (t == null || w.CreatedAt < t))
+            .Select(w => new
+            {
+                w.CreatedAt,
+                w.PhotoUrl,
+                EmployeeName = w.Note != null && w.Note != ""
+                    ? w.Note
+                    : (w.Employee != null ? w.Employee.FirstName + " " + w.Employee.LastName : "Admin")
+            })
+            .ToListAsync();
+
+        var days = new Dictionary<DateTime, DailyLogDayDto>();
+        DailyLogDayDto Day(DateTime d)
+        {
+            if (!days.TryGetValue(d.Date, out var day))
+                days[d.Date] = day = new DailyLogDayDto { Date = d.Date };
+            return day;
+        }
+
+        foreach (var s in shifts)
+        {
+            Day(s.ClockIn).Shifts.Add(new DailyLogShiftDto
+            {
+                EmployeeName = s.EmployeeName,
+                Hours = s.ClockOut == null
+                    ? null
+                    : Math.Round((decimal)(s.ClockOut.Value - s.ClockIn).TotalHours, 2, MidpointRounding.AwayFromZero),
+                Note = s.Note,
+                CarName = s.CarName,
+                MachineName = s.MachineName
+            });
+            if (!string.IsNullOrEmpty(s.PhotoUrl))
+                foreach (var url in s.PhotoUrl.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    Day(s.ClockIn).Photos.Add(new DailyLogPhotoDto { PhotoUrl = url.Trim(), EmployeeName = s.EmployeeName });
+        }
+        foreach (var d in diaries)
+            Day(d.Date).Diaries.Add(new DailyLogDiaryDto { EmployeeName = d.EmployeeName, BodyText = d.BodyText, AttachmentUrl = d.AttachmentUrl });
+        foreach (var m in materials)
+            Day(m.Date).Materials.Add(m);
+        foreach (var p in docs)
+            Day(p.PurchaseDate).Documents.Add(new DailyLogDocDto
+            {
+                PurchaseId = p.Id,
+                InvoiceDocumentId = p.InvoiceDocumentId,
+                SupplierName = p.SupplierName,
+                DeliveryNoteRef = p.DeliveryNoteRef,
+                TotalCost = p.TotalCost
+            });
+        foreach (var w in workPhotos)
+            Day(w.CreatedAt).Photos.Add(new DailyLogPhotoDto { PhotoUrl = w.PhotoUrl, EmployeeName = w.EmployeeName });
+
+        return days.Values.OrderByDescending(d => d.Date).ToList();
+    }
+
     // GET /api/locations/{id}/materials?from=YYYY-MM-DD&to=YYYY-MM-DD
     [HttpGet("{id}/materials")]
     public async Task<ActionResult<List<MaterialUsageDto>>> GetMaterialUsages(int id, [FromQuery] string? from, [FromQuery] string? to)
@@ -531,24 +646,41 @@ public class LocationsController : ControllerBase
             .Select(u => u.SourceMaterialPurchaseLineId!.Value)
             .ToHashSet();
 
-        var usageRows = usages.Select(u => new MaterialUsageDto
+        // Accounting rule: material is displayed S DPH. Usages minted from a
+        // scanned invoice snapshot the line's bez-DPH price (the invoice module
+        // reconciles on those) — gross them up at read time via the source
+        // line's VAT rate. Manually-entered usages keep their price as typed.
+        var sourceVatByLineId = consumedLineIds.Count == 0
+            ? new Dictionary<int, decimal>()
+            : await _db.MaterialPurchaseLines
+                .Where(l => consumedLineIds.Contains(l.Id) && l.Purchase.InvoiceDocumentId != null)
+                .Select(l => new { l.Id, l.VatRate })
+                .ToDictionaryAsync(x => x.Id, x => x.VatRate);
+
+        var usageRows = usages.Select(u =>
         {
-            Id              = u.Id,
-            LocationId      = u.LocationId,
-            MaterialId      = u.MaterialId,
-            MaterialName    = u.Material.Name,
-            Unit            = u.Material.Unit,
-            Quantity        = u.Quantity,
-            UnitPriceAtTime = u.UnitPriceAtTime,
-            LineCost        = u.Quantity * u.UnitPriceAtTime,
-            Date            = u.Date,
-            EmployeeId      = u.EmployeeId,
-            EmployeeName    = u.Employee != null ? (u.Employee.FirstName + " " + u.Employee.LastName) : null,
-            Note            = u.Note,
-            PhotoUrl        = u.PhotoUrl,
-            FromPurchase    = false,
-            PurchaseId      = null,
-            IsService       = u.IsService
+            var k = u.SourceMaterialPurchaseLineId is int sid && sourceVatByLineId.TryGetValue(sid, out var vat)
+                ? 1m + vat / 100m
+                : 1m;
+            return new MaterialUsageDto
+            {
+                Id              = u.Id,
+                LocationId      = u.LocationId,
+                MaterialId      = u.MaterialId,
+                MaterialName    = u.Material.Name,
+                Unit            = u.Material.Unit,
+                Quantity        = u.Quantity,
+                UnitPriceAtTime = Math.Round(u.UnitPriceAtTime * k, 4, MidpointRounding.AwayFromZero),
+                LineCost        = Math.Round(u.Quantity * u.UnitPriceAtTime * k, 2, MidpointRounding.AwayFromZero),
+                Date            = u.Date,
+                EmployeeId      = u.EmployeeId,
+                EmployeeName    = u.Employee != null ? (u.Employee.FirstName + " " + u.Employee.LastName) : null,
+                Note            = u.Note,
+                PhotoUrl        = u.PhotoUrl,
+                FromPurchase    = false,
+                PurchaseId      = null,
+                IsService       = u.IsService
+            };
         }).ToList();
 
         // ── Synthesised rows from MaterialPurchase lines targeting this location ──
@@ -561,6 +693,9 @@ public class LocationsController : ControllerBase
         var pq = _db.MaterialPurchases
             .Include(p => p.Employee)
             .Include(p => p.Lines).ThenInclude(l => l.Material)
+            // Income invoices and AZ Stroje documents are not material (Fáza D/F).
+            .Where(p => p.InvoiceDocument == null
+                     || (p.InvoiceDocument.Direction != "income" && p.InvoiceDocument.Division != "stroje"))
             .Where(p => p.LocationId == locationId || p.Lines.Any(l => l.LocationId == locationId));
         if (f.HasValue) pq = pq.Where(p => p.PurchaseDate >= f.Value);
         if (t.HasValue) pq = pq.Where(p => p.PurchaseDate <  t.Value);
@@ -571,8 +706,13 @@ public class LocationsController : ControllerBase
             .Where(l => (l.LocationId ?? p.LocationId) == locationId)
             .Where(l => l.MaterialId != null && l.Material != null)
             .Where(l => !consumedLineIds.Contains(l.Id))
-            .Select(l => new MaterialUsageDto
+            .Select(l =>
             {
+                // S DPH: invoice-derived lines store bez DPH → gross up for
+                // display; kiosk lines already carry the paid (s DPH) price.
+                var k = p.InvoiceDocumentId != null ? 1m + l.VatRate / 100m : 1m;
+                return new MaterialUsageDto
+                {
                 // Negate the line id so synthetic ids never collide with real ones.
                 // UI uses FromPurchase, not the sign of Id, but disjoint ids make
                 // *track-by* loops behave even when the same value would otherwise
@@ -584,8 +724,8 @@ public class LocationsController : ControllerBase
                 Unit            = l.Material.Unit,
                 Quantity        = l.Quantity,
                 // Snapshot the price the worker actually paid at purchase time.
-                UnitPriceAtTime = l.UnitPrice,
-                LineCost        = l.LineTotal,
+                UnitPriceAtTime = Math.Round(l.UnitPrice * k, 4, MidpointRounding.AwayFromZero),
+                LineCost        = Math.Round(l.LineTotal * k, 2, MidpointRounding.AwayFromZero),
                 // Use the purchase date — that's when the material entered the site.
                 Date            = p.PurchaseDate.Date,
                 EmployeeId      = p.EmployeeId,
@@ -599,6 +739,7 @@ public class LocationsController : ControllerBase
                 FromPurchase    = true,
                 PurchaseId      = p.Id,
                 IsService       = l.IsService
+                };
             }))
             .ToList();
 
@@ -908,6 +1049,8 @@ public class LocationsController : ControllerBase
             join p in _db.MaterialPurchases on l.PurchaseId equals p.Id
             join d in _db.InvoiceDocuments on p.InvoiceDocumentId equals (int?)d.Id
             where d.Status != "discarded"
+                  && d.Direction != "income"
+                  && d.Division != "stroje"
                   && (f == null || p.PurchaseDate >= f.Value)
                   && (t == null || p.PurchaseDate < t.Value)
             select new { LocId = l.LocationId ?? p.LocationId, l.LineTotal, l.VatRate, DocId = d.Id, DocTotal = d.TotalInclVat })
@@ -958,10 +1101,10 @@ public class LocationsController : ControllerBase
             join d0 in _db.InvoiceDocuments on p.InvoiceDocumentId equals (int?)d0.Id into dj
             from d in dj.DefaultIfEmpty()
             where (l.LocationId ?? p.LocationId) == null
-                  && (d == null || d.Status != "discarded")
+                  && (d == null || (d.Status != "discarded" && d.Direction != "income" && d.Division != "stroje"))
                   && (f == null || p.PurchaseDate >= f.Value)
                   && (t == null || p.PurchaseDate < t.Value)
-            select new { l.LineTotal })
+            select new { l.LineTotal, l.VatRate, IsInvoice = d != null })
             .ToListAsync();
         if (unassigned.Count > 0)
         {
@@ -969,8 +1112,9 @@ public class LocationsController : ControllerBase
             {
                 Location = new PnlLocationDto { Id = 0, Name = "Sklad / Nepriradené", IsActive = true },
                 Labour   = new PnlLabourDto(),
+                // S DPH — invoice lines grossed up, kiosk lines as paid.
                 Material = rows.Any(r => r.Material != null)
-                    ? new PnlMaterialDto { Cost = unassigned.Sum(x => x.LineTotal) }
+                    ? new PnlMaterialDto { Cost = Math.Round(unassigned.Sum(x => x.LineTotal * (x.IsInvoice ? 1m + x.VatRate / 100m : 1m)), 2, MidpointRounding.AwayFromZero) }
                     : null,
                 // Same printed-total allocation as the real rows (bucket 0).
                 InvoicedInclVat = perLocIncl.GetValueOrDefault(0),
@@ -1033,16 +1177,30 @@ public class LocationsController : ControllerBase
                 EmployeeName = e.Employee.FirstName + " " + e.Employee.LastName,
                 e.ClockIn,
                 e.ClockOut,
-                e.WageAtTime
+                e.WageAtTime,
+                e.CarId
             })
             .ToListAsync();
+
+        // ── W1: hrubá sadzba — per-hour amounts the firm pays on top of the
+        // payout wage (odvody, ubytovanie, any customer-added "€/h" row on
+        // Odvody). Site costs and P&L price hours at WageAtTime + add-on;
+        // the Mzdy (payroll) view keeps the payout rate.
+        // ponytail: live add-on rates — changing them shifts historical
+        // reports; snapshot per TimeEntry if that ever matters.
+        var perHourAddon = (await _db.CompanyRates
+                .Where(r => r.Unit != null)
+                .Select(r => new { r.Amount, r.Unit })
+                .ToListAsync())
+            .Where(r => r.Unit!.Contains("€/h"))
+            .Sum(r => r.Amount);
 
         var labourRows = rawEntries
             .GroupBy(e => new { e.EmployeeId, e.EmployeeName })
             .Select(g =>
             {
                 var hours = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours);
-                var cost  = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours * x.WageAtTime);
+                var cost  = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours * (x.WageAtTime + perHourAddon));
                 return new PnlLabourRowDto
                 {
                     EmployeeId   = g.Key.EmployeeId,
@@ -1098,12 +1256,37 @@ public class LocationsController : ControllerBase
             };
         }
 
+        // ── Výjazdy (F5): a ride counts ONCE per car per calendar day even
+        // when several workers shared the vehicle. Priced at the current
+        // "vyjazd_auta" rate from Odvody.
+        // ponytail: live rate — changing the tariff shifts historical
+        // reports; snapshot per TimeEntry if that ever matters.
+        PnlTripsDto? trips = null;
+        var tripCount = rawEntries
+            .Where(x => x.CarId != null)
+            .Select(x => new { x.CarId, x.ClockIn.Date })
+            .Distinct()
+            .Count();
+        if (tripCount > 0)
+        {
+            var tripRate = await _db.CompanyRates
+                .Where(r => r.Key == "vyjazd_auta")
+                .Select(r => (decimal?)r.Amount)
+                .FirstOrDefaultAsync() ?? 0m;
+            trips = new PnlTripsDto
+            {
+                Count = tripCount,
+                Rate  = tripRate,
+                Cost  = Math.Round(tripCount * tripRate, 2, MidpointRounding.AwayFromZero)
+            };
+        }
+
         // ── Revenue / profit. Empty contract value → revenue "—", profit
         // hidden (null), cost side still shown. When the material section is
         // hidden by the flag, profit carries on without it per plan UX.
         var revenue = loc.ContractValue;
         decimal? profit = revenue.HasValue
-            ? revenue.Value - labour.Cost - (material?.Cost ?? 0m)
+            ? revenue.Value - labour.Cost - (material?.Cost ?? 0m) - (trips?.Cost ?? 0m)
             : null;
 
         return new LocationPnlDto
@@ -1111,6 +1294,7 @@ public class LocationsController : ControllerBase
             Location = new PnlLocationDto { Id = loc.Id, Name = loc.Name, ContractValue = loc.ContractValue, IsActive = loc.IsActive },
             Labour   = labour,
             Material = material,
+            Trips    = trips,
             Revenue  = revenue,
             Profit   = profit
         };

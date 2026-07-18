@@ -1,5 +1,8 @@
 using System.Text;
 using System.Text.Json;
+using API.Data;
+using API.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace API.Services;
 
@@ -18,17 +21,60 @@ namespace API.Services;
 /// </summary>
 public sealed class AnthropicInvoiceExtractor
 {
+    // Sonnet pricing per 1M tokens (USD ≈ EUR for the customer's dashboard).
+    private const decimal InputPricePerM = 3m;
+    private const decimal OutputPricePerM = 15m;
+
     private readonly HttpClient _http;
     private readonly ILogger<AnthropicInvoiceExtractor> _log;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly string? _apiKey;
     private readonly string _model;
 
-    public AnthropicInvoiceExtractor(HttpClient http, IConfiguration cfg, ILogger<AnthropicInvoiceExtractor> log)
+    public AnthropicInvoiceExtractor(HttpClient http, IConfiguration cfg, ILogger<AnthropicInvoiceExtractor> log, IServiceScopeFactory scopeFactory)
     {
         _http = http;
         _log = log;
+        _scopeFactory = scopeFactory;
         _apiKey = cfg["Anthropic:ApiKey"];
         _model = string.IsNullOrWhiteSpace(cfg["Anthropic:Model"]) ? "claude-sonnet-5" : cfg["Anthropic:Model"]!;
+    }
+
+    /// <summary>
+    /// Accumulate the response's exact token usage into the monthly AiSpend
+    /// row — the Súhrn shows the customer what AI recognition costs. Best
+    /// effort: a failed write never fails the extraction.
+    /// </summary>
+    private async Task RecordSpendAsync(JsonElement root)
+    {
+        try
+        {
+            if (!root.TryGetProperty("usage", out var usage)) return;
+            var inTok = usage.TryGetProperty("input_tokens", out var it) ? it.GetInt64() : 0;
+            var outTok = usage.TryGetProperty("output_tokens", out var ot) ? ot.GetInt64() : 0;
+            if (inTok == 0 && outTok == 0) return;
+            var cost = inTok * InputPricePerM / 1_000_000m + outTok * OutputPricePerM / 1_000_000m;
+
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var month = DateTime.UtcNow.ToString("yyyy-MM");
+            var row = await db.AiSpends.FirstOrDefaultAsync(s => s.Month == month);
+            if (row == null)
+            {
+                row = new AiSpend { Month = month };
+                db.AiSpends.Add(row);
+            }
+            row.InputTokens += inTok;
+            row.OutputTokens += outTok;
+            row.Calls += 1;
+            row.CostEur += cost;
+            row.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "[InvoiceScanning] AI spend bookkeeping failed (non-fatal).");
+        }
     }
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_apiKey);
@@ -93,6 +139,7 @@ public sealed class AnthropicInvoiceExtractor
                 if (resp.IsSuccessStatusCode)
                 {
                     using var doc = JsonDocument.Parse(respText);
+                    await RecordSpendAsync(doc.RootElement);
                     string? json = null;
                     foreach (var block in doc.RootElement.GetProperty("content").EnumerateArray())
                     {

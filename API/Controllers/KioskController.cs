@@ -49,6 +49,18 @@ public class KioskController : ControllerBase
             .ToListAsync();
     }
 
+    /// <summary>Active machines for the kiosk transport step (Auto / Stroj /
+    /// Pešo, Fáza F3) — bagrista picks his bager instead of a car.</summary>
+    [HttpGet("machines")]
+    public async Task<ActionResult<List<MachineDto>>> GetMachines()
+    {
+        return await _db.Machines
+            .Where(m => m.IsActive)
+            .OrderBy(m => m.Name)
+            .Select(m => new MachineDto { Id = m.Id, Name = m.Name, Note = m.Note, IsActive = m.IsActive })
+            .ToListAsync();
+    }
+
     [HttpPost("clock-in")]
     public async Task<ActionResult<KioskResponseDto>> ClockIn(ClockInDto dto)
     {
@@ -256,12 +268,19 @@ public class KioskController : ControllerBase
             var car = await _db.Cars.FindAsync(dto.CarId.Value);
             if (car == null || !car.IsActive) return BadRequest("Neplatné vozidlo");
         }
+        // Validate machine if provided (Auto / Stroj / Pešo — Fáza F3)
+        if (dto.MachineId.HasValue)
+        {
+            var machine = await _db.Machines.FindAsync(dto.MachineId.Value);
+            if (machine == null || !machine.IsActive) return BadRequest("Neplatný stroj");
+        }
 
         var entry = new Models.TimeEntry
         {
             EmployeeId         = employee.Id,
             LocationId         = dto.LocationId,
             CarId              = dto.CarId,
+            MachineId          = dto.MachineId,
             ClockIn            = clockIn,
             ClockOut           = clockOut,
             Note               = dto.Note,
@@ -277,7 +296,9 @@ public class KioskController : ControllerBase
 
         var carPart = dto.CarId.HasValue
             ? $" ({(await _db.Cars.FindAsync(dto.CarId.Value))?.Name})"
-            : "";
+            : dto.MachineId.HasValue
+                ? $" ({(await _db.Machines.FindAsync(dto.MachineId.Value))?.Name})"
+                : "";
         return Ok(new KioskResponseDto
         {
             Message      = $"Zaznamenaných {dto.HoursWorked:F1} hod. na {location.Name}{carPart}",

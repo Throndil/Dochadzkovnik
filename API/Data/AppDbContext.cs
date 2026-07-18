@@ -25,6 +25,10 @@ public class AppDbContext : IdentityDbContext<AppUser>
     public DbSet<NotificationLog> NotificationLogs => Set<NotificationLog>();
     public DbSet<NotificationConfig> NotificationConfigs => Set<NotificationConfig>();
     public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
+    public DbSet<CompanyRate> CompanyRates => Set<CompanyRate>();
+    public DbSet<Machine> Machines => Set<Machine>();
+    public DbSet<AiSpend> AiSpends => Set<AiSpend>();
+    public DbSet<FuelCard> FuelCards => Set<FuelCard>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -36,6 +40,31 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.Property(x => x.FirstName).HasMaxLength(100).IsRequired();
             e.Property(x => x.LastName).HasMaxLength(100).IsRequired();
             e.Property(x => x.Pin).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Division).HasMaxLength(20);
+            e.Property(x => x.Position).HasMaxLength(100);
+        });
+
+        builder.Entity<FuelCard>(e =>
+        {
+            e.Property(x => x.Label).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(500);
+            // Deleting an employee frees the card instead of deleting it.
+            e.HasOne(x => x.Employee)
+                .WithMany()
+                .HasForeignKey(x => x.EmployeeId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<CompanyRate>(e =>
+        {
+            e.Property(x => x.Key).HasMaxLength(50);
+            e.Property(x => x.Label).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Unit).HasMaxLength(50);
+            // Seed the customer's three known amounts — editable on /admin/odvody.
+            e.HasData(
+                new CompanyRate { Id = 1, Key = "odvody",       Label = "Odvody",       Amount = 0m,  Unit = "€/h na pracovníka", UpdatedAt = new DateTime(2026, 7, 18) },
+                new CompanyRate { Id = 2, Key = "ubytovanie",   Label = "Ubytovanie",   Amount = 1m,  Unit = "€/h na pracovníka", UpdatedAt = new DateTime(2026, 7, 18) },
+                new CompanyRate { Id = 3, Key = "vyjazd_auta",  Label = "Výjazd auta",  Amount = 30m, Unit = "€/výjazd",          UpdatedAt = new DateTime(2026, 7, 18) });
         });
 
         builder.Entity<Location>(e =>
@@ -48,6 +77,7 @@ public class AppDbContext : IdentityDbContext<AppUser>
         {
             e.Property(x => x.Name).HasMaxLength(200).IsRequired();
             e.Property(x => x.LicensePlate).HasMaxLength(20);
+            e.Property(x => x.Division).HasMaxLength(20);
         });
 
         builder.Entity<WorkPhoto>(e =>
@@ -110,7 +140,25 @@ public class AppDbContext : IdentityDbContext<AppUser>
                 .HasForeignKey(x => x.CarId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            e.HasOne(x => x.Machine)
+                .WithMany(x => x.TimeEntries)
+                .HasForeignKey(x => x.MachineId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             e.HasIndex(x => new { x.EmployeeId, x.ClockIn });
+        });
+
+        builder.Entity<Machine>(e =>
+        {
+            e.Property(x => x.Name).HasMaxLength(200).IsRequired();
+            e.Property(x => x.Note).HasMaxLength(500);
+        });
+
+        builder.Entity<AiSpend>(e =>
+        {
+            e.Property(x => x.Month).HasMaxLength(7).IsRequired();
+            e.Property(x => x.CostEur).HasPrecision(10, 4);
+            e.HasIndex(x => x.Month).IsUnique();
         });
 
         builder.Entity<Material>(e =>
@@ -175,6 +223,16 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.Property(x => x.SubtotalExclVat).HasPrecision(14, 2);
             e.Property(x => x.SubtotalVat).HasPrecision(14, 2);
 
+            // Mašina/Auto assignment (F1) — deleting the asset clears the tag.
+            e.HasOne(x => x.Machine)
+                .WithMany()
+                .HasForeignKey(x => x.MachineId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Car)
+                .WithMany()
+                .HasForeignKey(x => x.CarId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             e.HasOne(x => x.Employee)
                 .WithMany()
                 .HasForeignKey(x => x.EmployeeId)
@@ -224,6 +282,16 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.Property(x => x.DiscountPercent).HasPrecision(5, 2);
             e.Property(x => x.UnitPriceInclVat).HasPrecision(12, 4);
             e.Property(x => x.VatRate).HasPrecision(5, 2);
+
+            // Per-line Mašina/Auto override (F1).
+            e.HasOne(x => x.Machine)
+                .WithMany()
+                .HasForeignKey(x => x.MachineId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Car)
+                .WithMany()
+                .HasForeignKey(x => x.CarId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             e.HasOne(x => x.Purchase)
                 .WithMany(x => x.Lines)
@@ -280,6 +348,17 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.UploadedAt);
             e.HasIndex(x => new { x.SupplierName, x.IssueDate });
+
+            // Informational backtrack tags (F1) — deleting a mašina/auto just
+            // clears the tag, the document stays.
+            e.HasOne(x => x.Machine)
+                .WithMany()
+                .HasForeignKey(x => x.MachineId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Car)
+                .WithMany()
+                .HasForeignKey(x => x.CarId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         builder.Entity<PushSubscription>(e =>

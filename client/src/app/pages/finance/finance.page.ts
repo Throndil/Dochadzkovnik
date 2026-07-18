@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
@@ -10,7 +10,8 @@ import { ApiErrorService } from '../../services/api-error.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import { PayrollService } from '../../services/payroll.service';
 import { MaterialPurchaseService } from '../../services/material-purchase.service';
-import { InvoiceService } from '../../services/invoice.service';
+import { InvoiceService, InvoiceDocument } from '../../services/invoice.service';
+import { Division, DivisionService, DIVISION_LABELS } from '../../services/division.service';
 import { LocationService, LocationPnl } from '../../services/location.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
@@ -50,6 +51,36 @@ export class FinancePage {
   invoiceTotal = signal<number | null>(null);
   invoiceCount = signal<number | null>(null);
   invoicePending = signal<number | null>(null);
+  /** Month's documents — feeds the per-division Príjem/Výdaj/Rozdiel card. */
+  invoiceDocs = signal<InvoiceDocument[]>([]);
+  /** This month's paid AI extraction cost (exact usage-based). */
+  aiSpend = signal<{ costEur: number; calls: number } | null>(null);
+
+  private divisionSvc = inject(DivisionService);
+  private router = inject(Router);
+
+  /** Príjem / Výdaj / Rozdiel per division for the selected month (Fáza D). */
+  divisionStats = computed(() => {
+    const docs = this.invoiceDocs().filter(i => i.status !== 'discarded');
+    return (['profistav', 'stroje'] as Division[]).map(key => {
+      const mine = docs.filter(i => (i.division || 'profistav') === key);
+      const income = mine.filter(i => i.direction === 'income').reduce((s, i) => s + (i.totalInclVat || 0), 0);
+      const expense = mine.filter(i => i.direction !== 'income').reduce((s, i) => s + (i.totalInclVat || 0), 0);
+      return { key, label: DIVISION_LABELS[key], income, expense, diff: income - expense, count: mine.length };
+    });
+  });
+
+  /** D6 — monthly division report Excel for the month being viewed. */
+  downloadDivisionReport() {
+    this.invoices.downloadMonthlyReport(this.month());
+  }
+
+  /** Súhrn card click-through: activate the division and open its page ON
+   *  THE MONTH being viewed here (carried via ?mesiac=YYYY-MM). */
+  openDivision(d: Division) {
+    this.divisionSvc.set(d);
+    this.router.navigate(['/admin/invoices'], { queryParams: { mesiac: this.month() } });
+  }
 
   canPayroll = computed(() => this.flags.payrollAndPnL() || this.auth.isSuperAdmin());
   canInvoices = computed(() => this.flags.invoiceScanning() || this.auth.isSuperAdmin());
@@ -79,6 +110,7 @@ export class FinancePage {
       (r.labour?.hoursWorked ?? 0) > 0
       || (r.labour?.cost ?? 0) > 0
       || (r.material?.cost ?? 0) > 0
+      || (r.trips?.cost ?? 0) > 0
       || (r.invoicedInclVat ?? 0) > 0));
 
   reportTotals = computed(() => {
@@ -87,8 +119,9 @@ export class FinancePage {
       hours: rows.reduce((s, r) => s + (r.labour?.hoursWorked ?? 0), 0),
       wages: rows.reduce((s, r) => s + (r.labour?.cost ?? 0), 0),
       material: rows.reduce((s, r) => s + (r.material?.cost ?? 0), 0),
+      trips: rows.reduce((s, r) => s + (r.trips?.cost ?? 0), 0),
       invoiced: rows.reduce((s, r) => s + (r.invoicedInclVat ?? 0), 0),
-      total: rows.reduce((s, r) => s + (r.labour?.cost ?? 0) + (r.material?.cost ?? 0), 0)
+      total: rows.reduce((s, r) => s + (r.labour?.cost ?? 0) + (r.material?.cost ?? 0) + (r.trips?.cost ?? 0), 0)
     };
   });
 
@@ -106,7 +139,7 @@ export class FinancePage {
   /** Largest per-site total in the report — scales the comparison bars. */
   reportMax = computed(() => {
     const rows = this.visibleReportRows();
-    const m = Math.max(0, ...rows.map(r => (r.labour?.cost ?? 0) + (r.material?.cost ?? 0)));
+    const m = Math.max(0, ...rows.map(r => (r.labour?.cost ?? 0) + (r.material?.cost ?? 0) + (r.trips?.cost ?? 0)));
     return m > 0 ? m : 1;
   });
 
@@ -116,7 +149,7 @@ export class FinancePage {
   }
 
   rowTotal(r: LocationPnl): number {
-    return (r.labour?.cost ?? 0) + (r.material?.cost ?? 0);
+    return (r.labour?.cost ?? 0) + (r.material?.cost ?? 0) + (r.trips?.cost ?? 0);
   }
 
   constructor() {
@@ -200,10 +233,12 @@ export class FinancePage {
       tasks.push((async () => {
         try {
           const rows = await this.invoices.list({ from, to });
+          this.invoiceDocs.set(rows);
           this.invoiceCount.set(rows.length);
           this.invoiceTotal.set(rows.reduce((s, d) => s + (d.totalInclVat || 0), 0));
           this.invoicePending.set(rows.filter(d => d.status === 'review').length);
         } catch {
+          this.invoiceDocs.set([]);
           this.invoiceCount.set(null);
           this.invoiceTotal.set(null);
           this.invoicePending.set(null);
@@ -212,6 +247,9 @@ export class FinancePage {
     }
 
     await Promise.all(tasks);
+    if (this.canInvoices()) {
+      this.invoices.getAiSpend().then(s => this.aiSpend.set(s)).catch(() => this.aiSpend.set(null));
+    }
     this.loading.set(false);
     // The per-location spending report loads independently of the cards.
     this.loadReport();

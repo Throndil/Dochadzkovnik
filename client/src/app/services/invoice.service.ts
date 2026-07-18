@@ -24,6 +24,9 @@ export interface InvoiceLine {
   locationId: number | null;
   /** Name of the line's own location when overridden; null when inheriting. */
   locationName: string | null;
+  /** Per-line Mašina/Auto override (stroje docs) — F1. */
+  machineId?: number | null;
+  carId?: number | null;
 }
 
 export interface InvoiceDeliveryList {
@@ -34,6 +37,9 @@ export interface InvoiceDeliveryList {
   deliveryNote: string | null;
   locationId: number | null;
   locationName: string | null;
+  /** Mašina/Auto assignment (stroje docs) — F1. */
+  machineId?: number | null;
+  carId?: number | null;
   akciaSuggestion: string | null;
   subtotalExclVat: number | null;
   subtotalVat: number | null;
@@ -61,6 +67,15 @@ export interface InvoiceDocument {
   status: string;
   /** 'invoice' | 'receipt' (pokladničný blok) */
   documentKind: string;
+  /** 'profistav' (stavby) | 'stroje' — company division (Fáza D). */
+  division: string;
+  /** 'cost' (výdaj) | 'income' (príjem — AZ issued the invoice). */
+  direction: string;
+  /** Informational mašina/auto backtrack (F1) — never affects sums. */
+  machineId?: number | null;
+  machineName?: string | null;
+  carId?: number | null;
+  carName?: string | null;
   reconciliationOk: boolean;
   reconciliationNote: string | null;
   uploadedBy: string;
@@ -91,6 +106,9 @@ export interface UpdateInvoiceLinePayload {
   isService?: boolean;
   /** Per-line site: positive Location.Id assigns the row; -1 clears the override (row follows its delivery list). */
   locationId?: number;
+  /** Per-line Mašina/Auto override — same sentinels. */
+  machineId?: number;
+  carId?: number;
 }
 
 /** Scanning-pipeline health (GET /api/invoices/scan-status). */
@@ -119,6 +137,9 @@ export interface AddInvoiceLinePayload {
 export interface UpdateInvoiceDeliveryListPayload {
   /** Pass a positive Location.Id, or -1 to clear (= Sklad / Inventár). */
   locationId?: number;
+  /** Mašina/Auto (stroje docs): positive assigns (clears the other), -1 clears. */
+  machineId?: number;
+  carId?: number;
   pickedUpBy?: string;
   deliveryNote?: string;
 }
@@ -139,11 +160,19 @@ export class InvoiceService {
    * AI synchronously and returns the parsed result as drafts. The manager
    * then reviews and edits on /admin/invoices/{id}/review before commit.
    */
-  upload(file: File): Promise<InvoiceDocument> {
+  upload(file: File, division = 'profistav'): Promise<InvoiceDocument> {
     const form = new FormData();
     form.append('file', file, file.name);
     return firstValueFrom(
-      this.http.post<InvoiceDocument>(`${this.url}/upload`, form)
+      this.http.post<InvoiceDocument>(`${this.url}/upload?division=${division}`, form)
+    );
+  }
+
+  /** Change division/direction and/or the mašina/auto backtrack tag.
+   *  machineId/carId: positive assigns (clears the other), 0 clears. */
+  updateDivision(invoiceId: number, payload: { division?: string; direction?: string; machineId?: number; carId?: number }): Promise<InvoiceDocument> {
+    return firstValueFrom(
+      this.http.put<InvoiceDocument>(`${this.url}/${invoiceId}/division`, payload)
     );
   }
 
@@ -153,11 +182,13 @@ export class InvoiceService {
    * + persistence path as `upload`. Behind the InvoiceCameraScan flag.
    * See INVOICE_SCANNING_CAMERA_STAGES.md stage 1.
    */
-  uploadPhotos(files: File[]): Promise<InvoiceDocument> {
+  /** blank=true → "Odfotiť prázdny doklad": no AI read, an empty editable
+   *  document is created and the manager fills name + rows on review. */
+  uploadPhotos(files: File[], blank = false, division = 'profistav'): Promise<InvoiceDocument> {
     const form = new FormData();
     for (const f of files) form.append('files', f, f.name);
     return firstValueFrom(
-      this.http.post<InvoiceDocument>(`${this.url}/upload-photos`, form)
+      this.http.post<InvoiceDocument>(`${this.url}/upload-photos?division=${division}${blank ? '&blank=true' : ''}`, form)
     );
   }
 
@@ -271,5 +302,31 @@ export class InvoiceService {
 
   discard(invoiceId: number): Promise<void> {
     return firstValueFrom(this.http.delete<void>(`${this.url}/${invoiceId}`));
+  }
+
+  /** This month's paid AI extraction cost (accumulated from exact usage). */
+  getAiSpend(): Promise<{ month: string; costEur: number; calls: number }> {
+    return firstValueFrom(
+      this.http.get<{ month: string; costEur: number; calls: number }>(`${this.url}/ai-spend`)
+    );
+  }
+
+  /** D6 — monthly division report (Súhrn + per-division listing) as Excel. */
+  downloadMonthlyReport(month: string): void {
+    this.http.get(`${this.url}/monthly-report?month=${month}`, {
+      responseType: 'blob',
+      observe: 'response'
+    }).subscribe({
+      next: res => {
+        const blob = res.body!;
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `Report_divizie_${month}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => alert('Sťahovanie Excel súboru zlyhalo. Skúste znova.')
+    });
   }
 }

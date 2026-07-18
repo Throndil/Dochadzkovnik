@@ -69,9 +69,12 @@ export class PayrollService {
 
   // ─── Period summary ────────────────────────────────────────────
 
-  monthly(period: PayrollPeriod): Promise<PayrollMonthly> {
+  /** division (Fáza D8): scope rows to one division's employees. */
+  monthly(period: PayrollPeriod, division?: string): Promise<PayrollMonthly> {
+    let params = this.periodParams(period);
+    if (division) params = params.set('division', division);
     return firstValueFrom(
-      this.http.get<PayrollMonthly>(`${this.url}/monthly`, { params: this.periodParams(period) })
+      this.http.get<PayrollMonthly>(`${this.url}/monthly`, { params })
     );
   }
 
@@ -112,8 +115,9 @@ export class PayrollService {
   // ─── Excel exports ─────────────────────────────────────────────
 
   /** Period summary XLSX — opens a browser save dialog via blob URL. */
-  downloadMonthlySummary(period: PayrollPeriod): void {
-    const url = `${this.url}/monthly/export?${this.periodQuery(period)}`;
+  downloadMonthlySummary(period: PayrollPeriod, division?: string): void {
+    const divPart = division ? `&division=${encodeURIComponent(division)}` : '';
+    const url = `${this.url}/monthly/export?${this.periodQuery(period)}${divPart}`;
     this.downloadBlob(url, `Mzdy_${this.periodToken(period)}.xlsx`);
   }
 

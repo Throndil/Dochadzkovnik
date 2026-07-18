@@ -45,7 +45,7 @@
                   <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ entry.locationName }}</td>
                   <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
                     @if (entry.carName) {
-                      <span class="inline-flex items-center gap-1 text-sm">🚗 {{ entry.carName }}</span>
+                      <span class="inline-flex items-center gap-1 text-sm">{{ entry.carName }}</span>
                     } @else {
                       <span class="text-slate-600">—</span>
                     }
@@ -75,7 +75,7 @@
                   <div class="font-medium text-slate-900 dark:text-white">{{ entry.employeeName }}</div>
                   <div class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ entry.locationName }}</div>
                   @if (entry.carName) {
-                    <div class="text-sm text-slate-500 dark:text-slate-400">🚗 {{ entry.carName }}</div>
+                    <div class="text-sm text-slate-500 dark:text-slate-400">{{ entry.carName }}</div>
                   }
                 </div>
                 @if (entry.hoursWorked) {

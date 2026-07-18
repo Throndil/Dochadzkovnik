@@ -75,6 +75,166 @@
     }
   </div>
 
+  <!-- ══ Zložka pracoviska — denník podľa dátumu (P1) ═══════════════ -->
+  @if (location()) {
+    <div class="max-w-3xl mx-auto px-4">
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mt-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Zložka podľa dní</h2>
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-700 p-1">
+              <button type="button" (click)="setLogMode('week')"
+                      class="px-3 py-1.5 text-sm rounded-md transition-colors"
+                      [class]="logMode() === 'week'
+                        ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                        : 'text-slate-600 dark:text-slate-300'">Týždeň</button>
+              <button type="button" (click)="setLogMode('day')"
+                      class="px-3 py-1.5 text-sm rounded-md transition-colors"
+                      [class]="logMode() === 'day'
+                        ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                        : 'text-slate-600 dark:text-slate-300'">Deň</button>
+              <button type="button" (click)="setLogMode('range')"
+                      class="px-3 py-1.5 text-sm rounded-md transition-colors"
+                      [class]="logMode() === 'range'
+                        ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                        : 'text-slate-600 dark:text-slate-300'">Vlastné</button>
+            </div>
+
+            @if (logMode() === 'week') {
+              <div class="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+                <button type="button" (click)="shiftLogWeek(-1)" aria-label="Predošlý týždeň"
+                        class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">‹</button>
+                <span class="px-2 text-sm tabular-nums whitespace-nowrap text-slate-900 dark:text-white">{{ logRangeLabel() }}</span>
+                <button type="button" (click)="shiftLogWeek(1)" aria-label="Nasledujúci týždeň"
+                        class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-white dark:hover:bg-slate-800">›</button>
+              </div>
+            } @else if (logMode() === 'day') {
+              <input type="date" [value]="logDay()" (change)="onLogDayChange($any($event.target).value)" aria-label="Deň"
+                     class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+            } @else {
+              <input type="date" [value]="logFrom()" (change)="onLogRangeChange('from', $any($event.target).value)" aria-label="Od dátumu"
+                     class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+              <span class="text-slate-500 dark:text-slate-400">–</span>
+              <input type="date" [value]="logTo()" (change)="onLogRangeChange('to', $any($event.target).value)" aria-label="Do dátumu"
+                     class="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm [color-scheme:dark]" />
+            }
+          </div>
+        </div>
+
+        @if (logLoading()) {
+          <app-spinner size="sm" [inline]="true" />
+        } @else if (logDays().length === 0) {
+          <div class="text-sm text-slate-500 dark:text-slate-400 py-2">V zvolenom období nebola žiadna aktivita.</div>
+        } @else {
+          <div class="space-y-3">
+            @for (day of logDays(); track day.date) {
+              <div class="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                <button type="button" (click)="toggleLogDay(day.date)"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-2.5 bg-slate-50 dark:bg-slate-700/40 text-left">
+                  <span class="font-medium text-slate-900 dark:text-white capitalize">{{ logDayLabel(day.date) }}</span>
+                  <span class="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    @if (day.shifts.length) { <span>{{ day.shifts.length }} {{ day.shifts.length === 1 ? 'šichta' : (day.shifts.length <= 4 ? 'šichty' : 'šícht') }} · {{ formatHours(logDayHours(day)) }} h</span> }
+                    @if (day.diaries.length) { <span>denník {{ day.diaries.length }}</span> }
+                    @if (day.materials.length) { <span>materiál {{ day.materials.length }}</span> }
+                    @if (day.documents.length) { <span>doklady {{ day.documents.length }}</span> }
+                    @if (day.photos.length) { <span>fotky {{ day.photos.length }}</span> }
+                    <span class="text-slate-400">{{ collapsedLogDays().has(day.date) ? '▾' : '▴' }}</span>
+                  </span>
+                </button>
+
+                @if (!collapsedLogDays().has(day.date)) {
+                  <div class="px-4 py-3 space-y-3 text-sm">
+                    <!-- Šichty -->
+                    @if (day.shifts.length) {
+                      <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Šichty</div>
+                        @for (s of day.shifts; track $index) {
+                          <div class="flex justify-between gap-3 py-0.5">
+                            <span class="text-slate-700 dark:text-slate-200 min-w-0">
+                              {{ s.employeeName }}
+                              @if (s.carName) { <span class="text-xs text-slate-500 dark:text-slate-400">· {{ s.carName }}</span> }
+                              @if (s.machineName) { <span class="text-xs text-slate-500 dark:text-slate-400">· {{ s.machineName }}</span> }
+                              @if (s.note) { <span class="block text-xs text-slate-500 dark:text-slate-400">„{{ s.note }}"</span> }
+                            </span>
+                            <span class="tabular-nums text-slate-900 dark:text-white whitespace-nowrap">{{ s.hours != null ? formatHours(s.hours) + ' h' : 'otvorená' }}</span>
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    <!-- Stavebný denník -->
+                    @if (day.diaries.length) {
+                      <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Stavebný denník</div>
+                        @for (di of day.diaries; track $index) {
+                          <div class="py-0.5">
+                            <span class="text-slate-700 dark:text-slate-200">{{ di.employeeName }}</span>
+                            <p class="text-xs text-slate-500 dark:text-slate-400 whitespace-pre-line">{{ di.bodyText }}</p>
+                            @if (di.attachmentUrl) {
+                              <a [href]="di.attachmentUrl" target="_blank" class="text-xs text-amber-600 dark:text-amber-400 hover:underline">Príloha ↗</a>
+                            }
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    <!-- Materiál -->
+                    @if (day.materials.length) {
+                      <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Materiál</div>
+                        @for (m of day.materials; track $index) {
+                          <div class="flex justify-between gap-3 py-0.5 text-xs text-slate-600 dark:text-slate-300">
+                            <span class="truncate">{{ m.materialName }} · {{ formatQty(m.quantity) }} {{ m.unit }}</span>
+                            <span class="tabular-nums whitespace-nowrap">{{ formatMoney(m.lineCost) }} €</span>
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    <!-- Doklady -->
+                    @if (day.documents.length) {
+                      <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Doklady</div>
+                        @for (doc of day.documents; track doc.purchaseId) {
+                          <div class="flex justify-between gap-3 py-0.5 text-xs">
+                            <span class="truncate text-slate-600 dark:text-slate-300">
+                              @if (doc.invoiceDocumentId) {
+                                <a [routerLink]="['/admin/invoices', doc.invoiceDocumentId]" class="text-amber-600 dark:text-amber-400 hover:underline">{{ doc.supplierName || 'Doklad' }}</a>
+                              } @else {
+                                {{ doc.supplierName || 'Nákup' }}
+                              }
+                              @if (doc.deliveryNoteRef) { <span class="text-slate-400"> · {{ doc.deliveryNoteRef }}</span> }
+                            </span>
+                            <span class="tabular-nums whitespace-nowrap text-slate-600 dark:text-slate-300">{{ formatMoney(doc.totalCost) }} €</span>
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    <!-- Fotky -->
+                    @if (day.photos.length) {
+                      <div>
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1">Fotky</div>
+                        <div class="flex flex-wrap gap-2">
+                          @for (p of day.photos; track $index) {
+                            <a [href]="p.photoUrl" target="_blank" [title]="p.employeeName">
+                              <img [src]="thumb(p.photoUrl)" [alt]="p.employeeName" loading="lazy"
+                                   class="w-16 h-16 rounded-lg object-cover border border-slate-200 dark:border-slate-600" />
+                            </a>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
+
   <!-- ══ Spotreba materiálu ═════════════════════════════════════════ -->
   @if (location()) {
     <div class="max-w-3xl mx-auto px-4">
@@ -223,6 +383,8 @@
                       </span>
                     </div>
                   }
+                  <!-- W1: náklady = hrubá sadzba (výplatná + €/h položky z Odvodov) -->
+                  <div class="pl-4 pb-2 text-[11px] text-slate-400 dark:text-slate-500">Sadzba = výplatná + „€/h" položky z Odvodov.</div>
                 }
               }
             </div>
@@ -258,6 +420,17 @@
               <!-- Dev reminder, superadmin-only — regular admins simply don't see the row -->
               <div class="border-t border-slate-200 dark:border-slate-700 py-2 text-xs text-slate-400 dark:text-slate-500">
                 Aktivujte Nákupy materiálu vo Funkcie.
+              </div>
+            }
+
+            <!-- Výjazdy áut (F5) — jedna jazda za auto a deň, aj pri viacerých pracovníkoch -->
+            @if (p.trips; as trips) {
+              <div class="flex justify-between items-center py-2 border-t border-slate-200 dark:border-slate-700">
+                <span class="text-slate-700 dark:text-slate-200">
+                  Výjazdy áut
+                  <span class="text-slate-400 text-xs ml-1">{{ trips.count }} × {{ formatMoney(trips.rate) }} €</span>
+                </span>
+                <span class="tabular-nums font-medium text-slate-900 dark:text-white">{{ formatMoney(trips.cost) }} €</span>
               </div>
             }
 

@@ -92,8 +92,21 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/mzdy/mzdy.page').then(m => m.MzdyPage)
       },
       {
+        path: 'odvody',
+        canActivate: [payrollAndPnLFeatureGuard],
+        loadComponent: () => import('./pages/odvody/odvody.page').then(m => m.OdvodyPage)
+      },
+      {
         path: 'cars/:id',
         loadComponent: () => import('./pages/car-detail/car-detail.page').then(m => m.CarDetailPage)
+      },
+      {
+        path: 'stroje',
+        loadComponent: () => import('./pages/stroje/stroje.page').then(m => m.StrojePage)
+      },
+      {
+        path: 'palivove-karty',
+        loadComponent: () => import('./pages/palivove-karty/palivove-karty.page').then(m => m.PalivoveKartyPage)
       },
       {
         path: 'time-entries',

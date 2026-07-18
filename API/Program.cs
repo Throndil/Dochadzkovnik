@@ -73,6 +73,11 @@ builder.Services.AddIdentityCore<AppUser>(opt =>
         opt.Password.RequireNonAlphanumeric = false;
         opt.Password.RequireUppercase = false;
         opt.User.RequireUniqueEmail = false;
+        // Security-PIN brute-force guard: wrong PINs at login count as access
+        // failures — 5 misses lock the account for 5 minutes.
+        opt.Lockout.MaxFailedAccessAttempts = 5;
+        opt.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+        opt.Lockout.AllowedForNewUsers = true;
     })
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();

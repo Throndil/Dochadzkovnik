@@ -42,7 +42,7 @@
         <button (click)="setTab('inventar')" role="tab"
                 class="touch-target flex-1 px-2 sm:px-4 py-2 text-sm font-medium rounded-md transition-colors"
                 [class]="tab() === 'inventar' ? 'bg-white dark:bg-slate-800 shadow-sm text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100'">
-          Inventár
+          Sklad
         </button>
         <button (click)="setTab('neid')" role="tab"
                 class="touch-target flex-1 px-2 sm:px-4 py-2 text-sm font-medium rounded-md transition-colors inline-flex items-center justify-center gap-1.5"
@@ -437,7 +437,7 @@
                     @if (p.locationName) {
                       <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ p.locationName }}</span>
                     } @else {
-                      <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 italic">Inventár</span>
+                      <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 italic">Sklad</span>
                     }
                     <span>{{ p.lines.length }} {{ p.lines.length === 1 ? 'položka' : 'položky' }}</span>
                     @if (p.receiptPhotoUrl) {
@@ -500,10 +500,19 @@
                   }
 
                   <div class="mt-3 flex justify-end gap-3">
-                    <button (click)="startEditPurchase(p)"
-                            class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
-                      Upraviť
-                    </button>
+                    @if (p.invoiceDocumentId) {
+                      <!-- Invoice-derived: lines mirror the faktúra (s DPH display,
+                           bez DPH storage) — edits happen on the invoice review. -->
+                      <a [routerLink]="['/admin/invoices', p.invoiceDocumentId]"
+                         class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
+                        Otvoriť faktúru
+                      </a>
+                    } @else {
+                      <button (click)="startEditPurchase(p)"
+                              class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
+                        Upraviť
+                      </button>
+                    }
                     <button (click)="onDeletePurchase(p)"
                             class="text-red-600 dark:text-red-400 hover:text-red-700 text-sm font-medium">
                       Vymazať nákup
@@ -555,7 +564,7 @@
       } @else {
         <!-- Inventory hero -->
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6 mb-4">
-          <div class="text-sm text-slate-500 dark:text-slate-400">Inventár spolu · {{ inventoryPeriodLabel() }}</div>
+          <div class="text-sm text-slate-500 dark:text-slate-400">Sklad spolu · {{ inventoryPeriodLabel() }}</div>
           <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ formatEur(inventoryGrandTotal()) }}</div>
           <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
             <span>Nákupy <span class="font-semibold text-slate-900 dark:text-white">{{ inventoryPurchases().length }}</span></span>
@@ -680,10 +689,17 @@
                   }
 
                   <div class="mt-3 flex justify-end gap-3">
-                    <button (click)="startEditPurchase(p)"
-                            class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
-                      Upraviť
-                    </button>
+                    @if (p.invoiceDocumentId) {
+                      <a [routerLink]="['/admin/invoices', p.invoiceDocumentId]"
+                         class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
+                        Otvoriť faktúru
+                      </a>
+                    } @else {
+                      <button (click)="startEditPurchase(p)"
+                              class="text-amber-600 dark:text-amber-400 hover:text-amber-700 text-sm font-semibold">
+                        Upraviť
+                      </button>
+                    }
                     <button (click)="onDeleteInventoryPurchase(p)"
                             class="text-red-600 dark:text-red-400 hover:text-red-700 text-sm font-medium">
                       Vymazať nákup
@@ -693,7 +709,7 @@
               }
             </div>
           } @empty {
-            <app-empty-state message="V inventári nie sú žiadne položky." />
+            <app-empty-state message="V sklade nie sú žiadne položky." />
           }
         </div>
       }
@@ -721,7 +737,7 @@
               <span>Výskytov <span class="font-semibold text-slate-900 dark:text-white">{{ unfiledOccurrences() }}</span></span>
             </div>
             <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
-              Zaradením priradíš položku ku katalógovému materiálu — potom sa ráta do nákladov a inventára správne.
+              Zaradením priradíš položku ku katalógovému materiálu — potom sa ráta do nákladov a skladu správne.
             </div>
           </div>
         }
@@ -892,7 +908,7 @@
             <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Pre pracovisko</label>
             <select [(ngModel)]="editPurchaseLocationId"
                     class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg">
-              <option [ngValue]="null">— Inventár —</option>
+              <option [ngValue]="null">— Sklad —</option>
               @for (l of locations(); track l.id) {
                 <option [ngValue]="l.id">{{ l.name }}</option>
               }

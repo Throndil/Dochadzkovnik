@@ -5,7 +5,7 @@ import { Component, input } from '@angular/core';
  * (styled card / bare text / italic card). This is the canonical one.
  *
  *   <app-empty-state message="Žiadne faktúry. Začnite nahratím PDF." />
- *   <app-empty-state icon="📄" message="Žiadne dáta.">
+ *   <app-empty-state message="Žiadne dáta.">
  *     <button …>+ Pridať</button>          ← optional CTA slot
  *   </app-empty-state>
  */

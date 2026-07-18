@@ -55,7 +55,50 @@
           </div>
           @if (canInvoices() && invoiceTotal() !== null) {
             <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
-              Materiál zahŕňa aj položky z faktúr od dodávateľov ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }). Faktúry sa nepripočítavajú zvlášť.
+              V materiáli sú aj položky z faktúr ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }), nepočítajú sa druhýkrát.
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Divisions: Príjem / Výdaj / Rozdiel per division (Fáza D) -->
+      @if (canInvoices()) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white capitalize">Divízie · {{ monthLabel() }}</h2>
+            <!-- D6 — mesačný report divízií -->
+            <button type="button" (click)="downloadDivisionReport()"
+                    class="touch-target inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+              Report (Excel)
+            </button>
+          </div>
+          <div class="space-y-2">
+            @for (d of divisionStats(); track d.key) {
+              <button type="button" (click)="openDivision(d.key)"
+                      class="w-full flex items-center gap-3 sm:gap-6 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-left flex-wrap">
+                <span class="font-medium text-slate-900 dark:text-white min-w-[8rem]">{{ d.label }}
+                  <span class="block text-[11px] font-normal text-slate-400 dark:text-slate-500">{{ d.count }} {{ d.count === 1 ? 'doklad' : (d.count >= 2 && d.count <= 4 ? 'doklady' : 'dokladov') }}</span>
+                </span>
+                <span class="text-xs text-slate-500 dark:text-slate-400">Príjem
+                  <span class="block text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">+ {{ d.income | number:'1.2-2' }} €</span>
+                </span>
+                <span class="text-xs text-slate-500 dark:text-slate-400">Výdaj
+                  <span class="block text-sm font-semibold tabular-nums text-red-600 dark:text-red-400">− {{ d.expense | number:'1.2-2' }} €</span>
+                </span>
+                <span class="text-xs text-slate-500 dark:text-slate-400">Rozdiel
+                  <span class="block text-sm font-bold tabular-nums"
+                        [class]="d.diff >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">
+                    {{ d.diff >= 0 ? '+' : '−' }} {{ (d.diff < 0 ? -d.diff : d.diff) | number:'1.2-2' }} €
+                  </span>
+                </span>
+                <svg class="w-4 h-4 text-slate-400 ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            }
+          </div>
+          @if (aiSpend(); as ai) {
+            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
+              AI rozpoznávanie dokladov tento mesiac: <span class="tabular-nums text-slate-600 dark:text-slate-300">{{ ai.costEur | number:'1.2-2' }} €</span> · {{ ai.calls }} volaní
             </div>
           }
         </div>
@@ -83,6 +126,7 @@
           <div class="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mb-4">
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sky-500"></span> Mzdy</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-amber-500"></span> Materiál</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-violet-500"></span> Výjazdy</span>
           </div>
 
           @if (reportLoading()) {
@@ -111,11 +155,15 @@
                   <div class="col-span-2 flex h-2 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700">
                     <span class="bg-sky-500" [style.width.%]="barPct(r.labour.cost)"></span>
                     <span class="bg-amber-500" [style.width.%]="barPct(r.material?.cost)"></span>
+                    <span class="bg-violet-500" [style.width.%]="barPct(r.trips?.cost)"></span>
                   </div>
 
                   <div class="col-span-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                     <span>Mzdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.labour.cost | number:'1.2-2' }} €</span> · {{ r.labour.hoursWorked | number:'1.1-1' }} h</span>
                     <span>Materiál <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.material !== null ? (r.material!.cost | number:'1.2-2') + ' €' : '—' }}</span></span>
+                    @if (r.trips; as trips) {
+                      <span>Výjazdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ trips.cost | number:'1.2-2' }} €</span> · {{ trips.count }}×</span>
+                    }
                     @if (r.invoicedInclVat != null && r.invoicedInclVat > 0) {
                       <span>Faktúry <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.invoicedInclVat | number:'1.2-2' }} €</span> s DPH</span>
                     }
@@ -129,6 +177,9 @@
               <span class="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-4 items-baseline">
                 <span>Mzdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().wages | number:'1.2-2' }} €</span></span>
                 <span>Materiál <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().material | number:'1.2-2' }} €</span></span>
+                @if (reportTotals().trips > 0) {
+                  <span>Výjazdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().trips | number:'1.2-2' }} €</span></span>
+                }
                 <span class="font-semibold text-slate-900 dark:text-white">= {{ reportTotals().total | number:'1.2-2' }} €</span>
               </span>
             </div>
@@ -144,7 +195,7 @@
             <a routerLink="/admin/materials"
                class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
               <div class="font-semibold text-slate-900 dark:text-white">Materiál</div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a inventár</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a sklad</div>
             </a>
           }
           @if (canInvoices()) {
@@ -163,6 +214,11 @@
                class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
               <div class="font-semibold text-slate-900 dark:text-white">Mzdy</div>
               <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</div>
+            </a>
+            <a routerLink="/admin/odvody"
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
+              <div class="font-semibold text-slate-900 dark:text-white">Odvody</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Ubytovanie, výjazdy a ďalšie sumy</div>
             </a>
           }
           <a routerLink="/admin/locations"

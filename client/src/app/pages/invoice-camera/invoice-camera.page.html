@@ -65,16 +65,29 @@
              full-resolution stills, native night mode + flash, no camera
              permission prompt, and nothing streaming inside the tab (the
              in-page live camera kept crashing low-memory phones). -->
-        <button type="button" (click)="openNativeCamera()"
-                class="touch-target inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-            <circle cx="12" cy="13" r="4"></circle>
+        <div class="flex flex-wrap justify-center gap-2">
+          <button type="button" (click)="openNativeCamera()"
+                  class="touch-target inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+            Odfotiť stranu
+          </button>
+          <!-- Blank paper (hand-written sum, no readable structure): photo is
+               archived, AI is skipped, name + rows get typed on review. -->
+          <button type="button" (click)="openBlankCamera()"
+                  class="touch-target inline-flex items-center gap-2 px-5 py-3 rounded-lg bg-slate-600 hover:bg-slate-500 text-white font-semibold">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line>
           </svg>
-          Odfotiť stranu
-        </button>
+            Odfotiť prázdny doklad
+          </button>
+        </div>
         <div class="text-xs text-slate-400">
-          Pri slabom svetle zapnite blesk.
+          Pri slabom svetle zapnite blesk. Prázdny doklad = názov a riadky doplníte ručne.
         </div>
         <div class="text-xs text-slate-500">
           alebo
@@ -220,8 +233,11 @@
     <!-- ── State: pages-list (thumbnails, reorder/delete, submit) ── -->
     @if (state() === 'pages-list') {
       <div class="bg-slate-800 border border-slate-700 rounded-xl p-4 space-y-4">
-        <div class="text-sm text-slate-300">
+        <div class="flex items-center gap-2 flex-wrap text-sm text-slate-300">
           {{ pages().length === 1 ? 'Naskenovaná 1 strana' : 'Naskenované strany: ' + pages().length }}
+          @if (blankMode()) {
+            <span class="text-xs px-2 py-0.5 rounded-full bg-slate-600 text-slate-100">Prázdny doklad — bez AI, údaje doplníte pri kontrole</span>
+          }
         </div>
 
         <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
@@ -274,7 +290,7 @@
           </div>
           <button type="button" (click)="submit()" [disabled]="pages().length === 0"
                   class="touch-target inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold disabled:opacity-50">
-            Odoslať na rozpoznanie
+            {{ blankMode() ? 'Uložiť doklad' : 'Odoslať na rozpoznanie' }}
           </button>
         </div>
       </div>

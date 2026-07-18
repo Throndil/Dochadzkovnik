@@ -102,7 +102,15 @@ public class MaterialPurchaseLine
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Per-line Mašina/Auto override (stroje docs — e.g. one Slovnaft
+    /// fuel invoice, each line a different vehicle). Effective asset =
+    /// line ?? delivery list ?? document tag.</summary>
+    public int? MachineId { get; set; }
+    public int? CarId { get; set; }
+
     public MaterialPurchase Purchase { get; set; } = null!;
     public Material? Material { get; set; }
     public Location? Location { get; set; }
+    public Machine? Machine { get; set; }
+    public Car? Car { get; set; }
 }

@@ -5,7 +5,7 @@ import { DatePipe } from '@angular/common';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { LocationManagePanelComponent } from '../../components/location-manage-panel/location-manage-panel.component';
-import { LocationService, Location, LocationPhoto, LocationPnl } from '../../services/location.service';
+import { LocationService, Location, LocationPhoto, LocationPnl, DailyLogDay } from '../../services/location.service';
 import { normaliseFile, compressImage, cloudinaryThumb } from '../../utils/image-utils';
 import { TimeEntryService, TimeEntry } from '../../services/time-entry.service';
 import { MaterialService, MaterialUsage } from '../../services/material.service';
@@ -342,6 +342,103 @@ export class LocationDetailPage implements OnInit {
     this.loadMaterials();
     this.loadHours();
     this.loadPnl();
+    this.loadDailyLog();
+  }
+
+  // ─── Zložka pracoviska — denník podľa dátumu (P1) ───────────────
+  /** Týždeň (default) | Deň | Vlastné. */
+  logMode = signal<'week' | 'day' | 'range'>('week');
+  /** Monday of the viewed week (YYYY-MM-DD). */
+  logWeekStart = signal(this.mondayOf(new Date()));
+  logDay = signal(this.isoToday());
+  logFrom = signal(this.mondayOf(new Date()));
+  logTo = signal(this.isoToday());
+  logDays = signal<DailyLogDay[]>([]);
+  logLoading = signal(false);
+  /** Collapsed day keys (dates start expanded). */
+  collapsedLogDays = signal<Set<string>>(new Set());
+
+  logRangeLabel = computed(() => {
+    const { from, to } = this.logRange();
+    return from === to ? this.formatIsoDay(from) : `${this.formatIsoDay(from)} – ${this.formatIsoDay(to)}`;
+  });
+
+  private logRange(): { from: string; to: string } {
+    switch (this.logMode()) {
+      case 'day':   return { from: this.logDay(), to: this.logDay() };
+      case 'range': return { from: this.logFrom(), to: this.logTo() };
+      default: {
+        const from = this.logWeekStart();
+        const [y, m, d] = from.split('-').map(Number);
+        return { from, to: this.isoDate(new Date(y, m - 1, d + 6)) };
+      }
+    }
+  }
+
+  loadDailyLog() {
+    const { from, to } = this.logRange();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return;
+    this.logLoading.set(true);
+    this.locationService.getDailyLog(this.id, from, to).subscribe({
+      next: days => { this.logDays.set(days); this.logLoading.set(false); },
+      error: () => this.logLoading.set(false),
+    });
+  }
+
+  setLogMode(mode: 'week' | 'day' | 'range') {
+    if (this.logMode() === mode) return;
+    this.logMode.set(mode);
+    this.loadDailyLog();
+  }
+
+  shiftLogWeek(delta: -1 | 1) {
+    const [y, m, d] = this.logWeekStart().split('-').map(Number);
+    this.logWeekStart.set(this.isoDate(new Date(y, m - 1, d + delta * 7)));
+    this.loadDailyLog();
+  }
+
+  onLogDayChange(value: string) {
+    this.logDay.set(value);
+    this.loadDailyLog();
+  }
+
+  onLogRangeChange(which: 'from' | 'to', value: string) {
+    (which === 'from' ? this.logFrom : this.logTo).set(value);
+    this.loadDailyLog();
+  }
+
+  toggleLogDay(date: string) {
+    this.collapsedLogDays.update(set => {
+      const next = new Set(set);
+      if (next.has(date)) next.delete(date); else next.add(date);
+      return next;
+    });
+  }
+
+  /** Slovak weekday + date, e.g. "piatok 18.07.2026". */
+  logDayLabel(iso: string): string {
+    const [y, m, d] = iso.split('T')[0].split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    const weekday = date.toLocaleDateString('sk-SK', { weekday: 'long' });
+    return `${weekday} ${this.formatIsoDay(iso.split('T')[0])}`;
+  }
+
+  logDayHours(day: DailyLogDay): number {
+    return day.shifts.reduce((s, x) => s + (x.hours ?? 0), 0);
+  }
+
+  private mondayOf(d: Date): string {
+    return this.isoDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)));
+  }
+  private isoDate(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  private isoToday(): string {
+    return this.isoDate(new Date());
+  }
+  private formatIsoDay(iso: string): string {
+    const [y, m, d] = iso.split('-').map(Number);
+    return `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y}`;
   }
 
   loadGallery() {

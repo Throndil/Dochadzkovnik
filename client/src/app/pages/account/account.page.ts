@@ -26,10 +26,64 @@ export class AccountPage implements OnInit {
   pwdSaved = signal(false);
   pwdError = signal('');
 
+  // Display name (navbar / kiosk header) — self-service rename
+  displayNameDraft = '';
+  nameSaving = signal(false);
+  nameSaved = signal(false);
+  nameError = signal('');
+
+  onSaveDisplayName() {
+    const name = this.displayNameDraft.trim();
+    if (name.length < 2) return;
+    this.nameError.set('');
+    this.nameSaved.set(false);
+    this.nameSaving.set(true);
+    this.auth.updateDisplayName(name).subscribe({
+      next: () => { this.nameSaved.set(true); this.nameSaving.set(false); },
+      error: () => { this.nameError.set('Uloženie sa nepodarilo.'); this.nameSaving.set(false); }
+    });
+  }
+
+  // Security PIN (second gate after the password at login)
+  hasPin = signal(false);
+  pinCurrent = '';
+  pinNew = '';
+  pinConfirm = '';
+  pinSaving = signal(false);
+  pinSaved = signal(false);
+  pinError = signal('');
+
   // Funkcie (superadmin only) — toggles for hidden features
   flags = inject(FeatureFlagService);
   flagSaving = signal(false);
   flagError = signal('');
+
+  get pinValid() {
+    return /^\d{4,8}$/.test(this.pinNew)
+      && this.pinNew === this.pinConfirm
+      && (!this.hasPin() || this.pinCurrent.length > 0);
+  }
+
+  onChangePin() {
+    if (!this.pinValid) return;
+    this.pinError.set('');
+    this.pinSaved.set(false);
+    this.pinSaving.set(true);
+    this.auth.changeAdminPin(this.hasPin() ? this.pinCurrent : null, this.pinNew).subscribe({
+      next: () => {
+        this.pinSaved.set(true);
+        this.pinSaving.set(false);
+        this.hasPin.set(true);
+        this.pinCurrent = '';
+        this.pinNew = '';
+        this.pinConfirm = '';
+      },
+      error: (err) => {
+        this.pinError.set(typeof err?.error === 'string' ? err.error : 'Zmena PIN-u sa nepodarila.');
+        this.pinSaving.set(false);
+      }
+    });
+  }
 
   get pwdValid() {
     return this.currentPassword && this.newPassword.length >= 6 && this.newPassword === this.confirmPassword;
@@ -55,9 +109,11 @@ export class AccountPage implements OnInit {
   }
 
   ngOnInit() {
+    this.displayNameDraft = this.auth.displayName();
     this.auth.getMe().subscribe({ next: (me) => {
       this.recoveryEmail = me.email ?? '';
       this.adminUsername.set(me.userName ?? '');
+      this.hasPin.set(!!me.hasAdminPin);
     }});
   }
 

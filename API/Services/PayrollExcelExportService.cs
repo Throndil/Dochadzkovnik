@@ -458,6 +458,19 @@ public class PayrollExcelExportService : IPayrollExcelExportService
             row++;
         }
 
+        // ── Výjazdy áut (F5) ───────────────────────────────────────────
+        if (d.Trips != null)
+        {
+            s.Cell(row, 1).Value = "Výjazdy áut";
+            s.Cell(row, 1).Style.Font.Bold = true;
+            s.Cell(row, 2).Value = $"{d.Trips.Count} × {d.Trips.Rate:0.00} €";
+            s.Cell(row, 5).Value = (double)d.Trips.Cost;
+            s.Cell(row, 5).Style.NumberFormat.Format = EurFormat;
+            s.Cell(row, 5).Style.Font.Bold = true;
+            s.Range(row, 1, row, 5).Style.Border.TopBorder = XLBorderStyleValues.Thin;
+            row += 2;
+        }
+
         // ── Čistý zisk + marža (hidden when no contract value) ─────────
         if (d.Profit.HasValue)
         {

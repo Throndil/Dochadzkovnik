@@ -71,6 +71,50 @@ public class InvoicesController : ControllerBase
     /// Sonnet unavailable, Gemini free tier carries (photos may parse
     /// worse); "down" = both out.
     /// </summary>
+    /// <summary>
+    /// GET /api/invoices/ai-spend — this month's paid AI extraction cost,
+    /// accumulated from exact API usage tokens. Shown on the Súhrn.
+    /// </summary>
+    [HttpGet("ai-spend")]
+    public async Task<ActionResult<object>> AiSpendThisMonth()
+    {
+        var month = DateTime.UtcNow.ToString("yyyy-MM");
+        var row = await _db.AiSpends.FirstOrDefaultAsync(s => s.Month == month);
+        return Ok(new
+        {
+            month,
+            costEur = Math.Round(row?.CostEur ?? 0m, 2, MidpointRounding.AwayFromZero),
+            calls = row?.Calls ?? 0
+        });
+    }
+
+    /// <summary>
+    /// GET /api/invoices/monthly-report?month=YYYY-MM — D6: Excel report of
+    /// the month's documents, Súhrn (príjem/výdaj/rozdiel per division +
+    /// spolu) + a listing sheet per division. Same numbers as the Divízie
+    /// card (printed s-DPH totals, all statuses except discarded).
+    /// </summary>
+    [HttpGet("monthly-report")]
+    public async Task<IActionResult> MonthlyReport([FromQuery] string? month)
+    {
+        if (month == null || !DateTime.TryParseExact(month + "-01", "yyyy-MM-dd",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var from))
+            return BadRequest("Neplatný mesiac — očakávam YYYY-MM.");
+        var toExcl = from.AddMonths(1);
+
+        var docs = await _db.InvoiceDocuments
+            .Where(d => d.Status != "discarded" && d.IssueDate >= from && d.IssueDate < toExcl)
+            .Select(d => new DivisionReportDoc(
+                d.IssueDate, d.InvoiceNumber, d.SupplierName, d.DocumentKind,
+                d.Direction, d.Division, d.TotalInclVat, d.Status))
+            .ToListAsync();
+
+        var bytes = DivisionMonthlyReportBuilder.Build(month, docs);
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            $"Report_divizie_{month}.xlsx");
+    }
+
     [HttpGet("scan-status")]
     public ActionResult<object> ScanStatus()
     {
@@ -101,6 +145,25 @@ public class InvoicesController : ControllerBase
     private static DateTime NowLocal => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, BratislavaTz);
 
     /// <summary>
+    /// Shell for blank/unreadable documents: no header data, one empty
+    /// delivery list so the review screen has a card to hang manual rows on.
+    /// The synthesized číslo + "(neznámy dodávateľ)" defaults come later in
+    /// the shared Upload path.
+    /// </summary>
+    private static ParsedInvoice EmptyParsed() => new(
+        new ParsedInvoiceHeader(
+            InvoiceNumber: null, SupplierName: null, SupplierIco: null,
+            SupplierIcDph: null, SupplierIban: null, IssueDate: null,
+            DeliveryDate: null, DueDate: null, PeriodFrom: null, PeriodTo: null,
+            TotalExclVat: null, TotalVat: null, TotalInclVat: null,
+            Currency: "EUR", IsReceipt: false),
+        [EmptyDeliveryList()]);
+
+    private static ParsedDeliveryList EmptyDeliveryList() => new(
+        DeliveryNoteRef: null, AkciaName: null, PickedUpBy: null, Note: null,
+        DeliveryDate: null, SubtotalExclVat: null, SubtotalVat: null, Lines: []);
+
+    /// <summary>
     /// In-memory version of the reconciliation gate: do the parsed lines
     /// (+ their VAT) land on the printed total? Same tolerance as
     /// RecomputeReconciliationAsync (5 cents + cash rounding headroom).
@@ -122,11 +185,25 @@ public class InvoicesController : ControllerBase
     //  Upload + parse
     // ────────────────────────────────────────────────────────────────
 
+    /// <summary>AZ Profistav appears as the SUPPLIER on the document ⇒ it's an
+    /// invoice AZ issued to someone — príjem (Fáza D auto-detect).</summary>
+    private static string DetectDirection(ParsedInvoiceHeader h)
+    {
+        var ico = (h.SupplierIco ?? "").Replace(" ", "");
+        var name = h.SupplierName ?? "";
+        return ico == "47208368" || name.Contains("az profistav", StringComparison.OrdinalIgnoreCase)
+            ? "income"
+            : "cost";
+    }
+
+    private static string NormalizeDivision(string? division)
+        => division == "stroje" ? "stroje" : "profistav";
+
     [HttpPost("upload")]
     [RequestSizeLimit(20 * 1024 * 1024)]   // 20 MB cap
-    public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file, bool photoScan = false)
+    public async Task<ActionResult<InvoiceDocumentDto>> Upload(IFormFile file, bool photoScan = false, bool blank = false, string? division = null)
     {
-        if (!_ai.IsConfigured && !_claude.IsConfigured)
+        if (!blank && !_ai.IsConfigured && !_claude.IsConfigured)
             return StatusCode(503, "AI rozpoznávanie nie je nakonfigurované (chýba Gemini aj Anthropic API kľúč).");
         if (_blob == null)
             return StatusCode(503, "Úložisko súborov nie je nakonfigurované.");
@@ -179,7 +256,7 @@ public class InvoicesController : ControllerBase
         ParsedInvoice? aiRead = null;
         ParsedInvoice? claudeRead = null;
 
-        if (_claude.IsConfigured)
+        if (!blank && _claude.IsConfigured)
         {
             try
             {
@@ -198,7 +275,7 @@ public class InvoicesController : ControllerBase
             }
         }
 
-        if (accepted == null && _ai.IsConfigured)
+        if (!blank && accepted == null && _ai.IsConfigured)
         {
             try
             {
@@ -217,12 +294,14 @@ public class InvoicesController : ControllerBase
             }
         }
 
-        // Neither reconciled: take the best read that still carries the
-        // basics (číslo + total) and send it to review with the Nesedí
-        // banner — the manager fixes rows there. Claude's read wins the
-        // tie: it's the stronger extractor.
+        // Neither reconciled: take the best read that still carries a TOTAL
+        // and send it to review with the Nesedí banner — the manager fixes
+        // rows there. The total is the only hard requirement; a missing
+        // invoice number gets synthesized below (customer case: the
+        // "faktúra" is a plain paper with a betónovanie sum — no číslo at
+        // all). Claude's read wins the tie: it's the stronger extractor.
         static bool HasBasics(ParsedInvoice? p) =>
-            p != null && !string.IsNullOrWhiteSpace(p.Header.InvoiceNumber) && p.Header.TotalInclVat != null;
+            p != null && p.Header.TotalInclVat != null;
 
         if (accepted == null)
         {
@@ -236,13 +315,26 @@ public class InvoicesController : ControllerBase
             }
         }
 
+        // NO rejections (customer: blank papers of unknown shape must go
+        // through). A blank-mode upload — or an unreadable one — becomes an
+        // empty editable document: the manager fills the name, rows and
+        // pracovisko on review ("Skúsiť AI" can retry a real read later).
         var parsed = accepted ?? claudeRead ?? aiRead;
+        // Provenance BEFORE any `with` mutation below invalidates reference
+        // identity against the raw reads.
+        var parseSource = blank ? "blank"
+                        : parsed == null ? "empty"
+                        : ReferenceEquals(parsed, claudeRead) ? "claude"
+                        : "gemini";
         if (parsed == null)
         {
-            // Both extractors failed outright (network / quota / unreadable).
-            _log.LogWarning("[InvoiceScanning] Upload rejected — no extractor produced a read.");
-            return BadRequest("DOKLAD SA NEPODARILO PREČÍTAŤ — ani s pomocou AI. Odfoťte ho znova pri LEPŠOM OSVETLENÍ (zapnite blesk), zblízka a s celou stranou v zábere.");
+            if (!blank)
+                _log.LogWarning("[InvoiceScanning] No extractor produced a read — creating an empty editable document.");
+            parsed = EmptyParsed();
         }
+        // Review needs at least one delivery-list card to hang manual rows on.
+        if (parsed.DeliveryLists.Count == 0)
+            parsed = parsed with { DeliveryLists = [EmptyDeliveryList()] };
 
         // Per-line diagnostic: dump what the parser produced for every row.
         // Lets us spot when text-based extraction failed (list/discount null)
@@ -261,15 +353,16 @@ public class InvoicesController : ControllerBase
             }
         }
 
-        // Hard requirements before we even bother uploading the PDF — the
-        // manager needs to see something coherent on review. Reads that got
-        // here without the basics (both extractors ran, neither found číslo
-        // + total) genuinely don't carry the information.
-        if (string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber) || parsed.Header.TotalInclVat == null)
+        // Missing invoice number ≠ rejection: hand-written receipts / plain
+        // papers ("betónovanie 500 €") carry no číslo. Synthesize a unique
+        // one (guid tail — two uploads in the same second must not collide
+        // on the dedup key) so filenames and dedup stay sound; the manager
+        // sees it on review and the document is fully editable there.
+        if (string.IsNullOrWhiteSpace(parsed.Header.InvoiceNumber))
         {
-            _log.LogWarning("[InvoiceScanning] Upload rejected (číslo='{Num}', spolu={Total}) — no read carried the basics.",
-                parsed.Header.InvoiceNumber, parsed.Header.TotalInclVat);
-            return BadRequest("DOKLAD SA NEPODARILO PREČÍTAŤ — ani s pomocou AI. Odfoťte ho znova pri LEPŠOM OSVETLENÍ (zapnite blesk), zblízka a s celou stranou v zábere.");
+            var synth = $"BEZ-CISLA-{NowLocal:yyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..4].ToUpperInvariant()}";
+            _log.LogInformation("[InvoiceScanning] No invoice number on the document — synthesized '{Num}'.", synth);
+            parsed = parsed with { Header = parsed.Header with { InvoiceNumber = synth } };
         }
 
         // 2) Dedup check — invoice number + issue date. Supplier IČO is NOT
@@ -325,15 +418,17 @@ public class InvoicesController : ControllerBase
             Currency            = parsed.Header.Currency,
             TotalExclVat        = Round2(parsed.Header.TotalExclVat ?? 0m),
             TotalVat            = Round2(parsed.Header.TotalVat ?? 0m),
-            TotalInclVat        = Round2(parsed.Header.TotalInclVat!.Value),
+            // 0 for blank/unreadable documents — the manager types the real
+            // total on review (the printed-total field is editable there).
+            TotalInclVat        = Round2(parsed.Header.TotalInclVat ?? 0m),
             PdfUrl              = pdfUrl,
-            // Document AI is gone — record which LLM produced the accepted
-            // read so ocr-diagnostic shows the source.
-            RawOcrJson          = ReferenceEquals(parsed, claudeRead)
-                                    ? "{\"source\":\"claude\"}"
-                                    : "{\"source\":\"gemini\"}",
+            // Record which path produced the document so ocr-diagnostic
+            // shows the source.
+            RawOcrJson          = $"{{\"source\":\"{parseSource}\"}}",
             Status              = "review",
             DocumentKind        = parsed.Header.IsReceipt ? "receipt" : "invoice",
+            Division            = NormalizeDivision(division),
+            Direction           = DetectDirection(parsed.Header),
             UploadedBy          = uploader,
             UploadedAt          = NowLocal
         };
@@ -463,9 +558,9 @@ public class InvoicesController : ControllerBase
     /// </summary>
     [HttpPost("upload-photos")]
     [RequestSizeLimit(40 * 1024 * 1024)]   // 40 MB cap across all photos
-    public async Task<ActionResult<InvoiceDocumentDto>> UploadPhotos(List<IFormFile> files)
+    public async Task<ActionResult<InvoiceDocumentDto>> UploadPhotos(List<IFormFile> files, [FromQuery] bool blank = false, [FromQuery] string? division = null)
     {
-        if (!_ai.IsConfigured && !_claude.IsConfigured)
+        if (!blank && !_ai.IsConfigured && !_claude.IsConfigured)
             return StatusCode(503, "AI rozpoznávanie nie je nakonfigurované (chýba Gemini aj Anthropic API kľúč).");
         if (_blob == null)
             return StatusCode(503, "Úložisko súborov nie je nakonfigurované.");
@@ -491,7 +586,7 @@ public class InvoicesController : ControllerBase
         // assembled below so all pages reach OCR as ONE document.
         if (files.Count == 1)
         {
-            var singleResult = await Upload(files[0], photoScan: true);
+            var singleResult = await Upload(files[0], photoScan: true, blank: blank, division: division);
             if (singleResult.Result is OkObjectResult okSingle && okSingle.Value is InvoiceDocumentDto okSingleDto)
             {
                 await StampScanProvenanceAsync(okSingleDto.Id, 1);
@@ -533,7 +628,7 @@ public class InvoicesController : ControllerBase
             Headers = new HeaderDictionary(),
             ContentType = "application/pdf"
         };
-        var result = await Upload(pdfFormFile, photoScan: true);
+        var result = await Upload(pdfFormFile, photoScan: true, blank: blank, division: division);
 
         // 3) Stamp scan provenance on the newly-created InvoiceDocument so
         //    the list page can render a different icon for camera-scanned
@@ -851,6 +946,8 @@ public class InvoicesController : ControllerBase
         var rows = await q
             .Include(d => d.Purchases).ThenInclude(p => p.Location)
             .Include(d => d.Purchases).ThenInclude(p => p.Lines).ThenInclude(l => l.Location)
+            .Include(d => d.Machine)
+            .Include(d => d.Car)
             .OrderByDescending(d => d.UploadedAt)
             .ToListAsync();
         return rows.Select(BuildSummaryDto).ToList();
@@ -1212,6 +1309,30 @@ public class InvoicesController : ControllerBase
         TryEditBool(edits, editor, "isReverseCharge", line.IsReverseCharge, dto.IsReverseCharge, v => line.IsReverseCharge = v);
         TryEditBool(edits, editor, "isService",       line.IsService,       dto.IsService,       v => line.IsService = v);
 
+        // Per-line Mašina/Auto override (F1) — same sentinels as LocationId.
+        if (dto.MachineId.HasValue)
+        {
+            if (dto.MachineId.Value > 0)
+            {
+                var machine = await _db.Machines.FindAsync(dto.MachineId.Value);
+                if (machine == null) return BadRequest("Neplatná mašina.");
+                line.MachineId = machine.Id;
+                line.CarId = null;
+            }
+            else line.MachineId = null;
+        }
+        if (dto.CarId.HasValue)
+        {
+            if (dto.CarId.Value > 0)
+            {
+                var car = await _db.Cars.FindAsync(dto.CarId.Value);
+                if (car == null) return BadRequest("Neplatné vozidlo.");
+                line.CarId = car.Id;
+                line.MachineId = null;
+            }
+            else line.CarId = null;
+        }
+
         // Per-line site override. A positive Location.Id assigns this row to a
         // different site than its delivery list; -1 / 0 clears the override so
         // the row follows the delivery list again. Null = field not sent.
@@ -1237,7 +1358,8 @@ public class InvoicesController : ControllerBase
         // Committed invoice: the usage row minted at commit time must follow
         // the row's new EFFECTIVE site (override ?? delivery list) — the same
         // semantics as moving a whole delivery list in UpdateDeliveryList.
-        if (doc.Status == "committed")
+        // Income documents have no usages by design (Fáza D).
+        if (doc.Status == "committed" && doc.Direction != "income")
         {
             var effOld = previousLineLocationId ?? line.Purchase.LocationId;
             var effNew = line.LocationId ?? line.Purchase.LocationId;
@@ -1432,6 +1554,30 @@ public class InvoicesController : ControllerBase
                 purchase.LocationId = null;
             }
         }
+        // Mašina/Auto assignment (F1, stroje docs): positive assigns and
+        // clears the other; -1/0 clears. Informational — no usage minting.
+        if (dto.MachineId.HasValue)
+        {
+            if (dto.MachineId.Value > 0)
+            {
+                var machine = await _db.Machines.FindAsync(dto.MachineId.Value);
+                if (machine == null) return BadRequest("Neplatná mašina.");
+                purchase.MachineId = machine.Id;
+                purchase.CarId = null;
+            }
+            else purchase.MachineId = null;
+        }
+        if (dto.CarId.HasValue)
+        {
+            if (dto.CarId.Value > 0)
+            {
+                var car = await _db.Cars.FindAsync(dto.CarId.Value);
+                if (car == null) return BadRequest("Neplatné vozidlo.");
+                purchase.CarId = car.Id;
+                purchase.MachineId = null;
+            }
+            else purchase.CarId = null;
+        }
         if (dto.PickedUpBy != null)   purchase.PickedUpBy   = string.IsNullOrWhiteSpace(dto.PickedUpBy)   ? null : dto.PickedUpBy.Trim();
         if (dto.DeliveryNote != null) purchase.DeliveryNote = string.IsNullOrWhiteSpace(dto.DeliveryNote) ? null : dto.DeliveryNote.Trim();
 
@@ -1441,7 +1587,7 @@ public class InvoicesController : ControllerBase
         // follow the move, otherwise the material shows under both sites.
         // When the new LocationId is null (back to Sklad), the usages are
         // deleted: Sklad lines stay catalogue-only.
-        if (doc.Status == "committed" && purchase.LocationId != previousLocationId)
+        if (doc.Status == "committed" && doc.Direction != "income" && purchase.LocationId != previousLocationId)
         {
             // Only lines that INHERIT the delivery list's site follow this move.
             // Lines with their own LocationId override are pinned to their site
@@ -1671,18 +1817,14 @@ public class InvoicesController : ControllerBase
                 _log.LogWarning(ex, "[InvoiceScanning] ai-reparse Claude failed for doc {Id}", id);
             }
         }
-        var claudeUsable = ai != null
-                           && !string.IsNullOrWhiteSpace(ai.Header.InvoiceNumber)
-                           && ai.Header.TotalInclVat != null;
+        var claudeUsable = ai != null && ai.Header.TotalInclVat != null;
         if ((!claudeUsable || !ParsedReconciles(ai!)) && _ai.IsConfigured)
         {
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(50));
                 var geminiRead = await _ai.ExtractAsync(bytes, mime, ocrText, cts.Token);
-                var geminiUsable = geminiRead != null
-                                   && !string.IsNullOrWhiteSpace(geminiRead.Header.InvoiceNumber)
-                                   && geminiRead.Header.TotalInclVat != null;
+                var geminiUsable = geminiRead != null && geminiRead.Header.TotalInclVat != null;
                 // Gemini's read wins only when it reconciles, or when Claude's is unusable.
                 if (geminiUsable && (ParsedReconciles(geminiRead!) || !claudeUsable))
                 {
@@ -1697,11 +1839,13 @@ public class InvoicesController : ControllerBase
         }
         if (ai == null)
             return StatusCode(502, "AI rozpoznanie zlyhalo. Skúste znova o chvíľu.");
-        if (string.IsNullOrWhiteSpace(ai.Header.InvoiceNumber) || ai.Header.TotalInclVat == null)
-            return BadRequest("AI nerozpoznalo číslo faktúry alebo celkovú sumu — dokument ostáva bez zmeny.");
+        if (ai.Header.TotalInclVat == null)
+            return BadRequest("AI nerozpoznalo celkovú sumu — dokument ostáva bez zmeny.");
 
-        // Dedup guard (same rule as upload), excluding this document.
-        var newNumber = Clip(ai.Header.InvoiceNumber!, 100)!;
+        // Dedup guard (same rule as upload), excluding this document. A read
+        // without a číslo keeps the document's current number (possibly the
+        // synthesized BEZ-CISLA one from upload).
+        var newNumber = Clip(string.IsNullOrWhiteSpace(ai.Header.InvoiceNumber) ? doc.InvoiceNumber : ai.Header.InvoiceNumber!, 100)!;
         var newIssue = ai.Header.IssueDate ?? doc.IssueDate;
         var dup = await _db.InvoiceDocuments.AnyAsync(d =>
             d.Id != id && d.InvoiceNumber == newNumber && d.IssueDate == newIssue);
@@ -1720,6 +1864,9 @@ public class InvoicesController : ControllerBase
         doc.TotalVat      = Round2(ai.Header.TotalVat ?? 0m);
         doc.TotalInclVat  = Round2(ai.Header.TotalInclVat.Value);
         if (ai.Header.IsReceipt) doc.DocumentKind = "receipt";
+        // Re-run the income auto-detect — a fresh read may reveal AZ as the
+        // supplier (issued invoice). Review-only endpoint, so this is safe.
+        doc.Direction = DetectDirection(ai.Header);
 
         _db.MaterialPurchases.RemoveRange(doc.Purchases);
         await _db.SaveChangesAsync();
@@ -1732,6 +1879,77 @@ public class InvoicesController : ControllerBase
             id, newNumber, doc.TotalInclVat);
         await RecomputeReconciliationAsync(id);
         return await BuildDtoAsync(id);
+    }
+
+    /// <summary>
+    /// PUT /api/invoices/{id}/division — change division and/or direction.
+    /// Division re-buckets freely (review + committed). Direction is
+    /// review-only: on a committed document flipping cost↔income would have
+    /// to mint/delete MaterialUsages retroactively — discard & re-commit
+    /// instead for that rare case.
+    /// </summary>
+    [HttpPut("{id}/division")]
+    public async Task<ActionResult<InvoiceDocumentDto>> UpdateDivision(int id, [FromBody] UpdateDivisionDto dto)
+    {
+        var doc = await _db.InvoiceDocuments.FindAsync(id);
+        if (doc == null) return NotFound();
+        if (doc.Status == "discarded") return BadRequest("Zahodenú faktúru nemožno upravovať.");
+
+        if (dto.Division != null)
+        {
+            if (dto.Division is not ("profistav" or "stroje")) return BadRequest("Neplatná divízia.");
+            // Review-only, like direction: a committed profistav doc already
+            // minted material usages; flipping it to stroje would exclude its
+            // purchases from material while the usages stayed counted (and the
+            // reverse can't re-mint). Wrong division after commit = discard
+            // and re-scan.
+            if (doc.Status != "review" && dto.Division != doc.Division)
+                return BadRequest("Divíziu možno meniť len počas kontroly.");
+            doc.Division = dto.Division;
+        }
+        if (dto.Direction != null)
+        {
+            if (dto.Direction is not ("cost" or "income")) return BadRequest("Neplatný smer dokladu.");
+            if (doc.Status != "review" && dto.Direction != doc.Direction)
+                return BadRequest("Smer (príjem/výdaj) možno meniť len počas kontroly.");
+            doc.Direction = dto.Direction;
+        }
+        // Informational mašina/auto backtrack (F1). 0/-1 clears; setting one
+        // clears the other (a doc belongs to one asset). Editable any time
+        // except discarded — it never affects sums.
+        if (dto.MachineId.HasValue)
+        {
+            if (dto.MachineId.Value > 0)
+            {
+                var machine = await _db.Machines.FindAsync(dto.MachineId.Value);
+                if (machine == null) return BadRequest("Neplatná mašina.");
+                doc.MachineId = machine.Id;
+                doc.CarId = null;
+            }
+            else doc.MachineId = null;
+        }
+        if (dto.CarId.HasValue)
+        {
+            if (dto.CarId.Value > 0)
+            {
+                var car = await _db.Cars.FindAsync(dto.CarId.Value);
+                if (car == null) return BadRequest("Neplatné vozidlo.");
+                doc.CarId = car.Id;
+                doc.MachineId = null;
+            }
+            else doc.CarId = null;
+        }
+        await _db.SaveChangesAsync();
+        return await BuildDtoAsync(id);
+    }
+
+    public sealed class UpdateDivisionDto
+    {
+        public string? Division { get; set; }
+        public string? Direction { get; set; }
+        /// <summary>0/-1 clears the tag; positive id assigns (and clears the other).</summary>
+        public int? MachineId { get; set; }
+        public int? CarId { get; set; }
     }
 
     /// <summary>
@@ -1817,6 +2035,13 @@ public class InvoicesController : ControllerBase
         var doc = await _db.InvoiceDocuments
             .Include(d => d.Purchases).ThenInclude(p => p.Lines)
             .FirstAsync(d => d.Id == invoiceDocumentId);
+
+        // Income invoices (AZ billed someone — Fáza D) never touch material:
+        // no catalogue promotion, no MaterialUsage minting. Their lines are
+        // informational (what was billed), the money counts on the division.
+        // AZ Stroje documents likewise: nafta/olej are not warehouse material —
+        // their cost lives on the division page and the per-mašina report.
+        if (doc.Direction == "income" || doc.Division == "stroje") return;
 
         // Pull existing source-line ids so re-commits (shouldn't happen, but the
         // method is idempotent anyway) don't double up.
@@ -1998,6 +2223,21 @@ public class InvoicesController : ControllerBase
         var lineSum = doc.Purchases.SelectMany(p => p.Lines).Sum(l => l.LineTotal);
         var vatSum  = doc.Purchases.SelectMany(p => p.Lines).Sum(l => Round2(l.LineTotal * l.VatRate / 100m));
         var grand   = Round2(lineSum + vatSum);
+
+        // Manual documents ("Odfotiť prázdny doklad") have no printed truth —
+        // the customer KNOWS this isn't an invoice. The rows ARE the document:
+        // totals follow them and the Nesedí banner never nags.
+        if (doc.RawOcrJson.Contains("\"source\":\"blank\"", StringComparison.Ordinal))
+        {
+            doc.TotalExclVat = Round2(lineSum);
+            doc.TotalVat     = Round2(vatSum);
+            doc.TotalInclVat = grand;
+            doc.ReconciliationOk = true;
+            doc.ReconciliationNote = $"Ručný doklad — súčty podľa riadkov ({Money(grand)}).";
+            await _db.SaveChangesAsync();
+            return true;
+        }
+
         var printed = Round2(doc.TotalInclVat);
 
         var diff = Math.Abs(grand - printed);
@@ -2042,6 +2282,8 @@ public class InvoicesController : ControllerBase
         var doc = await _db.InvoiceDocuments
             .Include(d => d.Purchases).ThenInclude(p => p.Location)
             .Include(d => d.Purchases).ThenInclude(p => p.Lines).ThenInclude(l => l.Location)
+            .Include(d => d.Machine)
+            .Include(d => d.Car)
             .FirstAsync(d => d.Id == id);
 
         var dto = BuildSummaryDto(doc);
@@ -2056,6 +2298,8 @@ public class InvoicesController : ControllerBase
                 DeliveryNote     = p.DeliveryNote,
                 LocationId       = p.LocationId,
                 LocationName     = p.Location?.Name,
+                MachineId        = p.MachineId,
+                CarId            = p.CarId,
                 SubtotalExclVat  = p.SubtotalExclVat,
                 SubtotalVat      = p.SubtotalVat,
                 Lines = p.Lines
@@ -2077,7 +2321,9 @@ public class InvoicesController : ControllerBase
                         IsReverseCharge  = l.IsReverseCharge,
                         IsService        = l.IsService,
                         LocationId       = l.LocationId,
-                        LocationName     = l.Location?.Name
+                        LocationName     = l.Location?.Name,
+                        MachineId        = l.MachineId,
+                        CarId            = l.CarId
                     })
                     .ToList()
             })
@@ -2105,6 +2351,12 @@ public class InvoicesController : ControllerBase
         PdfUrl             = d.PdfUrl,
         Status             = d.Status,
         DocumentKind       = d.DocumentKind,
+        Division           = d.Division,
+        Direction          = d.Direction,
+        MachineId          = d.MachineId,
+        MachineName        = d.Machine?.Name,
+        CarId              = d.CarId,
+        CarName            = d.Car?.Name,
         ReconciliationOk   = d.ReconciliationOk,
         ReconciliationNote = d.ReconciliationNote,
         UploadedBy         = d.UploadedBy,

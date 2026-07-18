@@ -11,6 +11,9 @@ export interface TimeEntry {
   locationName: string;
   carId?: number;
   carName?: string;
+  /** "Mašina/Tatra" — machine used for the shift (Fáza F3). */
+  machineId?: number;
+  machineName?: string;
   clockIn: string;
   clockOut?: string;
   hoursWorked?: number;
@@ -27,12 +30,16 @@ export interface TimeEntry {
 export interface CreateTimeEntry {
   employeeId: number;
   locationId: number;
+  carId?: number;
+  machineId?: number;
   clockIn: string;
   clockOut?: string;
   note?: string;
 }
 
 export interface UpdateTimeEntry {
+  carId?: number;
+  machineId?: number;
   clockIn: string;
   clockOut?: string;
   note?: string;

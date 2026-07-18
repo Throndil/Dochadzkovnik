@@ -1,4 +1,5 @@
 import { Component, OnInit, signal, computed, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
@@ -25,7 +26,7 @@ type Tab = 'katalog' | 'nakupy' | 'inventar' | 'neid';
 
 @Component({
   selector: 'app-materials',
-  imports: [NavbarComponent, FormsModule, SpinnerComponent, AlertComponent, EmptyStateComponent, DatepickerDirective],
+  imports: [NavbarComponent, RouterLink, FormsModule, SpinnerComponent, AlertComponent, EmptyStateComponent, DatepickerDirective],
   templateUrl: './materials.page.html'
 })
 export class MaterialsPage implements OnInit {

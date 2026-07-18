@@ -75,12 +75,13 @@ public class PayrollController : ControllerBase
     public async Task<ActionResult<PayrollMonthlyDto>> Monthly(
         [FromQuery] string? month,
         [FromQuery(Name = "from")] string? fromStr,
-        [FromQuery(Name = "to")] string? toStr)
+        [FromQuery(Name = "to")] string? toStr,
+        [FromQuery] string? division = null)
     {
         if (!TryParsePeriod(month, fromStr, toStr, out var from, out var toExcl, out var label))
             return BadRequest("Zadajte mesiac vo formáte YYYY-MM alebo rozsah from/to vo formáte YYYY-MM-DD.");
 
-        var data = await BuildMonthlyAsync(label, from, toExcl);
+        var data = await BuildMonthlyAsync(label, from, toExcl, division);
         return data;
     }
 
@@ -92,12 +93,13 @@ public class PayrollController : ControllerBase
     public async Task<IActionResult> ExportMonthly(
         [FromQuery] string? month,
         [FromQuery(Name = "from")] string? fromStr,
-        [FromQuery(Name = "to")] string? toStr)
+        [FromQuery(Name = "to")] string? toStr,
+        [FromQuery] string? division = null)
     {
         if (!TryParsePeriod(month, fromStr, toStr, out var from, out var toExcl, out var label))
             return BadRequest("Zadajte mesiac vo formáte YYYY-MM alebo rozsah from/to vo formáte YYYY-MM-DD.");
 
-        var data = await BuildMonthlyAsync(label, from, toExcl);
+        var data = await BuildMonthlyAsync(label, from, toExcl, division);
         var title = !string.IsNullOrWhiteSpace(month)
             ? month
             : $"{from:dd.MM.yyyy} – {toExcl.AddDays(-1):dd.MM.yyyy}";
@@ -290,7 +292,7 @@ public class PayrollController : ControllerBase
 
     // ─── Helpers ─────────────────────────────────────────────────────
 
-    private async Task<PayrollMonthlyDto> BuildMonthlyAsync(string periodLabel, DateTime from, DateTime toExcl)
+    private async Task<PayrollMonthlyDto> BuildMonthlyAsync(string periodLabel, DateTime from, DateTime toExcl, string? division = null)
     {
         // Pull every employee with activity in the window — TimeEntries with
         // ClockIn in [from, toExcl) OR EmployeeAdvances with Date in window.
@@ -306,9 +308,17 @@ public class PayrollController : ControllerBase
             .ToListAsync();
         var allIds = entryEmpIds.Concat(advanceEmpIds).Distinct().ToList();
 
-        var employees = await _db.Employees
-            .Where(e => allIds.Contains(e.Id))
-            .ToListAsync();
+        var empQuery = _db.Employees.Where(e => allIds.Contains(e.Id));
+        // Division scope (Fáza D8): the Mzdy page shows the active division's
+        // people only. Unknown/absent value = no filter (back-compat).
+        // Legacy rows carry ''/null Division — those count as profistav, the
+        // same "!= stroje ⇒ profistav" convention documents use. Strict
+        // equality here made such employees vanish from BOTH divisions.
+        if (division == "stroje")
+            empQuery = empQuery.Where(e => e.Division == "stroje");
+        else if (division == "profistav")
+            empQuery = empQuery.Where(e => e.Division != "stroje");
+        var employees = await empQuery.ToListAsync();
 
         // Pull all closed entries in the window and aggregate in memory.
         // Data volume is tiny (one customer, dozens of workers, hundreds of

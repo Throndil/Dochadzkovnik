@@ -22,6 +22,43 @@ namespace API.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("API.Models.AiSpend", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Calls")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("CostEur")
+                        .HasPrecision(10, 4)
+                        .HasColumnType("numeric(10,4)");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Month")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("character varying(7)");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Month")
+                        .IsUnique();
+
+                    b.ToTable("AiSpends");
+                });
+
             modelBuilder.Entity("API.Models.AppUser", b =>
                 {
                     b.Property<string>("Id")
@@ -101,6 +138,11 @@ namespace API.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("Division")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -124,6 +166,67 @@ namespace API.Migrations
                     b.ToTable("Cars");
                 });
 
+            modelBuilder.Entity("API.Models.CompanyRate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("CompanyRates");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Amount = 0m,
+                            Key = "odvody",
+                            Label = "Odvody",
+                            Unit = "€/h na pracovníka",
+                            UpdatedAt = new DateTime(2026, 7, 18, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Amount = 1m,
+                            Key = "ubytovanie",
+                            Label = "Ubytovanie",
+                            Unit = "€/h na pracovníka",
+                            UpdatedAt = new DateTime(2026, 7, 18, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Amount = 30m,
+                            Key = "vyjazd_auta",
+                            Label = "Výjazd auta",
+                            Unit = "€/výjazd",
+                            UpdatedAt = new DateTime(2026, 7, 18, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                        });
+                });
+
             modelBuilder.Entity("API.Models.Employee", b =>
                 {
                     b.Property<int>("Id")
@@ -140,6 +243,11 @@ namespace API.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Division")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("FirstName")
                         .IsRequired()
@@ -176,6 +284,10 @@ namespace API.Migrations
 
                     b.Property<string>("PinPlain")
                         .HasColumnType("text");
+
+                    b.Property<string>("Position")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp without time zone");
@@ -279,6 +391,42 @@ namespace API.Migrations
                     b.ToTable("FeatureFlags");
                 });
 
+            modelBuilder.Entity("API.Models.FuelCard", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int?>("EmployeeId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmployeeId");
+
+                    b.ToTable("FuelCards");
+                });
+
             modelBuilder.Entity("API.Models.InvoiceDocument", b =>
                 {
                     b.Property<int>("Id")
@@ -286,6 +434,9 @@ namespace API.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CarId")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("CommittedAt")
                         .HasColumnType("timestamp without time zone");
@@ -302,6 +453,14 @@ namespace API.Migrations
                     b.Property<DateTime?>("DeliveryDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Division")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("DocumentKind")
                         .IsRequired()
                         .HasColumnType("text");
@@ -316,6 +475,9 @@ namespace API.Migrations
 
                     b.Property<DateTime>("IssueDate")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<int?>("MachineId")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Note")
                         .HasMaxLength(2000)
@@ -394,6 +556,10 @@ namespace API.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CarId");
+
+                    b.HasIndex("MachineId");
+
                     b.HasIndex("Status");
 
                     b.HasIndex("UploadedAt");
@@ -441,6 +607,40 @@ namespace API.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Locations");
+                });
+
+            modelBuilder.Entity("API.Models.Machine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("PhotoUrl")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Machines");
                 });
 
             modelBuilder.Entity("API.Models.Material", b =>
@@ -493,6 +693,9 @@ namespace API.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<int?>("CarId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
 
@@ -511,6 +714,9 @@ namespace API.Migrations
                         .HasColumnType("integer");
 
                     b.Property<int?>("LocationId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("MachineId")
                         .HasColumnType("integer");
 
                     b.Property<string>("Note")
@@ -552,9 +758,13 @@ namespace API.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CarId");
+
                     b.HasIndex("InvoiceDocumentId");
 
                     b.HasIndex("LocationId");
+
+                    b.HasIndex("MachineId");
 
                     b.HasIndex("PurchaseDate");
 
@@ -572,6 +782,9 @@ namespace API.Migrations
                         .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CarId")
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp without time zone");
@@ -598,6 +811,9 @@ namespace API.Migrations
                         .HasColumnType("numeric(12,4)");
 
                     b.Property<int?>("LocationId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("MachineId")
                         .HasColumnType("integer");
 
                     b.Property<int?>("MaterialId")
@@ -638,7 +854,11 @@ namespace API.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CarId");
+
                     b.HasIndex("LocationId");
+
+                    b.HasIndex("MachineId");
 
                     b.HasIndex("MaterialId");
 
@@ -883,6 +1103,9 @@ namespace API.Migrations
                     b.Property<int>("LocationId")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("MachineId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Note")
                         .HasColumnType("text");
 
@@ -903,6 +1126,8 @@ namespace API.Migrations
                     b.HasIndex("CarId");
 
                     b.HasIndex("LocationId");
+
+                    b.HasIndex("MachineId");
 
                     b.HasIndex("EmployeeId", "ClockIn");
 
@@ -1141,8 +1366,40 @@ namespace API.Migrations
                     b.Navigation("Employee");
                 });
 
+            modelBuilder.Entity("API.Models.FuelCard", b =>
+                {
+                    b.HasOne("API.Models.Employee", "Employee")
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Employee");
+                });
+
+            modelBuilder.Entity("API.Models.InvoiceDocument", b =>
+                {
+                    b.HasOne("API.Models.Car", "Car")
+                        .WithMany()
+                        .HasForeignKey("CarId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("API.Models.Machine", "Machine")
+                        .WithMany()
+                        .HasForeignKey("MachineId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Car");
+
+                    b.Navigation("Machine");
+                });
+
             modelBuilder.Entity("API.Models.MaterialPurchase", b =>
                 {
+                    b.HasOne("API.Models.Car", "Car")
+                        .WithMany()
+                        .HasForeignKey("CarId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("API.Models.Employee", "Employee")
                         .WithMany()
                         .HasForeignKey("EmployeeId")
@@ -1159,10 +1416,17 @@ namespace API.Migrations
                         .HasForeignKey("LocationId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.HasOne("API.Models.Machine", "Machine")
+                        .WithMany()
+                        .HasForeignKey("MachineId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("API.Models.TimeEntry", "TimeEntry")
                         .WithMany()
                         .HasForeignKey("TimeEntryId")
                         .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Car");
 
                     b.Navigation("Employee");
 
@@ -1170,14 +1434,26 @@ namespace API.Migrations
 
                     b.Navigation("Location");
 
+                    b.Navigation("Machine");
+
                     b.Navigation("TimeEntry");
                 });
 
             modelBuilder.Entity("API.Models.MaterialPurchaseLine", b =>
                 {
+                    b.HasOne("API.Models.Car", "Car")
+                        .WithMany()
+                        .HasForeignKey("CarId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("API.Models.Location", "Location")
                         .WithMany()
                         .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("API.Models.Machine", "Machine")
+                        .WithMany()
+                        .HasForeignKey("MachineId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("API.Models.Material", "Material")
@@ -1191,7 +1467,11 @@ namespace API.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("Car");
+
                     b.Navigation("Location");
+
+                    b.Navigation("Machine");
 
                     b.Navigation("Material");
 
@@ -1250,11 +1530,18 @@ namespace API.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("API.Models.Machine", "Machine")
+                        .WithMany("TimeEntries")
+                        .HasForeignKey("MachineId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("Car");
 
                     b.Navigation("Employee");
 
                     b.Navigation("Location");
+
+                    b.Navigation("Machine");
                 });
 
             modelBuilder.Entity("API.Models.WorkDiary", b =>
@@ -1374,6 +1661,11 @@ namespace API.Migrations
                 {
                     b.Navigation("MaterialUsages");
 
+                    b.Navigation("TimeEntries");
+                });
+
+            modelBuilder.Entity("API.Models.Machine", b =>
+                {
                     b.Navigation("TimeEntries");
                 });
 
