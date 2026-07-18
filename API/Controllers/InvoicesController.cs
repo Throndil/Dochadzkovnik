@@ -79,12 +79,17 @@ public class InvoicesController : ControllerBase
     public async Task<ActionResult<object>> AiSpendThisMonth()
     {
         var month = DateTime.UtcNow.ToString("yyyy-MM");
-        var row = await _db.AiSpends.FirstOrDefaultAsync(s => s.Month == month);
+        var rows = await _db.AiSpends.ToListAsync();
+        var current = rows.FirstOrDefault(s => s.Month == month);
         return Ok(new
         {
             month,
-            costEur = Math.Round(row?.CostEur ?? 0m, 2, MidpointRounding.AwayFromZero),
-            calls = row?.Calls ?? 0
+            costEur = Math.Round(current?.CostEur ?? 0m, 2, MidpointRounding.AwayFromZero),
+            calls = current?.Calls ?? 0,
+            totalCostEur = Math.Round(rows.Sum(s => s.CostEur), 2, MidpointRounding.AwayFromZero),
+            totalCalls = rows.Sum(s => s.Calls),
+            totalInputTokens = rows.Sum(s => s.InputTokens),
+            totalOutputTokens = rows.Sum(s => s.OutputTokens)
         });
     }
 

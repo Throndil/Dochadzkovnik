@@ -41,6 +41,35 @@
             <span>Naskenovať mobilom</span>
           </a>
         }
+        <!-- Claude API spend window -->
+        <div class="relative">
+          <button type="button" (click)="toggleAiSpend()"
+                  [class]="aiSpendOpen() ? 'bg-slate-300 dark:bg-slate-600' : 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600'"
+                  class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg text-slate-800 dark:text-slate-100 font-semibold transition-colors">
+            AI
+          </button>
+          @if (aiSpendOpen()) {
+            <div class="absolute right-0 top-full mt-1 z-40 w-64 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg p-4 text-sm">
+              @if (aiSpend(); as s) {
+                <div class="font-semibold text-slate-900 dark:text-white mb-2">Claude API</div>
+                <div class="flex justify-between py-1">
+                  <span class="text-slate-500 dark:text-slate-400">{{ aiMonthLabel(s.month) }}</span>
+                  <span class="tabular-nums text-slate-900 dark:text-white">{{ s.costEur | number:'1.2-2' }} € · {{ s.calls }} volaní</span>
+                </div>
+                <div class="flex justify-between py-1 border-t border-slate-100 dark:border-slate-700/50">
+                  <span class="text-slate-500 dark:text-slate-400">Spolu</span>
+                  <span class="tabular-nums text-slate-900 dark:text-white">{{ s.totalCostEur | number:'1.2-2' }} € · {{ s.totalCalls }} volaní</span>
+                </div>
+                <div class="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                  Tokeny spolu: {{ s.totalInputTokens | number }} in / {{ s.totalOutputTokens | number }} out.
+                  Zostatok kreditu je v konzole Anthropic.
+                </div>
+              } @else {
+                <app-spinner size="sm" [inline]="true" />
+              }
+            </div>
+          }
+        </div>
         <label class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-semibold cursor-pointer transition-colors"
                [class.opacity-50]="uploading()" [class.pointer-events-none]="uploading()">
           @if (uploading()) {

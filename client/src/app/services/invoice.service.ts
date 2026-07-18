@@ -46,6 +46,17 @@ export interface InvoiceDeliveryList {
   lines: InvoiceLine[];
 }
 
+/** Claude API spend — this month + running totals (from exact usage tokens). */
+export interface AiSpend {
+  month: string;
+  costEur: number;
+  calls: number;
+  totalCostEur: number;
+  totalCalls: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+}
+
 export interface InvoiceDocument {
   id: number;
   invoiceNumber: string;
@@ -304,11 +315,9 @@ export class InvoiceService {
     return firstValueFrom(this.http.delete<void>(`${this.url}/${invoiceId}`));
   }
 
-  /** This month's paid AI extraction cost (accumulated from exact usage). */
-  getAiSpend(): Promise<{ month: string; costEur: number; calls: number }> {
-    return firstValueFrom(
-      this.http.get<{ month: string; costEur: number; calls: number }>(`${this.url}/ai-spend`)
-    );
+  /** Paid AI extraction cost — this month + totals (accumulated from exact usage). */
+  getAiSpend(): Promise<AiSpend> {
+    return firstValueFrom(this.http.get<AiSpend>(`${this.url}/ai-spend`));
   }
 
   /** D6 — monthly division report (Súhrn + per-division listing) as Excel. */
