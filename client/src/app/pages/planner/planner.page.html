@@ -49,10 +49,15 @@
                 <!-- Clickable background cells -->
                 @for (day of weekDays(); track day.iso) {
                   <button type="button" (click)="openCreate(row.employee.id, day.iso)"
+                          (pointerdown)="onCellPointerDown(row.employee.id, day.iso, $event)"
+                          [attr.data-plan-emp]="row.employee.id"
+                          [attr.data-plan-day]="day.iso"
                           [attr.aria-label]="'Plánovať ' + row.employee.firstName + ' ' + row.employee.lastName + ' ' + day.iso"
                           class="border-l border-slate-100 dark:border-slate-700/50 hover:bg-amber-50 dark:hover:bg-amber-900/10 transition-colors"
                           [class.bg-amber-50/60]="day.isToday" [class.dark:bg-amber-900/10]="day.isToday"
                           [class.bg-slate-50/60]="day.isWeekend && !day.isToday" [class.dark:bg-slate-700/20]="day.isWeekend && !day.isToday"
+                          [class.!bg-amber-200/70]="cellInDrag(row.employee.id, day.iso)"
+                          [class.dark:!bg-amber-700/40]="cellInDrag(row.employee.id, day.iso)"
                           [style.gridColumn]="$index + 1" [style.gridRow]="'1 / ' + (row.laneCount + 1)"></button>
                 }
                 <!-- Bars -->
@@ -75,7 +80,7 @@
         </div>
       </div>
 
-      <p class="text-xs text-slate-400 dark:text-slate-500">Klik na prázdne pole = nový záznam, klik na pás = úprava.</p>
+      <p class="text-xs text-slate-400 dark:text-slate-500">Klik na prázdne pole = nový záznam (ťahaním označíte viac dní), klik na pás = úprava.</p>
     }
   </div>
 </div>

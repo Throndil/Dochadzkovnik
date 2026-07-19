@@ -36,7 +36,12 @@ interface PlanRow {
   selector: 'app-planner',
   standalone: true,
   imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, AlertComponent],
-  templateUrl: './planner.page.html'
+  templateUrl: './planner.page.html',
+  host: {
+    '(document:pointermove)': 'onDocPointerMove($event)',
+    '(document:pointerup)': 'onDragEnd()',
+    '(document:pointercancel)': 'onDragEnd()'
+  }
 })
 export class PlannerPage implements OnInit {
   private svc = inject(PlannerService);
@@ -168,16 +173,63 @@ export class PlannerPage implements OnInit {
     this.load();
   }
 
-  openCreate(employeeId: number, dayIso: string) {
+  // ─── Drag-select across days (mouse) ─────────────────────────────
+  // pointerdown on a cell starts the selection; document pointermove
+  // extends it via elementFromPoint hit-testing (immune to enter/leave
+  // quirks); document pointerup opens the modal with the range. Mouse
+  // only — on touch a drag must keep scrolling the page, so tablets tap
+  // a cell and set the range in the modal instead. A plain click
+  // (down+up on one cell) is handled by the cell's (click).
+  dragEmployeeId = signal<number | null>(null);
+  dragStart = signal('');
+  dragEnd = signal('');
+
+  onCellPointerDown(employeeId: number, dayIso: string, event: PointerEvent) {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    event.preventDefault();   // no text selection / focus ring while dragging
+    this.dragEmployeeId.set(employeeId);
+    this.dragStart.set(dayIso);
+    this.dragEnd.set(dayIso);
+  }
+
+  onDocPointerMove(event: PointerEvent) {
+    const emp = this.dragEmployeeId();
+    if (emp == null) return;
+    const el = document.elementFromPoint(event.clientX, event.clientY);
+    const cell = el?.closest?.('[data-plan-day]') as HTMLElement | null;
+    if (cell && Number(cell.dataset['planEmp']) === emp)
+      this.dragEnd.set(cell.dataset['planDay']!);
+  }
+
+  onDragEnd() {
+    const emp = this.dragEmployeeId();
+    if (emp == null) return;
+    const [from, to] = [this.dragStart(), this.dragEnd()].sort();
+    this.dragEmployeeId.set(null);
+    // Single-cell down+up = the cell's own (click) opens the modal.
+    if (from !== to) this.openRange(emp, from, to);
+  }
+
+  cellInDrag(employeeId: number, dayIso: string): boolean {
+    if (this.dragEmployeeId() !== employeeId) return false;
+    const [from, to] = [this.dragStart(), this.dragEnd()].sort();
+    return dayIso >= from && dayIso <= to;
+  }
+
+  private openRange(employeeId: number, fromIso: string, toIso: string) {
     this.editingId.set(null);
     this.formEmployeeId = employeeId;
     this.formType = 'praca';
     this.formLocationId = null;
-    this.formStart = dayIso;
-    this.formEnd = dayIso;
+    this.formStart = fromIso;
+    this.formEnd = toIso;
     this.formNote = '';
     this.editorError.set(null);
     this.editorOpen.set(true);
+  }
+
+  openCreate(employeeId: number, dayIso: string) {
+    this.openRange(employeeId, dayIso, dayIso);
   }
 
   openEdit(bar: PlanBar, event: Event) {
