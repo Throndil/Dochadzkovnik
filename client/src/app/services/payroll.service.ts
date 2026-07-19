@@ -17,6 +17,10 @@ export interface PayrollRow {
   advancesTotal: number;
   gross: number;
   payout: number;
+  /** Employer contributions % (Employee.OdvodyPct). Null = unset. */
+  odvodyPct: number | null;
+  /** gross × odvodyPct / 100 — employer cost on top, never part of payout. */
+  odvody: number;
 }
 
 export interface PayrollMonthly {
@@ -137,6 +141,14 @@ export class PayrollService {
         rate,
         applyFrom: applyFrom || null
       })
+    );
+  }
+
+  /** Set the employer-contribution % (odvody) for one worker. Live value —
+   *  historical months recompute with the current %. */
+  setOdvody(employeeId: number, pct: number | null): Promise<void> {
+    return firstValueFrom(
+      this.http.post<void>(`${this.url}/employee/${employeeId}/set-odvody`, { pct })
     );
   }
 

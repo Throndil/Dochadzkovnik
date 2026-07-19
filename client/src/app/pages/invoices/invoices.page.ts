@@ -59,6 +59,9 @@ export class InvoicesPage implements OnInit {
   statusFilter = signal<string>('');
   /** Free-text lookup: dodávateľ / IČO / číslo dokladu (diacritics-insensitive). */
   searchText = signal<string>('');
+  /** Mobile-only disclosure for the filter controls — the stacked filter bar
+   *  ate half the viewport on a phone. Desktop always shows them. */
+  filtersOpen = signal(false);
 
   private static norm(s: string | null | undefined): string {
     return (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();

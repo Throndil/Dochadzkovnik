@@ -5,6 +5,7 @@ import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { AlertComponent } from '../../components/alert/alert.component';
 import { CompanyRate, CompanyRateService } from '../../services/company-rate.service';
+import { StepperComponent } from '../../components/stepper/stepper.component';
 
 /**
  * /admin/odvody — the "Odvody" page: amounts the company pays on top
@@ -15,7 +16,7 @@ import { CompanyRate, CompanyRateService } from '../../services/company-rate.ser
 @Component({
   selector: 'app-odvody',
   standalone: true,
-  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, AlertComponent],
+  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, AlertComponent, StepperComponent],
   templateUrl: './odvody.page.html'
 })
 export class OdvodyPage implements OnInit {

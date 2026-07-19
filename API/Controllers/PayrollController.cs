@@ -105,8 +105,12 @@ public class PayrollController : ControllerBase
 
         var entries = await _db.TimeEntries
             .Where(t => t.ClockIn >= from && t.ClockIn < toExcl && t.ClockOut != null)
-            .Select(t => new { t.ClockIn, t.ClockOut, t.WageAtTime })
+            .Select(t => new { t.EmployeeId, t.ClockIn, t.ClockOut, t.WageAtTime })
             .ToListAsync();
+        // Per-worker employer contributions (% of gross, Employee.OdvodyPct).
+        var odvodyPcts = await _db.Employees
+            .Where(e => e.OdvodyPct != null)
+            .ToDictionaryAsync(e => e.Id, e => e.OdvodyPct!.Value);
         var advances = await _db.EmployeeAdvances
             .Where(a => a.Date >= from && a.Date < toExcl)
             .Select(a => new { a.Date, a.Amount })
@@ -130,9 +134,9 @@ public class PayrollController : ControllerBase
             .Select(i => new { i.IssueDate, i.Division, i.TotalInclVat, i.TotalVat })
             .ToListAsync();
 
-        // Odvody — the same live "€/h" add-on the P&L prices hours with
-        // (odvody, ubytovanie, customer-added rows on the Odvody page).
-        // ponytail: live rates — changing them shifts history.
+        // Remaining "€/h" add-ons from the Odvody page (ubytovanie,
+        // customer-added rows) — the global odvody row moved to per-worker
+        // OdvodyPct. ponytail: live rates — changing them shifts history.
         var perHourAddon = (await _db.CompanyRates
                 .Where(r => r.Unit != null)
                 .Select(r => new { r.Amount, r.Unit })
@@ -179,7 +183,15 @@ public class PayrollController : ControllerBase
                 .Distinct()
                 .Count();
             var trips = Math.Round(tripCount * tripRate, 2, MidpointRounding.AwayFromZero);
-            var odvody = Math.Round(hours * perHourAddon, 2, MidpointRounding.AwayFromZero);
+            // Odvody pillar = per-worker % of gross + hour-based add-ons
+            // (ubytovanie…) — the same employer-cost stack the P&L prices in.
+            var perWorker = monthEntries
+                .GroupBy(t => t.EmployeeId)
+                .Sum(g => Math.Round(
+                    g.Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours * t.WageAtTime)
+                    * (odvodyPcts.TryGetValue(g.Key, out var p) ? p : 0m) / 100m,
+                    2, MidpointRounding.AwayFromZero));
+            var odvody = perWorker + Math.Round(hours * perHourAddon, 2, MidpointRounding.AwayFromZero);
             var income = incomeDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).Sum(i => i.TotalInclVat);
             var wages = Math.Round(gross, 2, MidpointRounding.AwayFromZero) - adv;
             result.Add(new CostTrendMonthDto
@@ -403,6 +415,34 @@ public class PayrollController : ControllerBase
         public DateTime? ApplyFrom { get; set; }
     }
 
+    /// <summary>
+    /// POST /api/payroll/employee/{id}/set-odvody
+    /// Body: { pct: number | null }
+    ///
+    /// Sets the employer-contribution percentage (Employee.OdvodyPct). The
+    /// customer sets it manually per worker; UI shows guidance (TPP 36,2 %,
+    /// ZŤP 30,7 %, 2026). Read live — historical months recompute with the
+    /// current %, same ponytail as the Odvody page rates.
+    /// </summary>
+    [HttpPost("employee/{id}/set-odvody")]
+    public async Task<IActionResult> SetOdvody(int id, [FromBody] SetOdvodyRequest body)
+    {
+        if (body.Pct is < 0 or > 100) return BadRequest("Percento odvodov musí byť medzi 0 a 100.");
+        var emp = await _db.Employees.FindAsync(id);
+        if (emp == null) return NotFound();
+
+        emp.OdvodyPct = body.Pct;
+        emp.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        _log.LogInformation("[Payroll] SetOdvody employee={Id} pct={Pct}", id, body.Pct);
+        return NoContent();
+    }
+
+    public sealed class SetOdvodyRequest
+    {
+        public decimal? Pct { get; set; }
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────
 
     private async Task<PayrollMonthlyDto> BuildMonthlyAsync(string periodLabel, DateTime from, DateTime toExcl, string? division = null)
@@ -489,7 +529,9 @@ public class PayrollController : ControllerBase
                 WageMissing           = ea != null && !ea.AnyNonZeroWage,
                 AdvancesTotal         = adv,
                 Gross                 = gross,
-                Payout                = gross - adv
+                Payout                = gross - adv,
+                OdvodyPct             = emp.OdvodyPct,
+                Odvody                = Math.Round(gross * (emp.OdvodyPct ?? 0m) / 100m, 2, MidpointRounding.AwayFromZero)
             });
         }
 
@@ -498,7 +540,8 @@ public class PayrollController : ControllerBase
             HoursWorked   = rows.Sum(r => r.HoursWorked),
             AdvancesTotal = rows.Sum(r => r.AdvancesTotal),
             Gross         = rows.Sum(r => r.Gross),
-            Payout        = rows.Sum(r => r.Payout)
+            Payout        = rows.Sum(r => r.Payout),
+            Odvody        = rows.Sum(r => r.Odvody)
         };
 
         return new PayrollMonthlyDto

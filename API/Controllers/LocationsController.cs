@@ -1182,25 +1182,32 @@ public class LocationsController : ControllerBase
             })
             .ToListAsync();
 
-        // ── W1: hrubá sadzba — per-hour amounts the firm pays on top of the
-        // payout wage (odvody, ubytovanie, any customer-added "€/h" row on
-        // Odvody). Site costs and P&L price hours at WageAtTime + add-on;
-        // the Mzdy (payroll) view keeps the payout rate.
-        // ponytail: live add-on rates — changing them shifts historical
-        // reports; snapshot per TimeEntry if that ever matters.
+        // ── W1: hrubá sadzba — what the firm pays on top of the payout wage.
+        // Per-hour add-ons (ubytovanie, customer-added "€/h" rows on Odvody)
+        // plus the per-worker odvody % of gross (Employee.OdvodyPct). Site
+        // costs and P&L price at the full employer cost; the Mzdy (payroll)
+        // view keeps the payout rate.
+        // ponytail: live add-on rates and live % — changing them shifts
+        // historical reports; snapshot per TimeEntry if that ever matters.
         var perHourAddon = (await _db.CompanyRates
                 .Where(r => r.Unit != null)
                 .Select(r => new { r.Amount, r.Unit })
                 .ToListAsync())
             .Where(r => r.Unit!.Contains("€/h"))
             .Sum(r => r.Amount);
+        var pnlEmpIds = rawEntries.Select(e => e.EmployeeId).Distinct().ToList();
+        var odvodyPcts = await _db.Employees
+            .Where(e => pnlEmpIds.Contains(e.Id) && e.OdvodyPct != null)
+            .ToDictionaryAsync(e => e.Id, e => e.OdvodyPct!.Value);
 
         var labourRows = rawEntries
             .GroupBy(e => new { e.EmployeeId, e.EmployeeName })
             .Select(g =>
             {
                 var hours = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours);
-                var cost  = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours * (x.WageAtTime + perHourAddon));
+                var gross = g.Sum(x => (decimal)(x.ClockOut!.Value - x.ClockIn).TotalHours * x.WageAtTime);
+                var pct   = odvodyPcts.TryGetValue(g.Key.EmployeeId, out var p) ? p : 0m;
+                var cost  = gross * (1m + pct / 100m) + hours * perHourAddon;
                 return new PnlLabourRowDto
                 {
                     EmployeeId   = g.Key.EmployeeId,

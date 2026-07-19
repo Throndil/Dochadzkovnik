@@ -49,6 +49,19 @@ body:not(:has(.kiosk-root)) {
   --color-slate-950: #161513;
 }
 
+/* Native number-input spinners are tiny and step by cents — hidden in the
+   admin app; fields that need stepping use <app-stepper> (±1 buttons).
+   Typed decimals keep working. Kiosk keeps its native look (hard rule). */
+body:not(:has(.kiosk-root)) input[type="number"]::-webkit-outer-spin-button,
+body:not(:has(.kiosk-root)) input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+body:not(:has(.kiosk-root)) input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
 /* Headings carry the personality (Bricolage), body stays Figtree. */
 body:not(:has(.kiosk-root)) h1,
 body:not(:has(.kiosk-root)) h2,

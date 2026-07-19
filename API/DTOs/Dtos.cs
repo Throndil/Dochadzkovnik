@@ -1211,6 +1211,11 @@ public class PayrollRowDto
     public decimal Gross { get; set; }
     /// <summary>Gross − AdvancesTotal.</summary>
     public decimal Payout { get; set; }
+    /// <summary>Employer contributions % from Employee.OdvodyPct. Null = unset.</summary>
+    public decimal? OdvodyPct { get; set; }
+    /// <summary>Gross × OdvodyPct / 100 — employer cost ON TOP of the wage,
+    /// never part of Payout.</summary>
+    public decimal Odvody { get; set; }
 }
 
 public class PayrollMonthlyDto

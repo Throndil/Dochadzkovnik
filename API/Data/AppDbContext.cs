@@ -79,9 +79,11 @@ public class AppDbContext : IdentityDbContext<AppUser>
             e.Property(x => x.Key).HasMaxLength(50);
             e.Property(x => x.Label).HasMaxLength(100).IsRequired();
             e.Property(x => x.Unit).HasMaxLength(50);
-            // Seed the customer's three known amounts — editable on /admin/odvody.
+            // Seed the customer's known amounts — editable on /admin/odvody.
+            // The former global "Odvody" row (Id 1) moved to per-worker
+            // Employee.OdvodyPct (% of gross) — removing it here generates
+            // the delete in the OdvodyPerWorker migration.
             e.HasData(
-                new CompanyRate { Id = 1, Key = "odvody",       Label = "Odvody",       Amount = 0m,  Unit = "€/h na pracovníka", UpdatedAt = new DateTime(2026, 7, 18) },
                 new CompanyRate { Id = 2, Key = "ubytovanie",   Label = "Ubytovanie",   Amount = 1m,  Unit = "€/h na pracovníka", UpdatedAt = new DateTime(2026, 7, 18) },
                 new CompanyRate { Id = 3, Key = "vyjazd_auta",  Label = "Výjazd auta",  Amount = 30m, Unit = "€/výjazd",          UpdatedAt = new DateTime(2026, 7, 18) });
         });

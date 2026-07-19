@@ -16,6 +16,7 @@ import { ApiErrorService } from '../../services/api-error.service';
 import { DivisionService } from '../../services/division.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
+import { StepperComponent } from '../../components/stepper/stepper.component';
 import { tagTint } from '../../utils/tag-color';
 
 type PeriodMode = 'month' | 'week' | 'custom';
@@ -31,7 +32,7 @@ type PeriodMode = 'month' | 'week' | 'custom';
 @Component({
   selector: 'app-mzdy',
   standalone: true,
-  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, AlertComponent, DatepickerDirective, MonthPickerComponent],
+  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, AlertComponent, DatepickerDirective, MonthPickerComponent, StepperComponent],
   templateUrl: './mzdy.page.html'
 })
 export class MzdyPage implements OnInit {
@@ -79,12 +80,45 @@ export class MzdyPage implements OnInit {
 
   // ─── Inline rate edit ─────────────────────────────────────────
   editingRateFor = signal<number | null>(null);
-  rateDraft = signal<string>('');
+  rateDraft = signal<number | null>(null);
   /** "Od" date for the rate change. Defaults to first of currently-viewed month. */
   rateApplyFromDraft = signal<string>('');
   /** When true, the rate change retroactively updates WageAtTime on existing entries. */
   rateBackfillEnabled = signal<boolean>(true);
   savingRate = signal(false);
+
+  // ─── Inline odvody edit (per-worker % of gross) ───────────────
+  editingOdvodyFor = signal<number | null>(null);
+  odvodyDraft = signal<number | null>(null);
+  savingOdvody = signal(false);
+
+  startEditOdvody(row: PayrollRow) {
+    this.editingOdvodyFor.set(row.employeeId);
+    this.odvodyDraft.set(row.odvodyPct);
+  }
+
+  cancelEditOdvody() {
+    this.editingOdvodyFor.set(null);
+    this.odvodyDraft.set(null);
+  }
+
+  async saveOdvody(row: PayrollRow) {
+    const pct = this.odvodyDraft();
+    if (pct !== null && (!isFinite(pct) || pct < 0 || pct > 100)) {
+      alert('Percento odvodov musí byť medzi 0 a 100.');
+      return;
+    }
+    this.savingOdvody.set(true);
+    try {
+      await this.svc.setOdvody(row.employeeId, pct);
+      this.cancelEditOdvody();
+      await this.load();
+    } catch (e: any) {
+      alert(this.apiError.friendly(e, 'Uloženie odvodov zlyhalo'));
+    } finally {
+      this.savingOdvody.set(false);
+    }
+  }
 
   // ─── Advances drawer ──────────────────────────────────────────
   advancesEmployee = signal<PayrollRow | null>(null);
@@ -244,7 +278,7 @@ export class MzdyPage implements OnInit {
 
   startEditRate(row: PayrollRow) {
     this.editingRateFor.set(row.employeeId);
-    this.rateDraft.set(row.hourlyWageCurrent != null ? String(row.hourlyWageCurrent) : '');
+    this.rateDraft.set(row.hourlyWageCurrent);
     // Default "from" date = start of currently-viewed period. Manager can
     // override if they're recording a mid-month promotion (e.g. 15.05.).
     this.rateApplyFromDraft.set(this.periodRange().from);
@@ -253,13 +287,12 @@ export class MzdyPage implements OnInit {
 
   cancelEditRate() {
     this.editingRateFor.set(null);
-    this.rateDraft.set('');
+    this.rateDraft.set(null);
     this.rateApplyFromDraft.set('');
   }
 
   async saveRate(row: PayrollRow) {
-    const raw = this.rateDraft().replace(',', '.').trim();
-    const parsed = raw === '' ? null : Number(raw);
+    const parsed = this.rateDraft();
     if (parsed !== null && (!isFinite(parsed) || parsed < 0)) {
       alert('Neplatná sadzba.');
       return;
@@ -271,7 +304,7 @@ export class MzdyPage implements OnInit {
     try {
       const backfilled = await this.svc.setWage(row.employeeId, parsed, applyFrom);
       this.editingRateFor.set(null);
-      this.rateDraft.set('');
+      this.rateDraft.set(null);
       this.rateApplyFromDraft.set('');
       // Feedback when there was a meaningful retroactive change.
       if (backfilled > 0) {

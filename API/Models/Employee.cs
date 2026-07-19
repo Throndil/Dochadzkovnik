@@ -32,6 +32,15 @@ public class Employee
     /// </summary>
     public decimal? HourlyWage { get; set; }
 
+    /// <summary>
+    /// Employer contributions (odvody) as a % of gross wage, set manually per
+    /// worker on the Mzdy page. NULL = not set → counts as 0. Guidance shown
+    /// in the UI: TPP 36,2 % (25,2 % sociálne + 11 % zdravotné, 2026),
+    /// ZŤP 30,7 %; živnostníci 0. Read LIVE (no per-entry snapshot) — same
+    /// ponytail as the Odvody page rates.
+    /// </summary>
+    public decimal? OdvodyPct { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
