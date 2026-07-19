@@ -161,9 +161,9 @@
                   <span class="tabular-nums">hrubá {{ formatMoney(row.gross) }} €</span>
                   <span class="text-slate-300 dark:text-slate-600">·</span>
                   @if (row.odvodyPct == null) {
-                    <span class="text-slate-400 dark:text-slate-500" title="Odvody zamestnávateľa sa nastavujú na profile zamestnanca">odvody nenastavené</span>
+                    <span class="text-slate-400 dark:text-slate-500">odvody nenastavené</span>
                   } @else {
-                    <span class="tabular-nums" title="Odvody zamestnávateľa — % z hrubej mzdy, nastavené na profile zamestnanca">odvody {{ row.odvodyPct | number:'1.0-2' }} % · {{ formatMoney(row.odvody) }} €</span>
+                    <span class="tabular-nums">odvody {{ row.odvodyPct | number:'1.0-2' }} % · {{ formatMoney(row.odvody) }} €</span>
                   }
                   <span class="text-slate-300 dark:text-slate-600">·</span>
                   @if (row.advancesTotal > 0) {

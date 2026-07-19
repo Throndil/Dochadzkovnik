@@ -260,7 +260,7 @@
                   <span class="truncate">{{ inv.invoiceNumber }}</span>
                   @if (isManualDoc(inv)) {
                     <span class="shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-200"
-                          title="Doklad bez čísla — nahraný ako prázdny/nečitateľný, údaje doplnené ručne">Ručný doklad</span>
+                          title="Bez čísla dokladu">Ručný doklad</span>
                   }
                 </div>
                 <div class="text-sm text-slate-500 dark:text-slate-400 truncate">{{ inv.supplierName }}</div>
@@ -311,7 +311,7 @@
       [open]="!!uploadedInvoice()"
       variant="success"
       title="Úspešné nahranie"
-      [message]="uploadedInvoice() ? 'Faktúra ' + uploadedInvoice()!.invoiceNumber + ' bola spracovaná. Skontrolujte rozpoznané položky a uložte.' : ''"
+      [message]="uploadedInvoice() ? 'Faktúra ' + uploadedInvoice()!.invoiceNumber + ' spracovaná. Skontrolujte a uložte.' : ''"
       confirmLabel="Otvoriť na kontrolu"
       (confirm)="onOpenUploaded()"
       (cancel)="uploadedInvoice.set(null)">

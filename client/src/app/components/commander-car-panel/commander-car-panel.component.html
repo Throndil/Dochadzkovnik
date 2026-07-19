@@ -29,10 +29,9 @@
     } @else if (noMatch()) {
       <p class="text-sm text-slate-500 dark:text-slate-400">
         @if (licensePlate()) {
-          Vozidlo sa nepodarilo spárovať s Commander záznamom (žiadna zhoda podľa ŠPZ).
-          Skontrolujte, či sa ŠPZ <span class="font-mono text-slate-700 dark:text-slate-200">{{ licensePlate() }}</span> presne zhoduje s vozidlom v Commander systéme.
+          Žiadna zhoda podľa ŠPZ <span class="font-mono text-slate-700 dark:text-slate-200">{{ licensePlate() }}</span> v Commander.
         } @else {
-          Pridajte ŠPZ a uložte zmeny — potom bude možné Commander údaje načítať.
+          Zadajte ŠPZ a uložte.
         }
       </p>
     } @else if (vehicle(); as v) {

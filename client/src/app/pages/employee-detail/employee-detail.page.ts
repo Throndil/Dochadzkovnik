@@ -102,7 +102,7 @@ export class EmployeeDetailPage implements OnInit {
       },
       error: e => {
         if (e.status === 409) {
-          this.toast.error('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+          this.toast.error('PIN už používa iný zamestnanec.');
         } else {
           this.toast.error(this.apiError.friendly(e, 'PIN sa nepodarilo zmeniť'));
         }

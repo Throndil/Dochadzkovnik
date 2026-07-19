@@ -17,7 +17,7 @@
               <span>{{ inv.invoiceNumber }}</span>
               @if (inv.invoiceNumber.startsWith('BEZ-CISLA')) {
                 <span class="text-xs font-medium px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-200"
-                      title="Doklad bez čísla — nahraný ako prázdny/nečitateľný, údaje doplnené ručne">Ručný doklad</span>
+                      title="Bez čísla dokladu">Ručný doklad</span>
               }
             </div>
             @if (isSupplierEditable()) {
@@ -787,9 +787,9 @@
       [title]="reconcileOk() ? 'Uložiť faktúru?' : 'Uložiť napriek nezhode súčtov?'"
       [message]="reconcileOk()
         ? (isStroje()
-          ? 'Po uložení sa riadky zafixujú a doklad sa započíta do bilancie divízie AZ Stroje. Priradenie mašiny/auta môžete neskôr ešte zmeniť.'
-          : 'Po uložení sa riadky zafixujú a materiál sa premietne do spotreby priradených pracovísk. Pracovisko každého dodacieho listu môžete neskôr ešte zmeniť.')
-        : 'Súčty riadkov sa nezhodujú s vytlačenou sumou. Skontrolujte, či sú sumy na faktúre správne. Ak je faktúra v poriadku, môžete ju uložiť — nezhoda sa zaznamená.'"
+          ? 'Započíta sa do bilancie AZ Stroje. Priradenie zmeníte neskôr.'
+          : 'Materiál sa premietne do pracovísk. Pracovisko zmeníte neskôr.')
+        : 'Súčty sa nezhodujú s vytlačenou sumou. Uložiť sa dá, nezhoda sa zaznamená.'"
       [confirmLabel]="reconcileOk() ? 'Áno, uložiť' : 'Uložiť aj tak'"
       busyLabel="Ukladám..."
       [busy]="committing()"

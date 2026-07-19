@@ -77,9 +77,7 @@
                      class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
                      placeholder="napr. 6,50" />
               @if (hourlyWage == null) {
-                <div class="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                  Bez sadzby — nový záznam dochádzky uloží 0 €/h.
-                </div>
+                <div class="mt-1 text-xs text-amber-600 dark:text-amber-400">Prázdne = 0 €/h</div>
               }
             </div>
             <div>
@@ -87,9 +85,7 @@
               <input type="number" step="1" min="0" max="100" [(ngModel)]="odvodyPct" name="odvodyPct"
                      class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
                      placeholder="napr. 36,2" />
-              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                Platí firma navyše, nie je súčasťou výplaty. Orientačne 2026: TPP <span class="font-semibold">36,2 %</span> (25,2 % sociálne + 11 % zdravotné) · ZŤP 30,7 % · živnostník 0 %.
-              </div>
+              <div class="mt-1 text-xs text-slate-400 dark:text-slate-500">TPP 36,2 · ZŤP 30,7 · SZČO 0</div>
             </div>
           }
           <div>
@@ -99,7 +95,6 @@
               <option value="profistav">AZ Profistav (stavby)</option>
               <option value="stroje">AZ Stroje</option>
             </select>
-            <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">Mzdy sa počítajú do zvolenej divízie.</div>
           </div>
           <div>
             <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Pozícia <span class="text-slate-500 font-normal">(voliteľné)</span></label>

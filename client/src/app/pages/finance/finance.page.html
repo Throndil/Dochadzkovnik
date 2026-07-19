@@ -130,10 +130,10 @@
           @if (canInvoices() && ((invoiceTotal() ?? 0) > 0 || expenseVat() > 0)) {
             <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
               @if (expenseVat() > 0) {
-                <div>DPH vo výdavkových dokladoch: <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ expenseVat() | number:'1.2-2' }} €</span> — možný odpočet pre platcu DPH · náklady bez DPH ≈ <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ costTotal() - expenseVat() | number:'1.2-2' }} €</span></div>
+                <div>DPH na odpočet <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ expenseVat() | number:'1.2-2' }} €</span> · bez DPH <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ costTotal() - expenseVat() | number:'1.2-2' }} €</span></div>
               }
               @if ((invoiceTotal() ?? 0) > 0) {
-                <div>V materiáli sú aj položky z faktúr ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }), nepočítajú sa druhýkrát.</div>
+                <div>Z toho faktúry <span class="tabular-nums">{{ invoiceTotal() | number:'1.2-2' }} €</span>@if (invoiceCount() !== null) { · {{ invoiceCount() }} dokl. }</div>
               }
             </div>
           }
@@ -203,7 +203,7 @@
           </div>
           @if (incomeVat() > 0) {
             <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
-              Bez DPH: <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeTotal() - incomeVat() | number:'1.2-2' }} €</span> · DPH v príjmových faktúrach: <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeVat() | number:'1.2-2' }} €</span>
+              Bez DPH <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeTotal() - incomeVat() | number:'1.2-2' }} €</span> · DPH <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeVat() | number:'1.2-2' }} €</span>
             </div>
           }
         </div>
