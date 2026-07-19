@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start", "--prefix", "client", "--", "--port", "4400"],
       "port": 4400
+    },
+    {
+      "name": "client-alt",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start", "--prefix", "client", "--", "--port", "4600"],
+      "port": 4600
     }
   ]
 }

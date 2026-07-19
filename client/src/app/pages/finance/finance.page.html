@@ -38,8 +38,15 @@
       <!-- Hero: total month cost = wages + material (invoices are inside material) -->
       @if (canPayroll() || canMaterial()) {
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
-          <div class="text-sm text-slate-500 dark:text-slate-400 capitalize">Náklady spolu · {{ monthLabel() }}</div>
-          <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ costTotal() | number:'1.2-2' }} €</div>
+          <div class="flex items-center gap-4">
+            <div class="w-11 h-11 shrink-0 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300 flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.121 15.536c-1.171 1.952-3.07 1.952-4.242 0-1.172-1.953-1.172-5.119 0-7.072 1.171-1.952 3.07-1.952 4.242 0M8 10.5h4m-4 3h4m9-1.5a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div>
+              <div class="text-sm text-slate-500 dark:text-slate-400 capitalize">Náklady spolu · {{ monthLabel() }}</div>
+              <div class="text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">{{ costTotal() | number:'1.2-2' }} €</div>
+            </div>
+          </div>
 
           <div class="flex h-3 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 mt-4">
             <span class="bg-sky-500" [style.flexGrow]="wagesPayout() ?? 0"></span>
@@ -193,38 +200,63 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           @if (canMaterial()) {
             <a routerLink="/admin/materials"
-               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-              <div class="font-semibold text-slate-900 dark:text-white">Materiál</div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a sklad</div>
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-slate-900 dark:text-white">Materiál</span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a sklad</span>
+              </span>
             </a>
           }
           @if (canInvoices()) {
             <a routerLink="/admin/invoices"
-               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-              <div class="font-semibold text-slate-900 dark:text-white flex items-center gap-2">Faktúry
-                @if ((invoicePending() ?? 0) > 0) {
-                  <span class="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ invoicePending() }} na kontrolu</span>
-                }
-              </div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Faktúry od dodávateľov</div>
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="font-semibold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">Faktúry
+                  @if ((invoicePending() ?? 0) > 0) {
+                    <span class="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ invoicePending() }} na kontrolu</span>
+                  }
+                </span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Faktúry od dodávateľov</span>
+              </span>
             </a>
           }
           @if (canPayroll()) {
             <a routerLink="/admin/mzdy"
-               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-              <div class="font-semibold text-slate-900 dark:text-white">Mzdy</div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</div>
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-slate-900 dark:text-white">Mzdy</span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</span>
+              </span>
             </a>
             <a routerLink="/admin/odvody"
-               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-              <div class="font-semibold text-slate-900 dark:text-white">Odvody</div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Ubytovanie, výjazdy a ďalšie sumy</div>
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-teal-100 dark:bg-teal-900/40 text-teal-600 dark:text-teal-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 4.99h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-slate-900 dark:text-white">Odvody</span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Ubytovanie, výjazdy a ďalšie sumy</span>
+              </span>
             </a>
           }
           <a routerLink="/admin/locations"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="font-semibold text-slate-900 dark:text-white">Náklady a zisk (P&amp;L)</div>
-            <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Podľa pracoviska</div>
+             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+            <span class="w-9 h-9 shrink-0 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            </span>
+            <span class="min-w-0">
+              <span class="block font-semibold text-slate-900 dark:text-white">Náklady a zisk (P&amp;L)</span>
+              <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Podľa pracoviska</span>
+            </span>
           </a>
         </div>
       </div>

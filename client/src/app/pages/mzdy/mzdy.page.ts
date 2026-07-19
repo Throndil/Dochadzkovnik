@@ -16,6 +16,7 @@ import { ApiErrorService } from '../../services/api-error.service';
 import { DivisionService } from '../../services/division.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
+import { tagTint } from '../../utils/tag-color';
 
 type PeriodMode = 'month' | 'week' | 'custom';
 
@@ -485,6 +486,8 @@ export class MzdyPage implements OnInit {
   formatHours(v: number): string {
     return new Intl.NumberFormat('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
   }
+
+  tagTint = tagTint;
 
   /** 1–2 letter monogram for the row avatar. */
   initials(row: PayrollRow): string {
