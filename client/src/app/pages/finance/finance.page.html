@@ -42,10 +42,36 @@
             <div class="w-11 h-11 shrink-0 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300 flex items-center justify-center">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.121 15.536c-1.171 1.952-3.07 1.952-4.242 0-1.172-1.953-1.172-5.119 0-7.072 1.171-1.952 3.07-1.952 4.242 0M8 10.5h4m-4 3h4m9-1.5a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             </div>
-            <div>
+            <div class="min-w-0">
               <div class="text-sm text-slate-500 dark:text-slate-400 capitalize">Náklady spolu · {{ monthLabel() }}</div>
-              <div class="text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">{{ costTotal() | number:'1.2-2' }} €</div>
+              <div class="flex items-baseline gap-2.5 flex-wrap mt-0.5">
+                <span class="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">{{ costTotal() | number:'1.2-2' }} €</span>
+                @if (trendDelta() !== null) {
+                  <span class="inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap"
+                        [class]="trendDelta()! > 0
+                          ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                          : trendDelta()! < 0
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                            : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'"
+                        title="Zmena celkových nákladov oproti predchádzajúcemu mesiacu">
+                    {{ trendDelta()! > 0 ? '▲' : trendDelta()! < 0 ? '▼' : '•' }} {{ trendDelta()! > 0 ? '+' : '' }}{{ trendDelta() }} % vs minulý mesiac
+                  </span>
+                }
+              </div>
             </div>
+            @if (trendPoints()) {
+              <svg class="hidden sm:block ml-auto w-32 h-9 shrink-0 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img" aria-label="Vývoj nákladov za posledných 6 mesiacov">
+                <polyline [attr.points]="trendPoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                @if (trendLastPoint(); as p) {
+                  <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-amber-500" />
+                }
+                @for (c of trendCoords(); track c.m.month) {
+                  <circle [attr.cx]="c.x" [attr.cy]="c.y" r="6" fill="transparent">
+                    <title>{{ trendTitle(c.m) }}</title>
+                  </circle>
+                }
+              </svg>
+            }
           </div>
 
           <div class="flex h-3 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 mt-4">

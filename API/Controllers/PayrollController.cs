@@ -86,6 +86,63 @@ public class PayrollController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/payroll/cost-trend?month=YYYY-MM&amp;months=6
+    /// Monthly cost totals for the /admin/finance sparkline: the `months`
+    /// calendar months ending at `month`, oldest first. Wages = payout
+    /// (hours × WageAtTime − advances) like /monthly totals; summed per
+    /// entry rather than per employee, so cent-level rounding can differ
+    /// from the Mzdy page — invisible at sparkline scale.
+    /// </summary>
+    [HttpGet("cost-trend")]
+    public async Task<ActionResult<List<CostTrendMonthDto>>> CostTrend(
+        [FromQuery] string? month, [FromQuery] int months = 6)
+    {
+        if (string.IsNullOrWhiteSpace(month) || !TryParseMonth(month, out var selStart, out var selEndExcl))
+            return BadRequest("Zadajte mesiac vo formáte YYYY-MM.");
+        months = Math.Clamp(months, 2, 24);
+        var from = selStart.AddMonths(-(months - 1));
+        var toExcl = selEndExcl;
+
+        var entries = await _db.TimeEntries
+            .Where(t => t.ClockIn >= from && t.ClockIn < toExcl && t.ClockOut != null)
+            .Select(t => new { t.ClockIn, t.ClockOut, t.WageAtTime })
+            .ToListAsync();
+        var advances = await _db.EmployeeAdvances
+            .Where(a => a.Date >= from && a.Date < toExcl)
+            .Select(a => new { a.Date, a.Amount })
+            .ToListAsync();
+        // Same exclusion as the material views (MaterialPurchasesController):
+        // income invoices and AZ Stroje division documents are not material
+        // spend — without this the trend disagrees with the hero's Materiál.
+        var purchases = await _db.MaterialPurchases
+            .Where(p => p.PurchaseDate >= from && p.PurchaseDate < toExcl)
+            .Where(p => p.InvoiceDocument == null
+                     || (p.InvoiceDocument.Direction != "income" && p.InvoiceDocument.Division != "stroje"))
+            .Select(p => new { p.PurchaseDate, p.TotalCost })
+            .ToListAsync();
+
+        var result = new List<CostTrendMonthDto>();
+        for (var m0 = from; m0 < toExcl; m0 = m0.AddMonths(1))
+        {
+            var m1 = m0.AddMonths(1);
+            var gross = entries
+                .Where(t => t.ClockIn >= m0 && t.ClockIn < m1)
+                .Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours * t.WageAtTime);
+            var adv = advances.Where(a => a.Date >= m0 && a.Date < m1).Sum(a => a.Amount);
+            var mat = purchases.Where(p => p.PurchaseDate >= m0 && p.PurchaseDate < m1).Sum(p => p.TotalCost);
+            var wages = Math.Round(gross, 2, MidpointRounding.AwayFromZero) - adv;
+            result.Add(new CostTrendMonthDto
+            {
+                Month = m0.ToString("yyyy-MM"),
+                Wages = wages,
+                Material = Math.Round(mat, 2, MidpointRounding.AwayFromZero),
+                Total = wages + Math.Round(mat, 2, MidpointRounding.AwayFromZero)
+            });
+        }
+        return result;
+    }
+
+    /// <summary>
     /// GET /api/payroll/monthly/export?month=YYYY-MM (or ?from=&amp;to= range)
     /// XLSX of the same shape as /monthly. Single-sheet, Slovak headers.
     /// </summary>

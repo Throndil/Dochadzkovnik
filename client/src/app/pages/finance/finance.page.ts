@@ -8,7 +8,7 @@ import { AlertComponent } from '../../components/alert/alert.component';
 import { AuthService } from '../../services/auth.service';
 import { ApiErrorService } from '../../services/api-error.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
-import { PayrollService } from '../../services/payroll.service';
+import { CostTrendMonth, PayrollService } from '../../services/payroll.service';
 import { MaterialPurchaseService } from '../../services/material-purchase.service';
 import { InvoiceService, InvoiceDocument } from '../../services/invoice.service';
 import { Division, DivisionService, DIVISION_LABELS } from '../../services/division.service';
@@ -55,6 +55,8 @@ export class FinancePage {
   invoiceDocs = signal<InvoiceDocument[]>([]);
   /** This month's paid AI extraction cost (exact usage-based). */
   aiSpend = signal<{ costEur: number; calls: number } | null>(null);
+  /** Last 6 months of cost totals (oldest first) — hero sparkline. */
+  trend = signal<CostTrendMonth[] | null>(null);
 
   private divisionSvc = inject(DivisionService);
   private router = inject(Router);
@@ -135,6 +137,45 @@ export class FinancePage {
     const t = this.costTotal();
     return t > 0 ? Math.round((this.wagesPayout() ?? 0) / t * 100) : 0;
   });
+
+  // ─── Hero trend (FLOWii-style sparkline + medzimesačná zmena) ───
+
+  /** % change of total cost vs the previous month; null when the previous
+   *  month has no cost (nothing meaningful to compare against). */
+  trendDelta = computed(() => {
+    const t = this.trend();
+    if (!t || t.length < 2) return null;
+    const last = t[t.length - 1].total;
+    const prev = t[t.length - 2].total;
+    if (prev <= 0) return null;
+    return Math.round(((last - prev) / prev) * 100);
+  });
+
+  /** Sparkline coordinates in a fixed 100×28 viewBox, x spaced evenly,
+   *  y scaled to the window's max total. Empty = nothing to draw. */
+  trendCoords = computed(() => {
+    const t = this.trend() ?? [];
+    if (t.length < 2 || !t.some(m => m.total > 0)) return [];
+    const max = Math.max(...t.map(m => m.total));
+    const w = 100, h = 28, pad = 3;
+    return t.map((m, i) => ({
+      m,
+      x: +(pad + (i * (w - 2 * pad)) / (t.length - 1)).toFixed(1),
+      y: +(h - pad - (Math.max(m.total, 0) / max) * (h - 2 * pad)).toFixed(1)
+    }));
+  });
+
+  trendPoints = computed(() => this.trendCoords().map(c => `${c.x},${c.y}`).join(' '));
+
+  /** Coordinates of the last sparkline point — the "you are here" dot. */
+  trendLastPoint = computed(() => this.trendCoords().at(-1) ?? null);
+
+  /** Hover title for one sparkline month, e.g. "feb 2026 · 12 345,60 €". */
+  trendTitle(m: CostTrendMonth): string {
+    const [y, mo] = m.month.split('-').map(Number);
+    const label = new Date(y, mo - 1, 1).toLocaleDateString('sk-SK', { month: 'short', year: 'numeric' });
+    return `${label} · ${m.total.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  }
 
   /** Largest per-site total in the report — scales the comparison bars. */
   reportMax = computed(() => {
@@ -225,6 +266,14 @@ export class FinancePage {
           this.wagesPayout.set(res.totals?.payout ?? null);
         } catch {
           this.wagesPayout.set(null);
+        }
+      })());
+      // Sparkline is decoration — best-effort like every other card.
+      tasks.push((async () => {
+        try {
+          this.trend.set(await this.payroll.costTrend(this.month()));
+        } catch {
+          this.trend.set(null);
         }
       })());
     }

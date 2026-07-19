@@ -25,6 +25,14 @@ export interface PayrollMonthly {
   totals: PayrollRow;
 }
 
+/** One month of the finance cost sparkline — mirrors CostTrendMonthDto. */
+export interface CostTrendMonth {
+  month: string;          // 'YYYY-MM'
+  wages: number;
+  material: number;
+  total: number;
+}
+
 export interface EmployeeAdvance {
   id: number;
   employeeId: number;
@@ -75,6 +83,15 @@ export class PayrollService {
     if (division) params = params.set('division', division);
     return firstValueFrom(
       this.http.get<PayrollMonthly>(`${this.url}/monthly`, { params })
+    );
+  }
+
+  /** Monthly cost totals ending at `month`, oldest first — feeds the
+   *  Financie hero sparkline. */
+  costTrend(month: string, months = 6): Promise<CostTrendMonth[]> {
+    const params = new HttpParams().set('month', month).set('months', String(months));
+    return firstValueFrom(
+      this.http.get<CostTrendMonth[]>(`${this.url}/cost-trend`, { params })
     );
   }
 

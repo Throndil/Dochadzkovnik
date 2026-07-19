@@ -1222,6 +1222,20 @@ public class PayrollMonthlyDto
     public PayrollRowDto Totals { get; set; } = new();
 }
 
+/// <summary>
+/// One month of the /admin/finance cost sparkline (GET /api/payroll/cost-trend).
+/// Wages uses the same definition as PayrollMonthlyDto.Totals.Payout
+/// (gross − advances) so the hero number and the trend agree.
+/// </summary>
+public class CostTrendMonthDto
+{
+    /// <summary>YYYY-MM.</summary>
+    public string Month { get; set; } = string.Empty;
+    public decimal Wages { get; set; }
+    public decimal Material { get; set; }
+    public decimal Total { get; set; }
+}
+
 // ─── Per-location P&L (Náklady a zisk) — PAYROLL_AND_PNL_PLAN.md ───
 // Admin-only data (wages + contract values); MUST NOT be reused by any
 // /api/kiosk/* endpoint.
