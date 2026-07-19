@@ -129,6 +129,25 @@ public class PayrollController : ControllerBase
             .Select(i => new { i.IssueDate, i.TotalInclVat })
             .ToListAsync();
 
+        // Výjazdy — same definition as the P&L (LocationsController): one
+        // ride per car per calendar day, priced at the live vyjazd_auta rate.
+        // ponytail: live rate — changing the tariff shifts history.
+        var tripRate = await _db.CompanyRates
+            .Where(r => r.Key == "vyjazd_auta")
+            .Select(r => (decimal?)r.Amount)
+            .FirstOrDefaultAsync() ?? 0m;
+        var tripEntries = await _db.TimeEntries
+            .Where(t => t.ClockIn >= from && t.ClockIn < toExcl && t.ClockOut != null && t.CarId != null)
+            .Select(t => new { t.CarId, t.ClockIn })
+            .ToListAsync();
+
+        // Income side — income invoices of BOTH divisions, by dátum dokladu.
+        var incomeDocs = await _db.InvoiceDocuments
+            .Where(i => i.IssueDate >= from && i.IssueDate < toExcl
+                     && i.Direction == "income" && i.Status != "discarded")
+            .Select(i => new { i.IssueDate, i.TotalInclVat })
+            .ToListAsync();
+
         var result = new List<CostTrendMonthDto>();
         for (var m0 = from; m0 < toExcl; m0 = m0.AddMonths(1))
         {
@@ -141,6 +160,13 @@ public class PayrollController : ControllerBase
                 purchases.Where(p => p.PurchaseDate >= m0 && p.PurchaseDate < m1).Sum(p => p.TotalCost),
                 2, MidpointRounding.AwayFromZero);
             var stroje = strojeDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).Sum(i => i.TotalInclVat);
+            var tripCount = tripEntries
+                .Where(x => x.ClockIn >= m0 && x.ClockIn < m1)
+                .Select(x => new { x.CarId, x.ClockIn.Date })
+                .Distinct()
+                .Count();
+            var trips = Math.Round(tripCount * tripRate, 2, MidpointRounding.AwayFromZero);
+            var income = incomeDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).Sum(i => i.TotalInclVat);
             var wages = Math.Round(gross, 2, MidpointRounding.AwayFromZero) - adv;
             result.Add(new CostTrendMonthDto
             {
@@ -148,7 +174,9 @@ public class PayrollController : ControllerBase
                 Wages = wages,
                 Material = mat,
                 Stroje = stroje,
-                Total = wages + mat + stroje
+                Trips = trips,
+                Total = wages + mat + stroje + trips,
+                Income = income
             });
         }
         return result;

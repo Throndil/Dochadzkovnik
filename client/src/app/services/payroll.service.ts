@@ -32,7 +32,12 @@ export interface CostTrendMonth {
   material: number;
   /** AZ Stroje expense invoices — a cost pillar of its own, never in material. */
   stroje: number;
+  /** Výjazdy: distinct car+day rides × the live vyjazd_auta rate. */
+  trips: number;
+  /** wages + material + stroje + trips. */
   total: number;
+  /** Income invoices of both divisions, by dátum dokladu. */
+  income: number;
 }
 
 export interface EmployeeAdvance {

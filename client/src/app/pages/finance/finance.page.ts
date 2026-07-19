@@ -138,7 +138,16 @@ export class FinancePage {
     this.invoiceDocs()
       .filter(i => i.status !== 'discarded' && i.direction !== 'income' && (i.division || 'profistav') === 'stroje')
       .reduce((s, i) => s + (i.totalInclVat || 0), 0));
-  costTotal = computed(() => (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0) + this.strojeExpense());
+  /** Výjazdy for the selected month — from the trend (its last month IS the
+   *  selected month), the only per-month client source for trip costs. */
+  tripsCost = computed(() => this.trend()?.at(-1)?.trips ?? 0);
+  /** Income invoices of both divisions in the selected month. */
+  incomeTotal = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction === 'income')
+      .reduce((s, i) => s + (i.totalInclVat || 0), 0));
+  costTotal = computed(() =>
+    (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0) + this.strojeExpense() + this.tripsCost());
 
   /** Share of one cost pillar on the month total, in whole %. */
   pctOf(value: number | null): number {
@@ -153,12 +162,14 @@ export class FinancePage {
     const w = Math.max(this.wagesPayout() ?? 0, 0);
     const m = Math.max(this.materialSpend() ?? 0, 0);
     const st = Math.max(this.strojeExpense(), 0);
-    const total = w + m + st;
+    const tr = Math.max(this.tripsCost(), 0);
+    const total = w + m + st + tr;
     if (total <= 0) return [];
     const parts = [
       { cls: 'stroke-sky-500', value: w },
       { cls: 'stroke-amber-500', value: m },
       { cls: 'stroke-rose-500', value: st },
+      { cls: 'stroke-violet-500', value: tr },
     ].filter(p => p.value > 0);
     const gap = parts.length > 1 ? 2 : 0;
     let start = 0;
@@ -171,43 +182,117 @@ export class FinancePage {
     });
   });
 
-  // ─── Hero trend (FLOWii-style sparkline + medzimesačná zmena) ───
-
-  /** % change of total cost vs the previous month; null when the previous
-   *  month has no cost (nothing meaningful to compare against). */
-  trendDelta = computed(() => {
-    const t = this.trend();
-    if (!t || t.length < 2) return null;
-    const last = t[t.length - 1].total;
-    const prev = t[t.length - 2].total;
-    if (prev <= 0) return null;
-    return Math.round(((last - prev) / prev) * 100);
-  });
+  // ─── Trend sparklines (FLOWii-style, one per hero card) ───
 
   /** Sparkline coordinates in a fixed 100×28 viewBox, x spaced evenly,
-   *  y scaled to the window's max total. Empty = nothing to draw. */
+   *  y scaled to the window's max. Empty = nothing to draw. */
+  private buildCoords(values: number[]) {
+    if (values.length < 2 || !values.some(v => v > 0)) return [];
+    const max = Math.max(...values);
+    const w = 100, h = 28, pad = 3;
+    return values.map((v, i) => ({
+      x: +(pad + (i * (w - 2 * pad)) / (values.length - 1)).toFixed(1),
+      y: +(h - pad - (Math.max(v, 0) / max) * (h - 2 * pad)).toFixed(1)
+    }));
+  }
+
+  /** % change vs the previous month; null when the previous month is 0. */
+  private static delta(values: number[]): number | null {
+    if (values.length < 2) return null;
+    const prev = values[values.length - 2];
+    if (prev <= 0) return null;
+    return Math.round(((values[values.length - 1] - prev) / prev) * 100);
+  }
+
+  trendDelta = computed(() => FinancePage.delta((this.trend() ?? []).map(m => m.total)));
   trendCoords = computed(() => {
     const t = this.trend() ?? [];
-    if (t.length < 2 || !t.some(m => m.total > 0)) return [];
-    const max = Math.max(...t.map(m => m.total));
-    const w = 100, h = 28, pad = 3;
-    return t.map((m, i) => ({
-      m,
-      x: +(pad + (i * (w - 2 * pad)) / (t.length - 1)).toFixed(1),
-      y: +(h - pad - (Math.max(m.total, 0) / max) * (h - 2 * pad)).toFixed(1)
-    }));
+    return this.buildCoords(t.map(m => m.total)).map((p, i) => ({ ...p, m: t[i] }));
   });
-
   trendPoints = computed(() => this.trendCoords().map(c => `${c.x},${c.y}`).join(' '));
-
-  /** Coordinates of the last sparkline point — the "you are here" dot. */
   trendLastPoint = computed(() => this.trendCoords().at(-1) ?? null);
 
-  /** Hover title for one sparkline month, e.g. "feb 2026 · 12 345,60 €". */
-  trendTitle(m: CostTrendMonth): string {
+  incomeDelta = computed(() => FinancePage.delta((this.trend() ?? []).map(m => m.income)));
+  incomeCoords = computed(() => {
+    const t = this.trend() ?? [];
+    return this.buildCoords(t.map(m => m.income)).map((p, i) => ({ ...p, m: t[i] }));
+  });
+  incomePoints = computed(() => this.incomeCoords().map(c => `${c.x},${c.y}`).join(' '));
+  incomeLastPoint = computed(() => this.incomeCoords().at(-1) ?? null);
+
+  private static fmtEur(v: number): string {
+    return `${v.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  }
+
+  private static monthShort(month: string): string {
+    const [y, m] = month.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('sk-SK', { month: 'short' });
+  }
+
+  /** Hover title for one sparkline month, e.g. "júl 2026 · 12 345,60 €". */
+  sparkTitle(m: CostTrendMonth, value: number): string {
     const [y, mo] = m.month.split('-').map(Number);
     const label = new Date(y, mo - 1, 1).toLocaleDateString('sk-SK', { month: 'short', year: 'numeric' });
-    return `${label} · ${m.total.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+    return `${label} · ${FinancePage.fmtEur(value)}`;
+  }
+
+  // ─── Consolidated chart: Príjmy vs. Náklady per month ───
+
+  /** Grouped-bar geometry in a 320×130 viewBox (plot 8..112, labels below).
+   *  Negative months clamp to 0 — a bar can't go below the baseline. */
+  consolidated = computed(() => {
+    const t = this.trend() ?? [];
+    if (t.length < 2) return null;
+    const raw = Math.max(...t.map(m => Math.max(m.income, m.total, 0)));
+    if (raw <= 0) return null;
+    const niceMax = FinancePage.niceCeil(raw);
+    const W = 320, top = 8, bottom = 112;
+    const plotH = bottom - top;
+    const groupW = (W - 12) / t.length;
+    const barW = Math.min(15, groupW * 0.3);
+    const groups = t.map((m, i) => {
+      const cx = 6 + groupW * i + groupW / 2;
+      const hInc = (Math.max(m.income, 0) / niceMax) * plotH;
+      const hCost = (Math.max(m.total, 0) / niceMax) * plotH;
+      return {
+        m, cx, barW,
+        label: FinancePage.monthShort(m.month),
+        incX: cx - barW - 1.5, incY: bottom - hInc, incH: hInc,
+        costX: cx + 1.5, costY: bottom - hCost, costH: hCost,
+        groupX: cx - groupW / 2, groupW,
+      };
+    });
+    return { groups, niceMax, W, top, bottom, midY: (top + bottom) / 2 };
+  });
+
+  /** Window sums for the row under the consolidated chart. */
+  consolidatedTotals = computed(() => {
+    const t = this.trend() ?? [];
+    const income = t.reduce((s, m) => s + m.income, 0);
+    const cost = t.reduce((s, m) => s + m.total, 0);
+    return { income, cost, diff: income - cost };
+  });
+
+  /** Hover title for one chart month: both sides + rozdiel. */
+  barTitle(m: CostTrendMonth): string {
+    const [y, mo] = m.month.split('-').map(Number);
+    const label = new Date(y, mo - 1, 1).toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
+    const diff = m.income - m.total;
+    return `${label}\nPríjmy: ${FinancePage.fmtEur(m.income)}\nNáklady: ${FinancePage.fmtEur(m.total)}\nRozdiel: ${diff >= 0 ? '+' : '−'} ${FinancePage.fmtEur(Math.abs(diff))}`;
+  }
+
+  /** Axis label without cents — the gridline values. */
+  axisLabel(v: number): string {
+    return v.toLocaleString('sk-SK', { maximumFractionDigits: 0 });
+  }
+
+  /** Smallest "nice" ceiling (1/2/2.5/5 × 10^k) ≥ v — the chart's y max. */
+  private static niceCeil(v: number): number {
+    const pow = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) {
+      if (m * pow >= v) return m * pow;
+    }
+    return 10 * pow;
   }
 
   /** Largest per-site total in the report — scales the comparison bars. */

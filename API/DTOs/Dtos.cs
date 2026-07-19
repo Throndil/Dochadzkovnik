@@ -1236,7 +1236,13 @@ public class CostTrendMonthDto
     /// <summary>AZ Stroje division expense invoices — excluded from material
     /// views by design, so they are a separate cost pillar here.</summary>
     public decimal Stroje { get; set; }
+    /// <summary>Výjazdy — distinct car+day rides × the live "vyjazd_auta"
+    /// rate, same definition as the per-location P&L.</summary>
+    public decimal Trips { get; set; }
+    /// <summary>All cost pillars: wages + material + stroje + trips.</summary>
     public decimal Total { get; set; }
+    /// <summary>Income invoices (both divisions), by dátum dokladu.</summary>
+    public decimal Income { get; set; }
 }
 
 // ─── Per-location P&L (Náklady a zisk) — PAYROLL_AND_PNL_PLAN.md ───
