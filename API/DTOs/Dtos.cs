@@ -1233,6 +1233,9 @@ public class CostTrendMonthDto
     public string Month { get; set; } = string.Empty;
     public decimal Wages { get; set; }
     public decimal Material { get; set; }
+    /// <summary>AZ Stroje division expense invoices — excluded from material
+    /// views by design, so they are a separate cost pillar here.</summary>
+    public decimal Stroje { get; set; }
     public decimal Total { get; set; }
 }
 

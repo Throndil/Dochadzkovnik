@@ -127,16 +127,24 @@ export class FinancePage {
     };
   });
 
-  // ─── Overview hero (the two real cost pillars) ───
-  // Month cost = wages + material. Invoices are NOT added: supplier-invoice
-  // material is already counted inside `materialSpend` (the P&L does the same),
-  // so adding faktúry on top would double-count. Faktúry is shown as a source,
-  // not a third pillar.
-  costTotal = computed(() => (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0));
-  wagesPct = computed(() => {
+  // ─── Overview hero (the three cost pillars) ───
+  // Month cost = wages + material + stroje. Profistav expense invoices are
+  // NOT added on top: their items land inside `materialSpend` on commit, so
+  // that would double-count. AZ Stroje invoices are the opposite case — they
+  // are excluded from material views by design, so without this pillar they
+  // appeared in no total at all (customer: "160 € spolu, ale Stroje majú
+  // −2 833 €").
+  strojeExpense = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction !== 'income' && (i.division || 'profistav') === 'stroje')
+      .reduce((s, i) => s + (i.totalInclVat || 0), 0));
+  costTotal = computed(() => (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0) + this.strojeExpense());
+
+  /** Share of one cost pillar on the month total, in whole %. */
+  pctOf(value: number | null): number {
     const t = this.costTotal();
-    return t > 0 ? Math.round((this.wagesPayout() ?? 0) / t * 100) : 0;
-  });
+    return t > 0 ? Math.round(((value ?? 0) / t) * 100) : 0;
+  }
 
   /** Donut segments for the hero cost split (r=15.9155 → circumference 100,
    *  so dasharray works in percent). Negative components (advances over
@@ -144,11 +152,13 @@ export class FinancePage {
   heroDonut = computed(() => {
     const w = Math.max(this.wagesPayout() ?? 0, 0);
     const m = Math.max(this.materialSpend() ?? 0, 0);
-    const total = w + m;
+    const st = Math.max(this.strojeExpense(), 0);
+    const total = w + m + st;
     if (total <= 0) return [];
     const parts = [
       { cls: 'stroke-sky-500', value: w },
       { cls: 'stroke-amber-500', value: m },
+      { cls: 'stroke-rose-500', value: st },
     ].filter(p => p.value > 0);
     const gap = parts.length > 1 ? 2 : 0;
     let start = 0;

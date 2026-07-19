@@ -30,6 +30,8 @@ export interface CostTrendMonth {
   month: string;          // 'YYYY-MM'
   wages: number;
   material: number;
+  /** AZ Stroje expense invoices — a cost pillar of its own, never in material. */
+  stroje: number;
   total: number;
 }
 

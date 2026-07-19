@@ -121,6 +121,14 @@ public class PayrollController : ControllerBase
             .Select(p => new { p.PurchaseDate, p.TotalCost })
             .ToListAsync();
 
+        // AZ Stroje expenses live only on invoice documents (excluded from
+        // material above) — the third cost pillar, month by dátum dokladu.
+        var strojeDocs = await _db.InvoiceDocuments
+            .Where(i => i.IssueDate >= from && i.IssueDate < toExcl
+                     && i.Division == "stroje" && i.Direction != "income" && i.Status != "discarded")
+            .Select(i => new { i.IssueDate, i.TotalInclVat })
+            .ToListAsync();
+
         var result = new List<CostTrendMonthDto>();
         for (var m0 = from; m0 < toExcl; m0 = m0.AddMonths(1))
         {
@@ -129,14 +137,18 @@ public class PayrollController : ControllerBase
                 .Where(t => t.ClockIn >= m0 && t.ClockIn < m1)
                 .Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours * t.WageAtTime);
             var adv = advances.Where(a => a.Date >= m0 && a.Date < m1).Sum(a => a.Amount);
-            var mat = purchases.Where(p => p.PurchaseDate >= m0 && p.PurchaseDate < m1).Sum(p => p.TotalCost);
+            var mat = Math.Round(
+                purchases.Where(p => p.PurchaseDate >= m0 && p.PurchaseDate < m1).Sum(p => p.TotalCost),
+                2, MidpointRounding.AwayFromZero);
+            var stroje = strojeDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).Sum(i => i.TotalInclVat);
             var wages = Math.Round(gross, 2, MidpointRounding.AwayFromZero) - adv;
             result.Add(new CostTrendMonthDto
             {
                 Month = m0.ToString("yyyy-MM"),
                 Wages = wages,
-                Material = Math.Round(mat, 2, MidpointRounding.AwayFromZero),
-                Total = wages + Math.Round(mat, 2, MidpointRounding.AwayFromZero)
+                Material = mat,
+                Stroje = stroje,
+                Total = wages + mat + stroje
             });
         }
         return result;

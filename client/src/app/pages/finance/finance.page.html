@@ -88,12 +88,17 @@
             <div class="flex flex-col gap-1.5 text-sm">
               @if (canPayroll()) {
                 <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}</span>
-                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ wagesPct() }} %</span> }
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(wagesPayout()) }} %</span> }
                 </span>
               }
               @if (canMaterial()) {
                 <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Materiál <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}</span>
-                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ 100 - wagesPct() }} %</span> }
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(materialSpend()) }} %</span> }
+                </span>
+              }
+              @if (canInvoices() && strojeExpense() > 0) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span> Stroje <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ strojeExpense() | number:'1.2-2' }} €</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(strojeExpense()) }} %</span> }
                 </span>
               }
             </div>
