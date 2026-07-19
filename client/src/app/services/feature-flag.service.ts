@@ -37,6 +37,12 @@ export class FeatureFlagService {
   private plannerSignal = signal(false);
   planner = computed(() => this.plannerSignal());
 
+  private vehiclesSignal = signal(false);
+  vehicles = computed(() => this.vehiclesSignal());
+
+  private strojeDivisionsSignal = signal(false);
+  strojeDivisions = computed(() => this.strojeDivisionsSignal());
+
   constructor(private http: HttpClient) {}
 
   /**
@@ -59,6 +65,8 @@ export class FeatureFlagService {
       this.invoiceCameraScanSignal.set(!!flags?.['invoiceCameraScan']);
       this.payrollAndPnLSignal.set(!!flags?.['payrollAndPnL']);
       this.plannerSignal.set(!!flags?.['planner']);
+      this.vehiclesSignal.set(!!flags?.['vehicles']);
+      this.strojeDivisionsSignal.set(!!flags?.['strojeDivisions']);
     } catch {
       this.notificationsSignal.set(false);
       this.commanderIntegrationSignal.set(false);
@@ -68,6 +76,8 @@ export class FeatureFlagService {
       this.invoiceCameraScanSignal.set(false);
       this.payrollAndPnLSignal.set(false);
       this.plannerSignal.set(false);
+      this.vehiclesSignal.set(false);
+      this.strojeDivisionsSignal.set(false);
     }
   }
 

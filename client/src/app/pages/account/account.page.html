@@ -15,116 +15,56 @@
       </div>
     }
 
-    <!-- Funkcie (superadmin only) — runtime toggles for features hidden from the customer -->
+    <!-- Moduly (superadmin only) — the sellable packaging of the app.
+         Toggles map 1:1 to server feature flags; API, routes and navbar all
+         gate on them. Driven by moduleDefs in account.page.ts. -->
     @if (auth.isSuperAdmin()) {
       <div class="bg-white dark:bg-slate-800 rounded-xl border-2 border-amber-400 dark:border-amber-500 p-6">
         <div class="flex items-center justify-between mb-1">
-          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Funkcie</h2>
+          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Moduly</h2>
           <span class="text-xs font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 rounded">Superadmin</span>
         </div>
         <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">
-          Zapni alebo vypni rozpracované funkcie pre zákazníka.
+          Balíky aplikácie pre zákazníka — čo je vypnuté, zákazník nevidí (menu, stránky aj API).
         </p>
 
         @if (flagError()) {
           <app-alert variant="error" [message]="flagError()" class="block mb-3" />
         }
 
-        <label class="flex items-center justify-between gap-4 py-2">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Notifikácie</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">PWA push, admin Notifikácie stránka, kioskový banner.</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.notifications()"
-                 [disabled]="flagSaving()"
-                 (change)="onToggleFlag('notifications', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
+        <!-- Základ — always on, listed so the packaging is explicit -->
+        <div class="rounded-lg bg-slate-50 dark:bg-slate-700/40 p-3 mb-2">
+          <div class="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-1.5">Základ · vždy zapnuté</div>
+          <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600 dark:text-slate-300">
+            @for (c of coreItems; track c) {
+              <span class="inline-flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-emerald-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                {{ c }}
+              </span>
+            }
+          </div>
+        </div>
 
-        <label class="flex items-center justify-between gap-4 py-2">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Commander API</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Live údaje o vozidlách na profile auta.</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.commanderIntegration()"
-                 [disabled]="flagSaving()"
-                 (change)="onToggleFlag('commanderIntegration', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
-
-        <label class="flex items-center justify-between gap-4 py-2">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Nákup materiálu</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Kioskový tile na nákup materiálu + admin záložka Nákupy a Neidentifikované.</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.materialPurchases()"
-                 [disabled]="flagSaving()"
-                 (change)="onToggleFlag('materialPurchases', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
-
-        <label class="flex items-center justify-between gap-4 py-2">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Denník a voľba dôkazu</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Po zadaní hodín si pracovník vyberie: fotka, denník alebo priamy zápis.</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.proofOfWorkChoices()"
-                 [disabled]="flagSaving()"
-                 (change)="onToggleFlag('proofOfWorkChoices', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
-
-        <label class="flex items-center justify-between gap-4 py-2">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Skenovanie faktúr</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Nahrať PDF faktúry od dodávateľa. Vyžaduje nastavený Google Document AI v Railway / appsettings.Local.json — viď SECRETS.md.</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.invoiceScanning()"
-                 [disabled]="flagSaving()"
-                 (change)="onToggleFlag('invoiceScanning', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
-
-        <label class="flex items-center justify-between gap-4 py-2 pl-6 border-l-2 border-slate-200 dark:border-slate-700">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Skenovanie faktúr — kamerou</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Sprístupní tlačidlo „Naskenovať mobilom" na /admin/faktúry. Vyžaduje zapnuté „Skenovanie faktúr".</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.invoiceCameraScan()"
-                 [disabled]="flagSaving() || !flags.invoiceScanning()"
-                 (change)="onToggleFlag('invoiceCameraScan', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
-
-        <label class="flex items-center justify-between gap-4 py-2">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Mzdy</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Mesačná Mzdy stránka so sadzbami, zálohami a výplatou. Excel exporty: mesačný prehľad + mzdový list.</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.payrollAndPnL()"
-                 [disabled]="flagSaving()"
-                 (change)="onToggleFlag('payrollAndPnL', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
-
-        <label class="flex items-center justify-between gap-4 py-2">
-          <span class="flex flex-col">
-            <span class="text-slate-900 dark:text-white font-medium">Plánovač</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400">Týždenný plán: kto kedy robí na ktorom pracovisku, dovolenky a PN.</span>
-          </span>
-          <input type="checkbox"
-                 [checked]="flags.planner()"
-                 [disabled]="flagSaving()"
-                 (change)="onToggleFlag('planner', $any($event.target).checked)"
-                 class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50" />
-        </label>
+        <div class="divide-y divide-slate-100 dark:divide-slate-700/50">
+          @for (m of moduleDefs; track m.key) {
+            <label class="flex items-center justify-between gap-4 py-2.5"
+                   [class]="m.parent ? 'ml-5 pl-3 border-l-2 border-slate-200 dark:border-slate-700' : ''">
+              <span class="flex flex-col">
+                <span class="text-slate-900 dark:text-white font-medium flex items-center gap-2 flex-wrap">{{ m.label }}
+                  @if (m.enabled()) {
+                    <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">zapnuté</span>
+                  }
+                </span>
+                <span class="text-xs text-slate-500 dark:text-slate-400">{{ m.desc }}</span>
+              </span>
+              <input type="checkbox"
+                     [checked]="m.enabled()"
+                     [disabled]="flagSaving() || !moduleParentOn(m)"
+                     (change)="onToggleFlag(m.key, $any($event.target).checked)"
+                     class="h-6 w-6 accent-amber-500 cursor-pointer disabled:opacity-50 shrink-0" />
+            </label>
+          }
+        </div>
       </div>
     }
 

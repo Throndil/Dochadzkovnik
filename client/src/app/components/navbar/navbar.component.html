@@ -26,7 +26,7 @@
         <div class="w-px h-6 bg-slate-200 dark:bg-slate-700 mr-1"></div>
 
         @for (l of activeLinks; track l.path) {
-          @if (l.path === '/admin/invoices') {
+          @if (l.path === '/admin/invoices' && showDivisions) {
             <!-- Division burger (Fáza D) — replaces the plain Faktúry link.
                  Shows the active division; opening it switches AZ Profistav /
                  AZ Stroje and navigates to the documents page. -->
@@ -152,7 +152,7 @@
 
         <div class="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Financie</div>
         @for (l of finLinks; track l.path) {
-          @if (l.path === '/admin/invoices') {
+          @if (l.path === '/admin/invoices' && showDivisions) {
             <!-- Divisions listed directly on mobile — no dropdown needed. -->
             @for (d of divisions; track d.key) {
               <button type="button" (click)="pickDivision(d.key)"

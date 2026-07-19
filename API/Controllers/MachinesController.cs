@@ -1,5 +1,6 @@
 using API.Data;
 using API.DTOs;
+using API.Filters;
 using API.Models;
 using API.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -12,11 +13,14 @@ namespace API.Controllers;
 /// Machine registry of the AZ Stroje division (Fáza F0) — mirrors
 /// <see cref="CarsController"/>: CRUD + photo + soft deactivate. The kiosk
 /// Auto/Stroj/Pešo choice (F3) and the optional cost backtrack (F1) point
-/// here; division money never computes on the machine (D4).
+/// here; division money never computes on the machine (D4). Part of the
+/// Stroje a divízie module (the kiosk has its own anonymous machines
+/// endpoint, unaffected by this gate).
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[RequireFeatureOrSuperAdmin("StrojeDivisions")]
 public class MachinesController : ControllerBase
 {
     private readonly AppDbContext _db;

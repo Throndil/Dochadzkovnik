@@ -1,5 +1,6 @@
 using API.Data;
 using API.DTOs;
+using API.Filters;
 using API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,11 +11,13 @@ namespace API.Controllers;
 /// <summary>
 /// Palivové karty (F6) — registry of the company's fuel cards with the
 /// current holder. Cards may be unassigned (holder not in the system yet).
-/// Manager-only; managed on /admin/palivove-karty.
+/// Manager-only; managed on /admin/palivove-karty. Part of the Vozidlá
+/// module (the cars API itself stays core — kiosk and time entries use it).
 /// </summary>
 [ApiController]
 [Route("api/fuel-cards")]
 [Authorize]
+[RequireFeatureOrSuperAdmin("Vehicles")]
 public class FuelCardsController : ControllerBase
 {
     private readonly AppDbContext _db;

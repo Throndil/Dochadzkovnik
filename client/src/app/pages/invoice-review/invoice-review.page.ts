@@ -16,6 +16,8 @@ import {
 import { LocationService, Location } from '../../services/location.service';
 import { MachineService, Machine } from '../../services/machine.service';
 import { CarService, Car } from '../../services/car.service';
+import { AuthService } from '../../services/auth.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { SelectOnFocusDirective } from '../../directives/select-on-focus.directive';
 
@@ -45,6 +47,8 @@ export class InvoiceReviewPage implements OnInit {
   carsList = signal<Car[]>([]);
   private machineService = inject(MachineService);
   private carService = inject(CarService);
+  private flags = inject(FeatureFlagService);
+  private auth = inject(AuthService);
   loading = signal(false);
   error = signal<string | null>(null);
   committing = signal(false);
@@ -265,7 +269,11 @@ export class InvoiceReviewPage implements OnInit {
     this.id = Number(this.route.snapshot.paramMap.get('id'));
     this.load();
     this.locationService.getAll().subscribe(locs => this.locations.set(locs.filter(l => l.isActive)));
-    this.machineService.getAll().subscribe(ms => this.machinesList.set(ms.filter(m => m.isActive)));
+    // Machines API is behind the Stroje a divízie module — without it the
+    // mašina picker stays empty and the fetch would just 403.
+    if (this.flags.strojeDivisions() || this.auth.isSuperAdmin()) {
+      this.machineService.getAll().subscribe(ms => this.machinesList.set(ms.filter(m => m.isActive)));
+    }
     this.carService.getAll().subscribe(cs => this.carsList.set(cs.filter(c => c.isActive)));
   }
 

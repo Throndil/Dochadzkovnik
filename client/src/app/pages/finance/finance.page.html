@@ -285,7 +285,7 @@
       }
 
       <!-- Divisions: Príjem / Výdaj / Rozdiel per division (Fáza D) -->
-      @if (canInvoices()) {
+      @if (canInvoices() && canDivisions()) {
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
           <div class="flex items-center justify-between gap-3 mb-3">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white capitalize">Divízie · {{ monthLabel() }}</h2>

@@ -105,6 +105,9 @@ export class FinancePage {
   canPayroll = computed(() => this.flags.payrollAndPnL() || this.auth.isSuperAdmin());
   canInvoices = computed(() => this.flags.invoiceScanning() || this.auth.isSuperAdmin());
   canMaterial = computed(() => this.flags.materialPurchases() || this.auth.isSuperAdmin());
+  /** Stroje a divízie module — gates the per-division card; a customer
+   *  without divisions sees their documents on the Faktúry page directly. */
+  canDivisions = computed(() => this.flags.strojeDivisions() || this.auth.isSuperAdmin());
 
   monthLabel = computed(() => {
     const [y, m] = this.month().split('-').map(Number);

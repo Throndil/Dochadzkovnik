@@ -1,4 +1,5 @@
 using API.Data;
+using API.Filters;
 using API.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,11 +11,13 @@ namespace API.Controllers;
 /// <summary>
 /// "Odvody" — configurable company amounts (odvody, ubytovanie, výjazd auta…).
 /// The customer edits amounts and adds his own rows; code reads well-known
-/// rows by <see cref="CompanyRate.Key"/>. Manager-only.
+/// rows by <see cref="CompanyRate.Key"/>. Manager-only. Part of the Mzdy a
+/// financie module (server-side reads of the rates stay unaffected).
 /// </summary>
 [ApiController]
 [Route("api/company-rates")]
 [Authorize]
+[RequireFeatureOrSuperAdmin("PayrollAndPnL")]
 public class CompanyRatesController : ControllerBase
 {
     private readonly AppDbContext _db;

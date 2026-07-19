@@ -5,6 +5,10 @@ import { AlertComponent } from '../../components/alert/alert.component';
 import { AuthService } from '../../services/auth.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 
+/** One sellable module row on the Moduly panel. `parent` marks a sub-toggle
+ *  that needs its parent module enabled first. */
+type ModuleDef = { key: string; label: string; desc: string; enabled: () => boolean; parent?: string };
+
 @Component({
   selector: 'app-account',
   imports: [NavbarComponent, FormsModule, AlertComponent],
@@ -53,10 +57,34 @@ export class AccountPage implements OnInit {
   pinSaved = signal(false);
   pinError = signal('');
 
-  // Funkcie (superadmin only) — toggles for hidden features
+  // Moduly (superadmin only) — the sellable packaging; toggles map 1:1 to
+  // server feature flags (API + routes + navbar all gate on them).
   flags = inject(FeatureFlagService);
   flagSaving = signal(false);
   flagError = signal('');
+
+  /** Always-on core, listed on the panel so the packaging is explicit. */
+  readonly coreItems = ['Šichtovnica (dochádzka)', 'Zamestnanci', 'Pracoviská', 'Záznamy hodín', 'Prehľad'];
+
+  readonly moduleDefs: ModuleDef[] = [
+    { key: 'payrollAndPnL', label: 'Mzdy a financie', desc: 'Mzdy, zálohy, sadzby, Odvody, náklady a zisk (P&L), Financie súhrn s grafmi.', enabled: () => this.flags.payrollAndPnL() },
+    { key: 'invoiceScanning', label: 'Faktúry a AI skenovanie', desc: 'Nahrávanie a AI rozpoznávanie faktúr a bločkov. Vyžaduje Google Document AI — viď SECRETS.md.', enabled: () => this.flags.invoiceScanning() },
+    { key: 'invoiceCameraScan', label: 'Skenovanie mobilom', desc: 'Tlačidlo „Naskenovať mobilom" na stránke Faktúry.', enabled: () => this.flags.invoiceCameraScan(), parent: 'invoiceScanning' },
+    { key: 'materialPurchases', label: 'Materiál a sklad', desc: 'Kioskový nákup materiálu, katalóg, nákupy a sklad.', enabled: () => this.flags.materialPurchases() },
+    { key: 'vehicles', label: 'Vozidlá', desc: 'Správa áut a palivových kariet. Výber auta na kiosku zostáva v základe.', enabled: () => this.flags.vehicles() },
+    { key: 'strojeDivisions', label: 'Stroje a divízie', desc: 'Divízia AZ Stroje: register strojov, prepínač divízií, divízne doklady a report.', enabled: () => this.flags.strojeDivisions() },
+    { key: 'planner', label: 'Plánovač', desc: 'Týždenný plán: kto kedy robí na ktorom pracovisku, dovolenky a PN.', enabled: () => this.flags.planner() },
+    { key: 'notifications', label: 'Notifikácie', desc: 'PWA push, admin Notifikácie stránka, kioskový banner.', enabled: () => this.flags.notifications() },
+    { key: 'commanderIntegration', label: 'Commander GPS', desc: 'Live údaje o vozidlách z Commander API na profile auta.', enabled: () => this.flags.commanderIntegration() },
+    { key: 'proofOfWorkChoices', label: 'Preukazovanie práce', desc: 'Po zadaní hodín si pracovník vyberie: fotka, denník alebo priamy zápis.', enabled: () => this.flags.proofOfWorkChoices() },
+  ];
+
+  /** Sub-toggles stay disabled until their parent module is on. */
+  moduleParentOn(m: ModuleDef): boolean {
+    if (!m.parent) return true;
+    const p = this.moduleDefs.find(d => d.key === m.parent);
+    return p ? p.enabled() : true;
+  }
 
   get pinValid() {
     return /^\d{4,8}$/.test(this.pinNew)

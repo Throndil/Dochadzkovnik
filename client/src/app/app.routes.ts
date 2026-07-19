@@ -6,6 +6,8 @@ import { invoiceScanningFeatureGuard } from './guards/invoice-scanning-feature.g
 import { invoiceCameraScanFeatureGuard } from './guards/invoice-camera-scan-feature.guard';
 import { payrollAndPnLFeatureGuard } from './guards/payroll-and-pnl-feature.guard';
 import { plannerFeatureGuard } from './guards/planner-feature.guard';
+import { vehiclesFeatureGuard } from './guards/vehicles-feature.guard';
+import { strojeDivisionsFeatureGuard } from './guards/stroje-divisions-feature.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'kiosk', pathMatch: 'full' },
@@ -56,6 +58,7 @@ export const routes: Routes = [
       },
       {
         path: 'cars',
+        canActivate: [vehiclesFeatureGuard],
         loadComponent: () => import('./pages/cars/cars.page').then(m => m.CarsPage)
       },
       {
@@ -99,14 +102,17 @@ export const routes: Routes = [
       },
       {
         path: 'cars/:id',
+        canActivate: [vehiclesFeatureGuard],
         loadComponent: () => import('./pages/car-detail/car-detail.page').then(m => m.CarDetailPage)
       },
       {
         path: 'stroje',
+        canActivate: [strojeDivisionsFeatureGuard],
         loadComponent: () => import('./pages/stroje/stroje.page').then(m => m.StrojePage)
       },
       {
         path: 'palivove-karty',
+        canActivate: [vehiclesFeatureGuard],
         loadComponent: () => import('./pages/palivove-karty/palivove-karty.page').then(m => m.PalivoveKartyPage)
       },
       {

@@ -1160,7 +1160,7 @@ using (var scope = app.Services.CreateScope())
     // hidden features invisible. The superadmin flips them on via the Funkcie card on
     // the Account page; the dev environment has its own DB so devs can keep them on.
     {
-        var knownFlags = new[] { "Notifications", "CommanderIntegration", "MaterialPurchases", "ProofOfWorkChoices", "InvoiceScanning", "InvoiceCameraScan", "PayrollAndPnL", "Planner" };
+        var knownFlags = new[] { "Notifications", "CommanderIntegration", "MaterialPurchases", "ProofOfWorkChoices", "InvoiceScanning", "InvoiceCameraScan", "PayrollAndPnL", "Planner", "Vehicles", "StrojeDivisions" };
         foreach (var key in knownFlags)
         {
             if (!await db.FeatureFlags.AnyAsync(f => f.Key == key))
