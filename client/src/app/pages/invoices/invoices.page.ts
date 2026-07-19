@@ -211,6 +211,18 @@ export class InvoicesPage implements OnInit {
   receiptsFiltered = computed(() =>
     this.baseFiltered().filter(i => (i.documentKind ?? 'invoice') === 'receipt'));
 
+  // ─── FLOWii-style band subtotals per section ───
+  /** Príjmy / Výdavky / Rozdiel over the section's visible (non-discarded)
+   *  rows — the group-header numbers on the Faktúry and Bločky bands. */
+  private static sectionTotals(rows: InvoiceDocument[]) {
+    const live = rows.filter(i => i.status !== 'discarded');
+    const income = live.filter(i => i.direction === 'income').reduce((s, i) => s + (i.totalInclVat || 0), 0);
+    const expense = live.filter(i => i.direction !== 'income').reduce((s, i) => s + (i.totalInclVat || 0), 0);
+    return { income, expense, diff: income - expense };
+  }
+  invoiceTotals = computed(() => InvoicesPage.sectionTotals(this.invoicesFiltered()));
+  receiptTotals = computed(() => InvoicesPage.sectionTotals(this.receiptsFiltered()));
+
   // ─── Overview tiles ───
   // Follow the DATE range (customer expectation) but NOT the status filter —
   // the tiles describe statuses, so status-filtering them would be circular.

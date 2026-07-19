@@ -74,19 +74,31 @@
             }
           </div>
 
-          <div class="flex h-3 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 mt-4">
-            <span class="bg-sky-500" [style.flexGrow]="wagesPayout() ?? 0"></span>
-            <span class="bg-amber-500" [style.flexGrow]="materialSpend() ?? 0"></span>
-          </div>
-          <div class="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm">
-            @if (canPayroll()) {
-              <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}</span></span>
+          <div class="flex items-center gap-5 mt-4">
+            @if (heroDonut().length) {
+              <svg class="w-20 h-20 shrink-0 -rotate-90" viewBox="0 0 36 36" fill="none" role="img"
+                   aria-label="Podiel miezd a materiálu na nákladoch mesiaca">
+                <circle cx="18" cy="18" r="15.9155" stroke-width="3.8" class="stroke-slate-100 dark:stroke-slate-700" />
+                @for (s of heroDonut(); track s.cls) {
+                  <circle cx="18" cy="18" r="15.9155" stroke-width="3.8" [class]="s.cls"
+                          [attr.stroke-dasharray]="s.dash" [attr.stroke-dashoffset]="s.offset" />
+                }
+              </svg>
             }
-            @if (canMaterial()) {
-              <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Materiál <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}</span></span>
-            }
+            <div class="flex flex-col gap-1.5 text-sm">
+              @if (canPayroll()) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ wagesPct() }} %</span> }
+                </span>
+              }
+              @if (canMaterial()) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Materiál <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ 100 - wagesPct() }} %</span> }
+                </span>
+              }
+            </div>
           </div>
-          @if (canInvoices() && invoiceTotal() !== null) {
+          @if (canInvoices() && (invoiceTotal() ?? 0) > 0) {
             <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
               V materiáli sú aj položky z faktúr ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }), nepočítajú sa druhýkrát.
             </div>
@@ -114,15 +126,17 @@
                   <span class="block text-[11px] font-normal text-slate-400 dark:text-slate-500">{{ d.count }} {{ d.count === 1 ? 'doklad' : (d.count >= 2 && d.count <= 4 ? 'doklady' : 'dokladov') }}</span>
                 </span>
                 <span class="text-xs text-slate-500 dark:text-slate-400">Príjem
-                  <span class="block text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">+ {{ d.income | number:'1.2-2' }} €</span>
+                  <span class="block text-sm font-semibold tabular-nums"
+                        [class]="d.income > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ d.income > 0 ? '+ ' : '' }}{{ d.income | number:'1.2-2' }} €</span>
                 </span>
                 <span class="text-xs text-slate-500 dark:text-slate-400">Výdaj
-                  <span class="block text-sm font-semibold tabular-nums text-red-600 dark:text-red-400">− {{ d.expense | number:'1.2-2' }} €</span>
+                  <span class="block text-sm font-semibold tabular-nums"
+                        [class]="d.expense > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ d.expense > 0 ? '− ' : '' }}{{ d.expense | number:'1.2-2' }} €</span>
                 </span>
                 <span class="text-xs text-slate-500 dark:text-slate-400">Rozdiel
                   <span class="block text-sm font-bold tabular-nums"
-                        [class]="d.diff >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">
-                    {{ d.diff >= 0 ? '+' : '−' }} {{ (d.diff < 0 ? -d.diff : d.diff) | number:'1.2-2' }} €
+                        [class]="d.diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : d.diff < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
+                    {{ d.diff > 0 ? '+ ' : d.diff < 0 ? '− ' : '' }}{{ (d.diff < 0 ? -d.diff : d.diff) | number:'1.2-2' }} €
                   </span>
                 </span>
                 <svg class="w-4 h-4 text-slate-400 ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>

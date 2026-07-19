@@ -113,15 +113,17 @@
         Aktuálne
       </button>
       <div class="text-sm text-slate-500 dark:text-slate-400">Príjem
-        <div class="text-lg font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">+ {{ formatMoney(stripIncome()) }} €</div>
+        <div class="text-lg font-semibold tabular-nums"
+             [class]="stripIncome() > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ stripIncome() > 0 ? '+ ' : '' }}{{ formatMoney(stripIncome()) }} €</div>
       </div>
       <div class="text-sm text-slate-500 dark:text-slate-400">Výdaj
-        <div class="text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">− {{ formatMoney(stripExpense()) }} €</div>
+        <div class="text-lg font-semibold tabular-nums"
+             [class]="stripExpense() > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ stripExpense() > 0 ? '− ' : '' }}{{ formatMoney(stripExpense()) }} €</div>
       </div>
       <div class="text-sm text-slate-500 dark:text-slate-400">Rozdiel
         <div class="text-xl font-bold tabular-nums"
-             [class]="stripDiff() >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">
-          {{ stripDiff() >= 0 ? '+' : '−' }} {{ formatMoney(stripDiff() < 0 ? -stripDiff() : stripDiff()) }} €
+             [class]="stripDiff() > 0 ? 'text-emerald-600 dark:text-emerald-400' : stripDiff() < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
+          {{ stripDiff() > 0 ? '+ ' : stripDiff() < 0 ? '− ' : '' }}{{ formatMoney(stripDiff() < 0 ? -stripDiff() : stripDiff()) }} €
         </div>
       </div>
     </div>
@@ -178,13 +180,14 @@
         </div>
       </div>
 
-      <!-- Faktúry and Bločky side by side; stacks to one column under lg. -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <!-- Faktúry column -->
+      <!-- FLOWii-style ledger: full-width sections with band headers that
+           carry Príjmy / Výdavky / Rozdiel subtotals of the visible rows. -->
+      <div class="space-y-4">
+        <!-- Faktúry section -->
         <section class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
-            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Faktúry</h2>
-            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">{{ invoicesFiltered().length }}</span>
+          <div class="flex items-center gap-x-5 gap-y-1 flex-wrap px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Faktúry <span class="font-normal text-slate-400 dark:text-slate-500 tabular-nums">({{ invoicesFiltered().length }})</span></h2>
+            <ng-container [ngTemplateOutlet]="bandTotals" [ngTemplateOutletContext]="{ t: invoiceTotals() }"></ng-container>
           </div>
           @if (invoicesFiltered().length === 0) {
             <p class="p-8 text-center text-sm text-slate-500">Žiadne faktúry.</p>
@@ -197,11 +200,11 @@
           }
         </section>
 
-        <!-- Bločky column -->
+        <!-- Bločky section -->
         <section class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
-            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Bločky</h2>
-            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">{{ receiptsFiltered().length }}</span>
+          <div class="flex items-center gap-x-5 gap-y-1 flex-wrap px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Bločky <span class="font-normal text-slate-400 dark:text-slate-500 tabular-nums">({{ receiptsFiltered().length }})</span></h2>
+            <ng-container [ngTemplateOutlet]="bandTotals" [ngTemplateOutletContext]="{ t: receiptTotals() }"></ng-container>
           </div>
           @if (receiptsFiltered().length === 0) {
             <p class="p-8 text-center text-sm text-slate-500">Žiadne bločky.</p>
@@ -215,6 +218,25 @@
         </section>
       </div>
     }
+
+    <!-- Band subtotals shared by both section headers. Zero values render
+         neutral gray without a sign — a red "− 0,00 €" reads as nonsense. -->
+    <ng-template #bandTotals let-t="t">
+      <span class="ml-auto flex items-center gap-x-4 gap-y-1 flex-wrap text-xs">
+        <span class="text-slate-500 dark:text-slate-400">Príjmy:
+          <span class="font-semibold tabular-nums"
+                [class]="t.income > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ t.income > 0 ? '+ ' : '' }}{{ formatMoney(t.income) }} €</span>
+        </span>
+        <span class="text-slate-500 dark:text-slate-400">Výdavky:
+          <span class="font-semibold tabular-nums"
+                [class]="t.expense > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ t.expense > 0 ? '− ' : '' }}{{ formatMoney(t.expense) }} €</span>
+        </span>
+        <span class="text-slate-500 dark:text-slate-400">Rozdiel:
+          <span class="font-bold tabular-nums"
+                [class]="t.diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : t.diff < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ t.diff > 0 ? '+ ' : t.diff < 0 ? '− ' : '' }}{{ formatMoney(t.diff < 0 ? -t.diff : t.diff) }} €</span>
+        </span>
+      </span>
+    </ng-template>
 
     <!-- One row card, shared by both columns. -->
     <ng-template #docCard let-inv="inv">

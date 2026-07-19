@@ -138,6 +138,29 @@ export class FinancePage {
     return t > 0 ? Math.round((this.wagesPayout() ?? 0) / t * 100) : 0;
   });
 
+  /** Donut segments for the hero cost split (r=15.9155 → circumference 100,
+   *  so dasharray works in percent). Negative components (advances over
+   *  gross) clamp to 0; single-part months render a full ring without gaps. */
+  heroDonut = computed(() => {
+    const w = Math.max(this.wagesPayout() ?? 0, 0);
+    const m = Math.max(this.materialSpend() ?? 0, 0);
+    const total = w + m;
+    if (total <= 0) return [];
+    const parts = [
+      { cls: 'stroke-sky-500', value: w },
+      { cls: 'stroke-amber-500', value: m },
+    ].filter(p => p.value > 0);
+    const gap = parts.length > 1 ? 2 : 0;
+    let start = 0;
+    return parts.map(p => {
+      const pct = (p.value / total) * 100;
+      const visible = Math.max(pct - gap, 0.5);
+      const seg = { cls: p.cls, dash: `${visible} ${100 - visible}`, offset: -(start + gap / 2) };
+      start += pct;
+      return seg;
+    });
+  });
+
   // ─── Hero trend (FLOWii-style sparkline + medzimesačná zmena) ───
 
   /** % change of total cost vs the previous month; null when the previous
@@ -283,8 +306,17 @@ export class FinancePage {
         try {
           const rows = await this.invoices.list({ from, to });
           this.invoiceDocs.set(rows);
-          this.invoiceCount.set(rows.length);
-          this.invoiceTotal.set(rows.reduce((s, d) => s + (d.totalInclVat || 0), 0));
+          // The footnote explains what's already inside Materiál — so it must
+          // count ONLY the documents that actually feed material purchases:
+          // expense direction, non-stroje (income and AZ Stroje docs are
+          // excluded from material views), not discarded. Counting everything
+          // made the note contradict a 0 € Materiál.
+          const inMaterial = rows.filter(d =>
+            d.status !== 'discarded'
+            && d.direction !== 'income'
+            && (d.division || 'profistav') !== 'stroje');
+          this.invoiceCount.set(inMaterial.length);
+          this.invoiceTotal.set(inMaterial.reduce((s, d) => s + (d.totalInclVat || 0), 0));
           this.invoicePending.set(rows.filter(d => d.status === 'review').length);
         } catch {
           this.invoiceDocs.set([]);
