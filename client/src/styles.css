@@ -1,6 +1,61 @@
+@import url("https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Bricolage+Grotesque:wght@600;700;800&display=swap");
 @import "tailwindcss";
 @import "flatpickr/dist/flatpickr.min.css";
 @import "leaflet/dist/leaflet.css";
+
+@theme {
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ── Vzduch design tokens (redesign 2026-07) ─────────────────────
+   The whole admin restyles through CSS variables — templates keep their
+   slate/amber Tailwind classes, the variables change what those mean.
+
+   WHITE-LABEL: a customer rebrand = override the --brand-* block below
+   (plus logo). Nothing else. The three seeded examples:
+     AZ Profistav  #d97706 / #b45309
+     trust blue    #2563eb / #1d4ed8
+     teal          #0d9488 / #0f766e
+
+   The kiosk keeps the original look for now (workers know it) — every
+   override is scoped to body:not(:has(.kiosk-root)). */
+body:not(:has(.kiosk-root)) {
+  /* brand ramp (used via the amber-* utilities all buttons/accents already
+     use) — a rebrand overrides these ten values */
+  --color-amber-50: #fdf6ec;
+  --color-amber-100: #fbeeda;
+  --color-amber-200: #f6d9ac;
+  --color-amber-300: #efc078;
+  --color-amber-400: #e9a344;
+  --color-amber-500: #d97706;
+  --color-amber-600: #b45309;
+  --color-amber-700: #8f4207;
+  --color-amber-800: #703508;
+  --color-amber-900: #5a2b08;
+
+  /* warm neutral scale replacing cool slate — light surfaces get a soft
+     paper warmth, dark surfaces a friendly charcoal (customer works in
+     dark mode; it must NOT read as blue-gray gloom) */
+  --color-slate-50: #faf9f7;
+  --color-slate-100: #f3f1ec;
+  --color-slate-200: #e7e3dc;
+  --color-slate-300: #d4cfc5;
+  --color-slate-400: #a49d90;
+  --color-slate-500: #7d766a;
+  --color-slate-600: #5f594f;
+  --color-slate-700: #3b3833;
+  --color-slate-800: #2b2925;
+  --color-slate-900: #1f1d1a;
+  --color-slate-950: #161513;
+}
+
+/* Headings carry the personality (Bricolage), body stays Figtree. */
+body:not(:has(.kiosk-root)) h1,
+body:not(:has(.kiosk-root)) h2,
+body:not(:has(.kiosk-root)) h3 {
+  font-family: "Bricolage Grotesque", "Figtree", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.015em;
+}
 
 /* Commander map markers — divIcon-based, so we don't pull in Leaflet's
    bundled marker PNGs. The default cm-pin is the live-tracking dot (red).
