@@ -79,6 +79,9 @@ public class UpdateEmployeeDto
     public bool IsActive { get; set; } = true;
     /// <summary>EUR/h. Optional; NULL leaves the existing value untouched on PUT.</summary>
     [Range(0, 1_000_000)] public decimal? HourlyWage { get; set; }
+    /// <summary>Employer contributions % of gross wage (odvody). The employee
+    /// form always sends this field, so NULL clears it (unlike HourlyWage).</summary>
+    [Range(0, 100)] public decimal? OdvodyPct { get; set; }
     /// <summary>"profistav" | "stroje" (Fáza D8). NULL leaves untouched.</summary>
     public string? Division { get; set; }
     /// <summary>Free-text pozícia (F6): "šofér", "murár"… NULL leaves untouched;
@@ -112,6 +115,9 @@ public class EmployeeDto
     /// uses a separate DTO that doesn't include it.
     /// </summary>
     public decimal? HourlyWage { get; set; }
+    /// <summary>Employer contributions % of gross wage (odvody). NULL = unset.
+    /// Set on the employee profile, like the hourly rate.</summary>
+    public decimal? OdvodyPct { get; set; }
     /// <summary>"profistav" | "stroje" — company division (Fáza D8).</summary>
     public string Division { get; set; } = "profistav";
     /// <summary>Free-text pozícia (F6), e.g. "šofér".</summary>

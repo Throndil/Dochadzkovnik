@@ -415,34 +415,6 @@ public class PayrollController : ControllerBase
         public DateTime? ApplyFrom { get; set; }
     }
 
-    /// <summary>
-    /// POST /api/payroll/employee/{id}/set-odvody
-    /// Body: { pct: number | null }
-    ///
-    /// Sets the employer-contribution percentage (Employee.OdvodyPct). The
-    /// customer sets it manually per worker; UI shows guidance (TPP 36,2 %,
-    /// ZŤP 30,7 %, 2026). Read live — historical months recompute with the
-    /// current %, same ponytail as the Odvody page rates.
-    /// </summary>
-    [HttpPost("employee/{id}/set-odvody")]
-    public async Task<IActionResult> SetOdvody(int id, [FromBody] SetOdvodyRequest body)
-    {
-        if (body.Pct is < 0 or > 100) return BadRequest("Percento odvodov musí byť medzi 0 a 100.");
-        var emp = await _db.Employees.FindAsync(id);
-        if (emp == null) return NotFound();
-
-        emp.OdvodyPct = body.Pct;
-        emp.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
-        _log.LogInformation("[Payroll] SetOdvody employee={Id} pct={Pct}", id, body.Pct);
-        return NoContent();
-    }
-
-    public sealed class SetOdvodyRequest
-    {
-        public decimal? Pct { get; set; }
-    }
-
     // ─── Helpers ─────────────────────────────────────────────────────
 
     private async Task<PayrollMonthlyDto> BuildMonthlyAsync(string periodLabel, DateTime from, DateTime toExcl, string? division = null)

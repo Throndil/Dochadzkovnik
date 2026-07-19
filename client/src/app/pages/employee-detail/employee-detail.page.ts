@@ -26,6 +26,8 @@ export class EmployeeDetailPage implements OnInit {
   isActive = true;
   /** Hourly wage in EUR. Blank string means "no rate set yet". */
   hourlyWage: number | null = null;
+  /** Employer contributions % of gross (odvody). Null = unset. */
+  odvodyPct: number | null = null;
   /** Company division (Fáza D8) — drives the division-scoped Mzdy view. */
   division = 'profistav';
   /** Free-text pozícia (F6): "šofér", "murár"… */
@@ -59,6 +61,7 @@ export class EmployeeDetailPage implements OnInit {
       this.city = emp.city ?? '';
       this.isActive = emp.isActive;
       this.hourlyWage = emp.hourlyWage ?? null;
+      this.odvodyPct = emp.odvodyPct ?? null;
       this.division = emp.division === 'stroje' ? 'stroje' : 'profistav';
       this.position = emp.position ?? '';
       this.photoPreview.set(emp.photoUrl ?? null);
@@ -75,6 +78,7 @@ export class EmployeeDetailPage implements OnInit {
       city: this.city || undefined,
       isActive: this.isActive,
       hourlyWage: this.hourlyWage,
+      odvodyPct: this.odvodyPct,
       division: this.division,
       position: this.position
     }).subscribe({

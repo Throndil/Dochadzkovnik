@@ -161,16 +161,9 @@
                   <span class="tabular-nums">hrubá {{ formatMoney(row.gross) }} €</span>
                   <span class="text-slate-300 dark:text-slate-600">·</span>
                   @if (row.odvodyPct == null) {
-                    <button type="button" (click)="startEditOdvody(row)"
-                            title="Odvody zamestnávateľa — % z hrubej mzdy"
-                            class="text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:underline">+ odvody</button>
+                    <span class="text-slate-400 dark:text-slate-500" title="Odvody zamestnávateľa sa nastavujú na profile zamestnanca">odvody nenastavené</span>
                   } @else {
-                    <button type="button" (click)="startEditOdvody(row)"
-                            title="Odvody zamestnávateľa — % z hrubej mzdy"
-                            class="inline-flex items-center gap-1 tabular-nums hover:underline hover:text-slate-700 dark:hover:text-slate-200">
-                      odvody {{ row.odvodyPct | number:'1.0-2' }} % · {{ formatMoney(row.odvody) }} €
-                      <svg class="w-3 h-3 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                    </button>
+                    <span class="tabular-nums" title="Odvody zamestnávateľa — % z hrubej mzdy, nastavené na profile zamestnanca">odvody {{ row.odvodyPct | number:'1.0-2' }} % · {{ formatMoney(row.odvody) }} €</span>
                   }
                   <span class="text-slate-300 dark:text-slate-600">·</span>
                   @if (row.advancesTotal > 0) {
@@ -189,23 +182,6 @@
                   <div class="text-[11px] text-slate-400 dark:text-slate-500 mt-1 tabular-nums">katalóg: {{ formatMoney(row.hourlyWageCurrent) }} €/h</div>
                 }
 
-                <!-- Inline odvody edit — % of gross the firm pays on top -->
-                @if (editingOdvodyFor() === row.employeeId) {
-                  <div class="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 space-y-2 max-w-sm">
-                    <div class="flex items-center gap-2 flex-wrap">
-                      <app-stepper [(value)]="odvodyDraft" suffix="%" placeholder="%"
-                                   [disabled]="savingOdvody()"
-                                   (enter)="saveOdvody(row)" (escape)="cancelEditOdvody()" />
-                      <button type="button" (click)="saveOdvody(row)" [disabled]="savingOdvody()"
-                              class="text-sm px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white disabled:opacity-50">Uložiť</button>
-                      <button type="button" (click)="cancelEditOdvody()" [disabled]="savingOdvody()"
-                              class="text-sm text-slate-500 hover:text-slate-400">Zrušiť</button>
-                    </div>
-                    <div class="text-xs text-slate-500 dark:text-slate-400">
-                      Odvody zamestnávateľa z hrubej mzdy (2026): TPP <span class="font-semibold">36,2 %</span> · ZŤP 30,7 % · živnostník 0 %.
-                    </div>
-                  </div>
-                }
 
                 <!-- Inline rate edit -->
                 @if (editingRateFor() === row.employeeId) {

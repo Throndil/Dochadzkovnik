@@ -87,39 +87,6 @@ export class MzdyPage implements OnInit {
   rateBackfillEnabled = signal<boolean>(true);
   savingRate = signal(false);
 
-  // ─── Inline odvody edit (per-worker % of gross) ───────────────
-  editingOdvodyFor = signal<number | null>(null);
-  odvodyDraft = signal<number | null>(null);
-  savingOdvody = signal(false);
-
-  startEditOdvody(row: PayrollRow) {
-    this.editingOdvodyFor.set(row.employeeId);
-    this.odvodyDraft.set(row.odvodyPct);
-  }
-
-  cancelEditOdvody() {
-    this.editingOdvodyFor.set(null);
-    this.odvodyDraft.set(null);
-  }
-
-  async saveOdvody(row: PayrollRow) {
-    const pct = this.odvodyDraft();
-    if (pct !== null && (!isFinite(pct) || pct < 0 || pct > 100)) {
-      alert('Percento odvodov musí byť medzi 0 a 100.');
-      return;
-    }
-    this.savingOdvody.set(true);
-    try {
-      await this.svc.setOdvody(row.employeeId, pct);
-      this.cancelEditOdvody();
-      await this.load();
-    } catch (e: any) {
-      alert(this.apiError.friendly(e, 'Uloženie odvodov zlyhalo'));
-    } finally {
-      this.savingOdvody.set(false);
-    }
-  }
-
   // ─── Advances drawer ──────────────────────────────────────────
   advancesEmployee = signal<PayrollRow | null>(null);
   advances = signal<EmployeeAdvance[]>([]);

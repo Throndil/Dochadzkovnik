@@ -144,14 +144,6 @@ export class PayrollService {
     );
   }
 
-  /** Set the employer-contribution % (odvody) for one worker. Live value —
-   *  historical months recompute with the current %. */
-  setOdvody(employeeId: number, pct: number | null): Promise<void> {
-    return firstValueFrom(
-      this.http.post<void>(`${this.url}/employee/${employeeId}/set-odvody`, { pct })
-    );
-  }
-
   // ─── Excel exports ─────────────────────────────────────────────
 
   /** Period summary XLSX — opens a browser save dialog via blob URL. */
