@@ -261,11 +261,9 @@ export class FinancePage {
     return new Date(y, m - 1, 1).toLocaleDateString('sk-SK', { month: 'short' });
   }
 
-  /** Hover title for one sparkline month, e.g. "júl 2026 · 12 345,60 €". */
+  /** Hover title for one sparkline month, e.g. "máj 2026 · 12 345,60 €". */
   sparkTitle(m: CostTrendMonth, value: number): string {
-    const [y, mo] = m.month.split('-').map(Number);
-    const label = new Date(y, mo - 1, 1).toLocaleDateString('sk-SK', { month: 'short', year: 'numeric' });
-    return `${label} · ${FinancePage.fmtEur(value)}`;
+    return `${FinancePage.monthShort(m.month)} ${m.month.slice(0, 4)} · ${FinancePage.fmtEur(value)}`;
   }
 
   // ─── Consolidated chart: Príjmy vs. Náklady per month ───
@@ -309,6 +307,9 @@ export class FinancePage {
   /** Hovered consolidated-chart month (index into groups); drives the
    *  HTML tooltip — native SVG titles were too easy to miss. */
   hoveredBar = signal<number | null>(null);
+
+  /** Hovered sparkline dot, per hero card ('cost' | 'income'). */
+  hoveredSpark = signal<{ card: 'cost' | 'income'; i: number } | null>(null);
 
   /** Full month name for the tooltip header, e.g. "júl 2026". */
   barMonthLabel(m: CostTrendMonth): string {

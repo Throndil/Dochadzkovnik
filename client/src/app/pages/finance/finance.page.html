@@ -62,20 +62,29 @@
               </div>
             </div>
             @if (trendPoints()) {
-              <svg class="hidden sm:block ml-auto w-32 h-9 shrink-0 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img" aria-label="Vývoj nákladov za zvolené obdobie">
-                <polyline [attr.points]="trendPoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                @for (c of trendCoords(); track c.m.month) {
-                  <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+              <span class="hidden sm:block relative ml-auto shrink-0">
+                <svg class="w-32 h-9 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img"
+                     aria-label="Vývoj nákladov za zvolené obdobie" (mouseleave)="hoveredSpark.set(null)">
+                  <polyline [attr.points]="trendPoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  @for (c of trendCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+                  }
+                  @if (trendLastPoint(); as p) {
+                    <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-amber-500" />
+                  }
+                  @for (c of trendCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="6" fill="transparent"
+                            (mouseenter)="hoveredSpark.set({ card: 'cost', i: $index })" />
+                  }
+                </svg>
+                @if (hoveredSpark(); as h) {
+                  @if (h.card === 'cost' && trendCoords()[h.i]; as c) {
+                    <span class="absolute bottom-full mb-1 z-10 pointer-events-none bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-lg px-2 py-1 text-xs whitespace-nowrap text-slate-700 dark:text-slate-200"
+                          [class]="c.x > 60 ? '-translate-x-full' : '-translate-x-1/2'"
+                          [style.left.%]="c.x">{{ sparkTitle(c.m, c.m.total) }}</span>
+                  }
                 }
-                @if (trendLastPoint(); as p) {
-                  <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-amber-500" />
-                }
-                @for (c of trendCoords(); track c.m.month) {
-                  <circle [attr.cx]="c.x" [attr.cy]="c.y" r="6" fill="transparent">
-                    <title>{{ sparkTitle(c.m, c.m.total) }}</title>
-                  </circle>
-                }
-              </svg>
+              </span>
             }
           </div>
 
@@ -157,20 +166,29 @@
               </div>
             </div>
             @if (incomePoints()) {
-              <svg class="hidden sm:block ml-auto w-32 h-9 shrink-0 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img" aria-label="Vývoj príjmov za zvolené obdobie">
-                <polyline [attr.points]="incomePoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                @for (c of incomeCoords(); track c.m.month) {
-                  <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+              <span class="hidden sm:block relative ml-auto shrink-0">
+                <svg class="w-32 h-9 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img"
+                     aria-label="Vývoj príjmov za zvolené obdobie" (mouseleave)="hoveredSpark.set(null)">
+                  <polyline [attr.points]="incomePoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  @for (c of incomeCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+                  }
+                  @if (incomeLastPoint(); as p) {
+                    <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-emerald-500" />
+                  }
+                  @for (c of incomeCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="6" fill="transparent"
+                            (mouseenter)="hoveredSpark.set({ card: 'income', i: $index })" />
+                  }
+                </svg>
+                @if (hoveredSpark(); as h) {
+                  @if (h.card === 'income' && incomeCoords()[h.i]; as c) {
+                    <span class="absolute bottom-full mb-1 z-10 pointer-events-none bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-lg px-2 py-1 text-xs whitespace-nowrap text-slate-700 dark:text-slate-200"
+                          [class]="c.x > 60 ? '-translate-x-full' : '-translate-x-1/2'"
+                          [style.left.%]="c.x">{{ sparkTitle(c.m, c.m.income) }}</span>
+                  }
                 }
-                @if (incomeLastPoint(); as p) {
-                  <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-emerald-500" />
-                }
-                @for (c of incomeCoords(); track c.m.month) {
-                  <circle [attr.cx]="c.x" [attr.cy]="c.y" r="6" fill="transparent">
-                    <title>{{ sparkTitle(c.m, c.m.income) }}</title>
-                  </circle>
-                }
-              </svg>
+              </span>
             }
           </div>
           <div class="flex flex-col gap-1.5 mt-4 text-sm">
