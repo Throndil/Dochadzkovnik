@@ -93,7 +93,8 @@
         </div>
         <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
           <span>Hrubé mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.gross) }} €</span></span>
-          <span>Zálohy <span class="font-semibold tabular-nums text-amber-600 dark:text-amber-400">− {{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+          <span>Zálohy <span class="font-semibold tabular-nums"
+                [class]="data()!.totals.advancesTotal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'">{{ data()!.totals.advancesTotal > 0 ? '− ' : '' }}{{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
           <span>Odpracované <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatHours(data()!.totals.hoursWorked) }} h</span></span>
           <span>Zamestnanci <span class="font-semibold text-slate-900 dark:text-white">{{ data()!.rows.length }}</span></span>
         </div>
@@ -217,7 +218,8 @@
           <span class="text-sm font-semibold text-slate-900 dark:text-white">Spolu · {{ formatHours(data()!.totals.hoursWorked) }} h</span>
           <span class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-slate-500 dark:text-slate-400">
             <span>Hrubé <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ formatMoney(data()!.totals.gross) }} €</span></span>
-            <span>Zálohy <span class="tabular-nums text-amber-600 dark:text-amber-400">{{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+            <span>Zálohy <span class="tabular-nums"
+                  [class]="data()!.totals.advancesTotal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'">{{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
             <span class="font-semibold text-slate-900 dark:text-white">Výplaty {{ formatMoney(data()!.totals.payout) }} €</span>
           </span>
         </div>

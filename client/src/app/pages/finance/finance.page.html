@@ -299,25 +299,25 @@
           <div class="space-y-2">
             @for (d of divisionStats(); track d.key) {
               <button type="button" (click)="openDivision(d.key)"
-                      class="w-full flex items-center gap-3 sm:gap-6 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-left flex-wrap">
-                <span class="font-medium text-slate-900 dark:text-white min-w-[8rem]">{{ d.label }}
+                      class="w-full flex items-start sm:items-center gap-3 sm:gap-6 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-left flex-wrap">
+                <span class="font-medium text-slate-900 dark:text-white w-full sm:w-auto sm:min-w-[8rem]">{{ d.label }}
                   <span class="block text-[11px] font-normal text-slate-400 dark:text-slate-500">{{ d.count }} {{ d.count === 1 ? 'doklad' : (d.count >= 2 && d.count <= 4 ? 'doklady' : 'dokladov') }}</span>
                 </span>
-                <span class="text-xs text-slate-500 dark:text-slate-400">Príjem
+                <span class="flex-1 sm:flex-none text-xs text-slate-500 dark:text-slate-400">Príjem
                   <span class="block text-sm font-semibold tabular-nums"
                         [class]="d.income > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ d.income > 0 ? '+ ' : '' }}{{ d.income | number:'1.2-2' }} €</span>
                 </span>
-                <span class="text-xs text-slate-500 dark:text-slate-400">Výdaj
+                <span class="flex-1 sm:flex-none text-xs text-slate-500 dark:text-slate-400">Výdaj
                   <span class="block text-sm font-semibold tabular-nums"
                         [class]="d.expense > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ d.expense > 0 ? '− ' : '' }}{{ d.expense | number:'1.2-2' }} €</span>
                 </span>
-                <span class="text-xs text-slate-500 dark:text-slate-400">Rozdiel
+                <span class="flex-1 sm:flex-none text-xs text-slate-500 dark:text-slate-400">Rozdiel
                   <span class="block text-sm font-bold tabular-nums"
                         [class]="d.diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : d.diff < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
                     {{ d.diff > 0 ? '+ ' : d.diff < 0 ? '− ' : '' }}{{ (d.diff < 0 ? -d.diff : d.diff) | number:'1.2-2' }} €
                   </span>
                 </span>
-                <svg class="w-4 h-4 text-slate-400 ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <svg class="hidden sm:block w-4 h-4 text-slate-400 ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
               </button>
             }
           </div>
@@ -334,7 +334,7 @@
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Náklady podľa pracoviska</h2>
-            <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <div class="flex items-center gap-2 flex-wrap text-sm text-slate-600 dark:text-slate-300">
               <span>Od</span>
               <span class="date-field w-36">
                 <input type="date" appDate [value]="reportFrom()"
