@@ -34,10 +34,14 @@ export interface CostTrendMonth {
   stroje: number;
   /** Výjazdy: distinct car+day rides × the live vyjazd_auta rate. */
   trips: number;
-  /** wages + material + stroje + trips. */
+  /** Odvody: worked hours × the sum of "€/h" rates from the Odvody page. */
+  odvody: number;
+  /** wages + material + stroje + trips + odvody. */
   total: number;
   /** Income invoices of both divisions, by dátum dokladu. */
   income: number;
+  /** DPH inside the month's expense documents — reclaimable by a VAT payer. */
+  vat: number;
 }
 
 export interface EmployeeAdvance {

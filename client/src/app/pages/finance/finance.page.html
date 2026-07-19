@@ -62,8 +62,11 @@
               </div>
             </div>
             @if (trendPoints()) {
-              <svg class="hidden sm:block ml-auto w-32 h-9 shrink-0 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img" aria-label="Vývoj nákladov za posledných 6 mesiacov">
+              <svg class="hidden sm:block ml-auto w-32 h-9 shrink-0 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img" aria-label="Vývoj nákladov za zvolené obdobie">
                 <polyline [attr.points]="trendPoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                @for (c of trendCoords(); track c.m.month) {
+                  <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+                }
                 @if (trendLastPoint(); as p) {
                   <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-amber-500" />
                 }
@@ -108,11 +111,21 @@
                   @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(tripsCost()) }} %</span> }
                 </span>
               }
+              @if (odvodyCost() > 0) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-teal-500"></span> Odvody <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ odvodyCost() | number:'1.2-2' }} €</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(odvodyCost()) }} %</span> }
+                </span>
+              }
             </div>
           </div>
-          @if (canInvoices() && (invoiceTotal() ?? 0) > 0) {
-            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
-              V materiáli sú aj položky z faktúr ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }), nepočítajú sa druhýkrát.
+          @if (canInvoices() && ((invoiceTotal() ?? 0) > 0 || expenseVat() > 0)) {
+            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
+              @if (expenseVat() > 0) {
+                <div>DPH vo výdavkových dokladoch: <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ expenseVat() | number:'1.2-2' }} €</span> — možný odpočet pre platcu DPH · náklady bez DPH ≈ <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ costTotal() - expenseVat() | number:'1.2-2' }} €</span></div>
+              }
+              @if ((invoiceTotal() ?? 0) > 0) {
+                <div>V materiáli sú aj položky z faktúr ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }), nepočítajú sa druhýkrát.</div>
+              }
             </div>
           }
         </div>
@@ -144,8 +157,11 @@
               </div>
             </div>
             @if (incomePoints()) {
-              <svg class="hidden sm:block ml-auto w-32 h-9 shrink-0 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img" aria-label="Vývoj príjmov za posledných 6 mesiacov">
+              <svg class="hidden sm:block ml-auto w-32 h-9 shrink-0 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img" aria-label="Vývoj príjmov za zvolené obdobie">
                 <polyline [attr.points]="incomePoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                @for (c of incomeCoords(); track c.m.month) {
+                  <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+                }
                 @if (incomeLastPoint(); as p) {
                   <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-emerald-500" />
                 }
@@ -167,6 +183,11 @@
               <span class="text-slate-400 dark:text-slate-500">V tomto mesiaci zatiaľ žiadne príjmové faktúry.</span>
             }
           </div>
+          @if (incomeVat() > 0) {
+            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
+              Bez DPH: <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeTotal() - incomeVat() | number:'1.2-2' }} €</span> · DPH v príjmových faktúrach: <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeVat() | number:'1.2-2' }} €</span>
+            </div>
+          }
         </div>
       }
       </div>
@@ -176,31 +197,64 @@
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Príjmy vs. náklady</h2>
-            <span class="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+            <span class="flex items-center gap-4 flex-wrap text-xs text-slate-500 dark:text-slate-400">
               <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-emerald-500"></span> Príjmy</span>
               <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-red-400"></span> Náklady</span>
+              <span class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-700 p-0.5">
+                <button type="button" (click)="setTrendMonths(6)"
+                        class="px-2.5 py-1 rounded-md transition-colors"
+                        [class]="trendMonths() === 6
+                          ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                          : 'text-slate-600 dark:text-slate-300'">6 mesiacov</button>
+                <button type="button" (click)="setTrendMonths(12)"
+                        class="px-2.5 py-1 rounded-md transition-colors"
+                        [class]="trendMonths() === 12
+                          ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                          : 'text-slate-600 dark:text-slate-300'">Celý rok</button>
+              </span>
             </span>
           </div>
-          <div class="text-xs text-slate-400 dark:text-slate-500 mb-3">Posledných 6 mesiacov</div>
-          <svg class="w-full" [attr.viewBox]="'0 0 ' + ch.W + ' 130'" role="img"
-               aria-label="Mesačné príjmy a náklady za posledných 6 mesiacov">
-            <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.top" [attr.y2]="ch.top" stroke-width="0.5" class="stroke-slate-100 dark:stroke-slate-700" />
-            <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.midY" [attr.y2]="ch.midY" stroke-width="0.5" class="stroke-slate-100 dark:stroke-slate-700" />
-            <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.bottom" [attr.y2]="ch.bottom" stroke-width="1" class="stroke-slate-200 dark:stroke-slate-600" />
-            <text [attr.x]="ch.W" [attr.y]="ch.top - 2" text-anchor="end" font-size="7" class="fill-slate-400 dark:fill-slate-500">{{ axisLabel(ch.niceMax) }} €</text>
-            <text [attr.x]="ch.W" [attr.y]="ch.midY - 2" text-anchor="end" font-size="7" class="fill-slate-400 dark:fill-slate-500">{{ axisLabel(ch.niceMax / 2) }} €</text>
-            @for (g of ch.groups; track g.m.month) {
-              <rect [attr.x]="g.incX" [attr.y]="g.incY" [attr.width]="g.barW" [attr.height]="g.incH" rx="1.5" class="fill-emerald-500" />
-              <rect [attr.x]="g.costX" [attr.y]="g.costY" [attr.width]="g.barW" [attr.height]="g.costH" rx="1.5" class="fill-red-400" />
-              <text [attr.x]="g.cx" y="124" text-anchor="middle" font-size="8" class="fill-slate-500 dark:fill-slate-400">{{ g.label }}</text>
-              <rect [attr.x]="g.groupX" y="0" [attr.width]="g.groupW" height="130" fill="transparent">
-                <title>{{ barTitle(g.m) }}</title>
-              </rect>
+          <div class="text-xs text-slate-400 dark:text-slate-500 mb-3">Posledných {{ trendMonths() }} mesiacov</div>
+          <div class="relative">
+            <svg class="w-full" [attr.viewBox]="'0 0 ' + ch.W + ' 130'" role="img"
+                 aria-label="Mesačné príjmy a náklady za zvolené obdobie" (mouseleave)="hoveredBar.set(null)">
+              <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.top" [attr.y2]="ch.top" stroke-width="0.5" class="stroke-slate-100 dark:stroke-slate-700" />
+              <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.midY" [attr.y2]="ch.midY" stroke-width="0.5" class="stroke-slate-100 dark:stroke-slate-700" />
+              <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.bottom" [attr.y2]="ch.bottom" stroke-width="1" class="stroke-slate-200 dark:stroke-slate-600" />
+              <text [attr.x]="ch.W" [attr.y]="ch.top - 2" text-anchor="end" font-size="7" class="fill-slate-400 dark:fill-slate-500">{{ axisLabel(ch.niceMax) }} €</text>
+              <text [attr.x]="ch.W" [attr.y]="ch.midY - 2" text-anchor="end" font-size="7" class="fill-slate-400 dark:fill-slate-500">{{ axisLabel(ch.niceMax / 2) }} €</text>
+              @for (g of ch.groups; track g.m.month) {
+                @if (hoveredBar() === $index) {
+                  <rect [attr.x]="g.groupX" y="2" [attr.width]="g.groupW" [attr.height]="ch.bottom - 2" rx="2" class="fill-slate-100 dark:fill-slate-700/40" />
+                }
+                <rect [attr.x]="g.incX" [attr.y]="g.incY" [attr.width]="g.barW" [attr.height]="g.incH" rx="1.5" class="fill-emerald-500" />
+                <rect [attr.x]="g.costX" [attr.y]="g.costY" [attr.width]="g.barW" [attr.height]="g.costH" rx="1.5" class="fill-red-400" />
+                <text [attr.x]="g.cx" y="124" text-anchor="middle" font-size="8" class="fill-slate-500 dark:fill-slate-400">{{ g.label }}</text>
+                <rect [attr.x]="g.groupX" y="0" [attr.width]="g.groupW" height="130" fill="transparent"
+                      (mouseenter)="hoveredBar.set($index)" />
+              }
+            </svg>
+            @if (hoveredBar() !== null && ch.groups[hoveredBar()!]; as g) {
+              <div class="absolute top-0 z-10 pointer-events-none -translate-x-1/2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-xs whitespace-nowrap"
+                   [style.left.%]="(g.cx / ch.W) * 100">
+                <div class="font-semibold text-slate-900 dark:text-white capitalize mb-1">{{ barMonthLabel(g.m) }}</div>
+                <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300"><span class="w-2 h-2 rounded-sm bg-emerald-500"></span> Príjmy <span class="ml-auto pl-4 font-semibold tabular-nums">{{ g.m.income | number:'1.2-2' }} €</span></div>
+                <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300"><span class="w-2 h-2 rounded-sm bg-red-400"></span> Náklady <span class="ml-auto pl-4 font-semibold tabular-nums">{{ g.m.total | number:'1.2-2' }} €</span></div>
+                <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 mt-0.5 pt-0.5 border-t border-slate-100 dark:border-slate-600">Rozdiel
+                  <span class="ml-auto pl-4 font-bold tabular-nums"
+                        [class]="g.m.income - g.m.total > 0 ? 'text-emerald-600 dark:text-emerald-400' : g.m.income - g.m.total < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
+                    {{ g.m.income - g.m.total > 0 ? '+ ' : g.m.income - g.m.total < 0 ? '− ' : '' }}{{ (g.m.income - g.m.total < 0 ? g.m.total - g.m.income : g.m.income - g.m.total) | number:'1.2-2' }} €
+                  </span>
+                </div>
+              </div>
             }
-          </svg>
+          </div>
           <div class="flex flex-wrap items-baseline justify-between gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50 text-sm">
-            <span class="text-slate-500 dark:text-slate-400">Spolu za 6 mesiacov</span>
+            <span class="text-slate-500 dark:text-slate-400">Spolu za {{ trendMonths() }} mesiacov</span>
             <span class="flex flex-wrap gap-x-4 gap-y-0.5">
+              @if (consolidatedTotals().vat > 0) {
+                <span class="text-slate-500 dark:text-slate-400">DPH na odpočet <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ consolidatedTotals().vat | number:'1.2-2' }} €</span></span>
+              }
               <span class="text-slate-500 dark:text-slate-400">Príjmy <span class="font-semibold tabular-nums"
                     [class]="consolidatedTotals().income > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ consolidatedTotals().income > 0 ? '+ ' : '' }}{{ consolidatedTotals().income | number:'1.2-2' }} €</span></span>
               <span class="text-slate-500 dark:text-slate-400">Náklady <span class="font-semibold tabular-nums"

@@ -55,8 +55,26 @@ export class FinancePage {
   invoiceDocs = signal<InvoiceDocument[]>([]);
   /** This month's paid AI extraction cost (exact usage-based). */
   aiSpend = signal<{ costEur: number; calls: number } | null>(null);
-  /** Last 6 months of cost totals (oldest first) — hero sparkline. */
+  /** Monthly cost/income totals (oldest first) — sparklines + consolidated
+   *  chart. Window length follows trendMonths (6 = polrok, 12 = celý rok). */
   trend = signal<CostTrendMonth[] | null>(null);
+  trendMonths = signal<6 | 12>(6);
+
+  setTrendMonths(m: 6 | 12) {
+    if (this.trendMonths() === m) return;
+    this.trendMonths.set(m);
+    this.loadTrend();
+  }
+
+  /** Trend is decoration — best-effort like every other card. */
+  async loadTrend() {
+    if (!this.canPayroll()) return;
+    try {
+      this.trend.set(await this.payroll.costTrend(this.month(), this.trendMonths()));
+    } catch {
+      this.trend.set(null);
+    }
+  }
 
   private divisionSvc = inject(DivisionService);
   private router = inject(Router);
@@ -138,16 +156,28 @@ export class FinancePage {
     this.invoiceDocs()
       .filter(i => i.status !== 'discarded' && i.direction !== 'income' && (i.division || 'profistav') === 'stroje')
       .reduce((s, i) => s + (i.totalInclVat || 0), 0));
-  /** Výjazdy for the selected month — from the trend (its last month IS the
-   *  selected month), the only per-month client source for trip costs. */
+  /** Výjazdy + odvody for the selected month — from the trend (its last
+   *  month IS the selected month), the only per-month client source. */
   tripsCost = computed(() => this.trend()?.at(-1)?.trips ?? 0);
+  odvodyCost = computed(() => this.trend()?.at(-1)?.odvody ?? 0);
+  /** DPH inside the month's expense documents (faktúry + bločky, both
+   *  divisions) — what a VAT payer could reclaim. */
+  expenseVat = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction !== 'income')
+      .reduce((s, i) => s + (i.totalVat || 0), 0));
   /** Income invoices of both divisions in the selected month. */
   incomeTotal = computed(() =>
     this.invoiceDocs()
       .filter(i => i.status !== 'discarded' && i.direction === 'income')
       .reduce((s, i) => s + (i.totalInclVat || 0), 0));
+  incomeVat = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction === 'income')
+      .reduce((s, i) => s + (i.totalVat || 0), 0));
   costTotal = computed(() =>
-    (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0) + this.strojeExpense() + this.tripsCost());
+    (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0) + this.strojeExpense()
+    + this.tripsCost() + this.odvodyCost());
 
   /** Share of one cost pillar on the month total, in whole %. */
   pctOf(value: number | null): number {
@@ -163,13 +193,15 @@ export class FinancePage {
     const m = Math.max(this.materialSpend() ?? 0, 0);
     const st = Math.max(this.strojeExpense(), 0);
     const tr = Math.max(this.tripsCost(), 0);
-    const total = w + m + st + tr;
+    const od = Math.max(this.odvodyCost(), 0);
+    const total = w + m + st + tr + od;
     if (total <= 0) return [];
     const parts = [
       { cls: 'stroke-sky-500', value: w },
       { cls: 'stroke-amber-500', value: m },
       { cls: 'stroke-rose-500', value: st },
       { cls: 'stroke-violet-500', value: tr },
+      { cls: 'stroke-teal-500', value: od },
     ].filter(p => p.value > 0);
     const gap = parts.length > 1 ? 2 : 0;
     let start = 0;
@@ -270,15 +302,18 @@ export class FinancePage {
     const t = this.trend() ?? [];
     const income = t.reduce((s, m) => s + m.income, 0);
     const cost = t.reduce((s, m) => s + m.total, 0);
-    return { income, cost, diff: income - cost };
+    const vat = t.reduce((s, m) => s + m.vat, 0);
+    return { income, cost, vat, diff: income - cost };
   });
 
-  /** Hover title for one chart month: both sides + rozdiel. */
-  barTitle(m: CostTrendMonth): string {
+  /** Hovered consolidated-chart month (index into groups); drives the
+   *  HTML tooltip — native SVG titles were too easy to miss. */
+  hoveredBar = signal<number | null>(null);
+
+  /** Full month name for the tooltip header, e.g. "júl 2026". */
+  barMonthLabel(m: CostTrendMonth): string {
     const [y, mo] = m.month.split('-').map(Number);
-    const label = new Date(y, mo - 1, 1).toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
-    const diff = m.income - m.total;
-    return `${label}\nPríjmy: ${FinancePage.fmtEur(m.income)}\nNáklady: ${FinancePage.fmtEur(m.total)}\nRozdiel: ${diff >= 0 ? '+' : '−'} ${FinancePage.fmtEur(Math.abs(diff))}`;
+    return new Date(y, mo - 1, 1).toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
   }
 
   /** Axis label without cents — the gridline values. */
@@ -386,14 +421,7 @@ export class FinancePage {
           this.wagesPayout.set(null);
         }
       })());
-      // Sparkline is decoration — best-effort like every other card.
-      tasks.push((async () => {
-        try {
-          this.trend.set(await this.payroll.costTrend(this.month()));
-        } catch {
-          this.trend.set(null);
-        }
-      })());
+      tasks.push(this.loadTrend());
     }
 
     if (this.canInvoices()) {

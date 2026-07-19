@@ -1239,10 +1239,16 @@ public class CostTrendMonthDto
     /// <summary>Výjazdy — distinct car+day rides × the live "vyjazd_auta"
     /// rate, same definition as the per-location P&L.</summary>
     public decimal Trips { get; set; }
-    /// <summary>All cost pillars: wages + material + stroje + trips.</summary>
+    /// <summary>Odvody — worked hours × the sum of "€/h" CompanyRates rows
+    /// (odvody, ubytovanie, customer-added), same add-on the P&L uses.</summary>
+    public decimal Odvody { get; set; }
+    /// <summary>All cost pillars: wages + material + stroje + trips + odvody.</summary>
     public decimal Total { get; set; }
     /// <summary>Income invoices (both divisions), by dátum dokladu.</summary>
     public decimal Income { get; set; }
+    /// <summary>DPH inside the month's expense documents (faktúry + bločky,
+    /// both divisions) — what a VAT payer could reclaim.</summary>
+    public decimal Vat { get; set; }
 }
 
 // ─── Per-location P&L (Náklady a zisk) — PAYROLL_AND_PNL_PLAN.md ───

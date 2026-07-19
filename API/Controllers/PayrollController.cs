@@ -121,13 +121,24 @@ public class PayrollController : ControllerBase
             .Select(p => new { p.PurchaseDate, p.TotalCost })
             .ToListAsync();
 
-        // AZ Stroje expenses live only on invoice documents (excluded from
-        // material above) — the third cost pillar, month by dátum dokladu.
-        var strojeDocs = await _db.InvoiceDocuments
+        // Expense documents (faktúry + bločky, both divisions): AZ Stroje
+        // rows are their own cost pillar (excluded from material above);
+        // TotalVat over ALL of them feeds the DPH-reclaim figure.
+        var expenseDocs = await _db.InvoiceDocuments
             .Where(i => i.IssueDate >= from && i.IssueDate < toExcl
-                     && i.Division == "stroje" && i.Direction != "income" && i.Status != "discarded")
-            .Select(i => new { i.IssueDate, i.TotalInclVat })
+                     && i.Direction != "income" && i.Status != "discarded")
+            .Select(i => new { i.IssueDate, i.Division, i.TotalInclVat, i.TotalVat })
             .ToListAsync();
+
+        // Odvody — the same live "€/h" add-on the P&L prices hours with
+        // (odvody, ubytovanie, customer-added rows on the Odvody page).
+        // ponytail: live rates — changing them shifts history.
+        var perHourAddon = (await _db.CompanyRates
+                .Where(r => r.Unit != null)
+                .Select(r => new { r.Amount, r.Unit })
+                .ToListAsync())
+            .Where(r => r.Unit!.Contains("€/h"))
+            .Sum(r => r.Amount);
 
         // Výjazdy — same definition as the P&L (LocationsController): one
         // ride per car per calendar day, priced at the live vyjazd_auta rate.
@@ -152,20 +163,23 @@ public class PayrollController : ControllerBase
         for (var m0 = from; m0 < toExcl; m0 = m0.AddMonths(1))
         {
             var m1 = m0.AddMonths(1);
-            var gross = entries
-                .Where(t => t.ClockIn >= m0 && t.ClockIn < m1)
-                .Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours * t.WageAtTime);
+            var monthEntries = entries.Where(t => t.ClockIn >= m0 && t.ClockIn < m1).ToList();
+            var gross = monthEntries.Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours * t.WageAtTime);
+            var hours = monthEntries.Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours);
             var adv = advances.Where(a => a.Date >= m0 && a.Date < m1).Sum(a => a.Amount);
             var mat = Math.Round(
                 purchases.Where(p => p.PurchaseDate >= m0 && p.PurchaseDate < m1).Sum(p => p.TotalCost),
                 2, MidpointRounding.AwayFromZero);
-            var stroje = strojeDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).Sum(i => i.TotalInclVat);
+            var monthDocs = expenseDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).ToList();
+            var stroje = monthDocs.Where(i => i.Division == "stroje").Sum(i => i.TotalInclVat);
+            var vat = monthDocs.Sum(i => i.TotalVat);
             var tripCount = tripEntries
                 .Where(x => x.ClockIn >= m0 && x.ClockIn < m1)
                 .Select(x => new { x.CarId, x.ClockIn.Date })
                 .Distinct()
                 .Count();
             var trips = Math.Round(tripCount * tripRate, 2, MidpointRounding.AwayFromZero);
+            var odvody = Math.Round(hours * perHourAddon, 2, MidpointRounding.AwayFromZero);
             var income = incomeDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).Sum(i => i.TotalInclVat);
             var wages = Math.Round(gross, 2, MidpointRounding.AwayFromZero) - adv;
             result.Add(new CostTrendMonthDto
@@ -175,8 +189,10 @@ public class PayrollController : ControllerBase
                 Material = mat,
                 Stroje = stroje,
                 Trips = trips,
-                Total = wages + mat + stroje + trips,
-                Income = income
+                Odvody = odvody,
+                Total = wages + mat + stroje + trips + odvody,
+                Income = income,
+                Vat = vat
             });
         }
         return result;
