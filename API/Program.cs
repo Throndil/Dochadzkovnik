@@ -2,6 +2,7 @@ using System.Text;
 using API.BackgroundServices;
 using API.Data;
 using API.Models;
+using API.Provisioning;
 using API.Services;
 using CloudinaryDotNet;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -1173,11 +1174,18 @@ using (var scope = app.Services.CreateScope())
         var knownFlags = new[] { "Notifications", "CommanderIntegration", "MaterialPurchases", "ProofOfWorkChoices", "InvoiceScanning", "InvoiceCameraScan", "PayrollAndPnL", "Planner", "Vehicles", "StrojeDivisions" };
         var existingInstall = await db.Employees.AnyAsync();
         var onForExistingInstall = new HashSet<string> { "Vehicles", "StrojeDivisions" };
+
+        // New subscription customer: provision flags from the bought bundle (Provision:Tier
+        // = "Start"|"Profi"|"Komplet"). Only for fresh installs; ignored once flags exist.
+        var tierFlags = existingInstall ? null : SubscriptionTiers.EnabledFor(builder.Configuration["Provision:Tier"]);
+
         foreach (var key in knownFlags)
         {
             if (!await db.FeatureFlags.AnyAsync(f => f.Key == key))
             {
-                var enabled = existingInstall && onForExistingInstall.Contains(key);
+                var enabled = tierFlags != null
+                    ? tierFlags.Contains(key)
+                    : existingInstall && onForExistingInstall.Contains(key);
                 db.FeatureFlags.Add(new FeatureFlag { Key = key, Enabled = enabled, UpdatedAt = DateTime.UtcNow });
             }
         }
