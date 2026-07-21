@@ -4,7 +4,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { ModalComponent } from '../../components/modal/modal.component';
-import { InvoiceService, InvoiceDocument, ScanStatus, AiSpend } from '../../services/invoice.service';
+import { InvoiceService, InvoiceDocument, ScanStatus } from '../../services/invoice.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
 import { DivisionService } from '../../services/division.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
@@ -35,22 +35,6 @@ export class InvoicesPage implements OnInit {
 
   uploading = signal(false);
   uploadError = signal<string | null>(null);
-
-  /** Claude API spend window (button next to the upload actions). */
-  aiSpend = signal<AiSpend | null>(null);
-  aiSpendOpen = signal(false);
-
-  toggleAiSpend() {
-    this.aiSpendOpen.set(!this.aiSpendOpen());
-    if (this.aiSpendOpen() && !this.aiSpend()) {
-      this.svc.getAiSpend().then(s => this.aiSpend.set(s)).catch(() => {});
-    }
-  }
-
-  aiMonthLabel(month: string): string {
-    const [y, m] = month.split('-').map(Number);
-    return `${InvoicesPage.SK_MONTHS[m - 1]} ${y}`;
-  }
 
   /** Holds the freshly-uploaded invoice while the success modal is showing.
    *  Cleared when the manager hits "Otvoriť" → navigates to the review page. */
@@ -296,8 +280,6 @@ export class InvoicesPage implements OnInit {
       // then surface a success modal — the manager hits "Otvoriť" to review.
       await this.load();
       this.uploadedInvoice.set(created);
-      // The scan just cost money — refresh the AI window if it was opened.
-      if (this.aiSpend()) this.svc.getAiSpend().then(s => this.aiSpend.set(s)).catch(() => {});
     } catch (e: any) {
       this.uploadError.set(this.svc.friendlyError(e, 'Skenovanie zlyhalo.'));
     } finally {

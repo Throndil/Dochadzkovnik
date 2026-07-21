@@ -53,8 +53,6 @@ export class FinancePage {
   invoicePending = signal<number | null>(null);
   /** Month's documents — feeds the per-division Príjem/Výdaj/Rozdiel card. */
   invoiceDocs = signal<InvoiceDocument[]>([]);
-  /** This month's paid AI extraction cost (exact usage-based). */
-  aiSpend = signal<{ costEur: number; calls: number } | null>(null);
   /** Monthly cost/income totals (oldest first) — sparklines + consolidated
    *  chart. Window length follows trendMonths (6 = polrok, 12 = celý rok). */
   trend = signal<CostTrendMonth[] | null>(null);
@@ -455,9 +453,6 @@ export class FinancePage {
     }
 
     await Promise.all(tasks);
-    if (this.canInvoices()) {
-      this.invoices.getAiSpend().then(s => this.aiSpend.set(s)).catch(() => this.aiSpend.set(null));
-    }
     this.loading.set(false);
     // The per-location spending report loads independently of the cards.
     this.loadReport();
