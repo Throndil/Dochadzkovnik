@@ -85,8 +85,17 @@ public class MaterialPurchase
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>Mašina/Auto assignment of this delivery list (Fáza F1 —
+    /// stroje-division docs map to assets instead of pracoviská). Feeds the
+    /// per-mašina spending report; division money still computes on the
+    /// division (D4).</summary>
+    public int? MachineId { get; set; }
+    public int? CarId { get; set; }
+
     public Employee Employee { get; set; } = null!;
     public Location? Location { get; set; }
+    public Machine? Machine { get; set; }
+    public Car? Car { get; set; }
     public TimeEntry? TimeEntry { get; set; }
     public InvoiceDocument? InvoiceDocument { get; set; }
     public ICollection<MaterialPurchaseLine> Lines { get; set; } = [];

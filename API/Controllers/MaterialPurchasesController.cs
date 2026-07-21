@@ -65,6 +65,13 @@ public class MaterialPurchasesController : ControllerBase
                 .ThenInclude(l => l.Material)
             .AsQueryable();
 
+        // Income invoices (AZ billed someone) and AZ Stroje division documents
+        // (nafta, olej, štrky…) carry line rows but are NOT material
+        // purchases; keep them out of every material view. Stroje costs live
+        // on the division page + per-mašina report.
+        q = q.Where(p => p.InvoiceDocument == null
+                      || (p.InvoiceDocument.Direction != "income" && p.InvoiceDocument.Division != "stroje"));
+
         if (from.HasValue) q = q.Where(p => p.PurchaseDate >= from.Value.Date);
         if (to.HasValue)   q = q.Where(p => p.PurchaseDate <  to.Value.Date.AddDays(1));
         // Inventory tab — purchases with no target site (worker chose "Inventár" on the kiosk).
@@ -116,6 +123,8 @@ public class MaterialPurchasesController : ControllerBase
     {
         var orphanLines = await _db.MaterialPurchaseLines
             .Where(l => l.MaterialId == null)
+            .Where(l => l.Purchase.InvoiceDocument == null
+                     || (l.Purchase.InvoiceDocument.Direction != "income" && l.Purchase.InvoiceDocument.Division != "stroje"))
             .Include(l => l.Purchase)
                 .ThenInclude(p => p.Employee)
             .ToListAsync();
@@ -132,10 +141,11 @@ public class MaterialPurchasesController : ControllerBase
                 Unit            = g.OrderBy(l => l.CreatedAt).First().Unit,
                 LineCount       = g.Count(),
                 TotalQuantity   = g.Sum(l => l.Quantity),
-                TotalSpend      = g.Sum(l => l.LineTotal),
+                // S DPH — invoice-derived lines grossed up, kiosk lines as paid.
+                TotalSpend      = Math.Round(g.Sum(l => l.LineTotal * GrossFactor(l.Purchase, l)), 2, MidpointRounding.AwayFromZero),
                 AverageUnitPrice = g.Sum(l => l.Quantity) == 0m
                     ? 0m
-                    : g.Sum(l => l.LineTotal) / g.Sum(l => l.Quantity),
+                    : g.Sum(l => l.LineTotal * GrossFactor(l.Purchase, l)) / g.Sum(l => l.Quantity),
                 FirstSeenAt = g.Min(l => l.Purchase.PurchaseDate),
                 LastSeenAt  = g.Max(l => l.Purchase.PurchaseDate),
                 EnteredByEmployeeNames = g
@@ -249,6 +259,14 @@ public class MaterialPurchasesController : ControllerBase
             .Include(p => p.Lines)
             .FirstOrDefaultAsync(p => p.Id == id);
         if (purchase == null) return NotFound();
+
+        // Invoice-derived purchases mirror a scanned faktúra: their lines are
+        // stored bez DPH and edited on the invoice review screen, while this
+        // endpoint receives the grossed s-DPH display values — saving them
+        // here would double-tax the lines. Route the manager to the right
+        // editor instead.
+        if (purchase.InvoiceDocumentId != null)
+            return BadRequest("Tento nákup pochádza zo skenovanej faktúry — upravte ho v module Faktúry.");
 
         if (dto.LocationId.HasValue)
         {
@@ -549,6 +567,16 @@ public class MaterialPurchasesController : ControllerBase
             .FirstOrDefaultAsync(p => p.Id == id))!;
     }
 
+    /// <summary>
+    /// Accounting rule (customer): everything the manager reads is S DPH.
+    /// Kiosk/admin-entered lines already store what the worker paid (s DPH,
+    /// VatRate is just the 23 % back-compat default). Invoice-derived lines
+    /// store bez DPH (the reconciliation gate needs the printed values), so
+    /// ONLY those get grossed up here — at read time, storage untouched.
+    /// </summary>
+    private static decimal GrossFactor(MaterialPurchase p, MaterialPurchaseLine l)
+        => p.InvoiceDocumentId != null ? 1m + l.VatRate / 100m : 1m;
+
     private static MaterialPurchaseDto ToDto(MaterialPurchase p) => new()
     {
         Id              = p.Id,
@@ -562,7 +590,7 @@ public class MaterialPurchasesController : ControllerBase
         SupplierName    = p.SupplierName,
         ReceiptPhotoUrl = p.ReceiptPhotoUrl,
         Note            = p.Note,
-        TotalCost       = p.TotalCost,
+        TotalCost       = Math.Round(p.Lines.Sum(l => l.LineTotal * GrossFactor(p, l)), 2, MidpointRounding.AwayFromZero),
         CreatedAt       = p.CreatedAt,
         UpdatedAt       = p.UpdatedAt,
         Lines = p.Lines.OrderBy(l => l.Id).Select(l => new MaterialPurchaseLineDto
@@ -573,8 +601,8 @@ public class MaterialPurchasesController : ControllerBase
             MaterialNameRaw = l.MaterialNameRaw,
             Unit            = l.Unit,
             Quantity        = l.Quantity,
-            UnitPrice       = l.UnitPrice,
-            LineTotal       = l.LineTotal
+            UnitPrice       = Math.Round(l.UnitPrice * GrossFactor(p, l), 4, MidpointRounding.AwayFromZero),
+            LineTotal       = Math.Round(l.LineTotal * GrossFactor(p, l), 2, MidpointRounding.AwayFromZero)
         }).ToList()
     };
 

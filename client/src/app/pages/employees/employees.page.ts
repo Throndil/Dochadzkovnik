@@ -159,7 +159,7 @@ export class EmployeesPage implements OnInit {
       },
       error: err => {
         if (err.status === 409) {
-          this.toast.error('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+          this.toast.error('PIN už používa iný zamestnanec.');
         } else {
           this.toast.error('Zamestnanca sa nepodarilo pridať');
         }
@@ -179,7 +179,7 @@ export class EmployeesPage implements OnInit {
       next: () => this.toast.success('PIN aktualizovaný'),
       error: err => {
         if (err.status === 409) {
-          this.toast.error('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+          this.toast.error('PIN už používa iný zamestnanec.');
         } else {
           this.toast.error('PIN sa nepodarilo zmeniť');
         }

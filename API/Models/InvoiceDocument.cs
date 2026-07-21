@@ -69,6 +69,30 @@ public class InvoiceDocument
     /// from eKasa markers so the list can filter invoices from receipts.</summary>
     public string DocumentKind { get; set; } = "invoice";
 
+    // ─── Divisions (CUSTOMER_ROADMAP Fáza D) ────────────────────────
+    // The company runs two divisions; every document belongs to exactly one
+    // and carries a money direction. The division pages show mesiac +
+    // Príjem / Výdaj / Rozdiel computed from these two fields.
+
+    /// <summary>"profistav" (stavby) | "stroje". Chosen at upload via the
+    /// division switcher; existing documents default to profistav.</summary>
+    public string Division { get; set; } = "profistav";
+
+    /// <summary>"cost" (výdaj) | "income" (príjem — AZ issued the invoice,
+    /// e.g. machine work done for someone). Auto-detected at parse time when
+    /// AZ Profistav appears as the SUPPLIER; manually togglable on review.</summary>
+    public string Direction { get; set; } = "cost";
+
+    /// <summary>Optional INFORMATIONAL backtrack (F1): which mašina this cost
+    /// belongs to ("aby vedeli"). Division money never computes on it (D4).
+    /// Mutually exclusive with <see cref="CarId"/>.</summary>
+    public int? MachineId { get; set; }
+    /// <summary>Optional informational backtrack to a vehicle — same rules.</summary>
+    public int? CarId { get; set; }
+
+    public Machine? Machine { get; set; }
+    public Car? Car { get; set; }
+
     /// <summary>True only when server-side reconciliation succeeded.</summary>
     public bool ReconciliationOk { get; set; } = false;
 

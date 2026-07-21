@@ -17,12 +17,35 @@ export interface PayrollRow {
   advancesTotal: number;
   gross: number;
   payout: number;
+  /** Employer contributions % (Employee.OdvodyPct). Null = unset. */
+  odvodyPct: number | null;
+  /** gross × odvodyPct / 100 — employer cost on top, never part of payout. */
+  odvody: number;
 }
 
 export interface PayrollMonthly {
   month: string;          // 'YYYY-MM'
   rows: PayrollRow[];
   totals: PayrollRow;
+}
+
+/** One month of the finance cost sparkline — mirrors CostTrendMonthDto. */
+export interface CostTrendMonth {
+  month: string;          // 'YYYY-MM'
+  wages: number;
+  material: number;
+  /** AZ Stroje expense invoices — a cost pillar of its own, never in material. */
+  stroje: number;
+  /** Výjazdy: distinct car+day rides × the live vyjazd_auta rate. */
+  trips: number;
+  /** Odvody: worked hours × the sum of "€/h" rates from the Odvody page. */
+  odvody: number;
+  /** wages + material + stroje + trips + odvody. */
+  total: number;
+  /** Income invoices of both divisions, by dátum dokladu. */
+  income: number;
+  /** DPH inside the month's expense documents — reclaimable by a VAT payer. */
+  vat: number;
 }
 
 export interface EmployeeAdvance {
@@ -69,9 +92,21 @@ export class PayrollService {
 
   // ─── Period summary ────────────────────────────────────────────
 
-  monthly(period: PayrollPeriod): Promise<PayrollMonthly> {
+  /** division (Fáza D8): scope rows to one division's employees. */
+  monthly(period: PayrollPeriod, division?: string): Promise<PayrollMonthly> {
+    let params = this.periodParams(period);
+    if (division) params = params.set('division', division);
     return firstValueFrom(
-      this.http.get<PayrollMonthly>(`${this.url}/monthly`, { params: this.periodParams(period) })
+      this.http.get<PayrollMonthly>(`${this.url}/monthly`, { params })
+    );
+  }
+
+  /** Monthly cost totals ending at `month`, oldest first — feeds the
+   *  Financie hero sparkline. */
+  costTrend(month: string, months = 6): Promise<CostTrendMonth[]> {
+    const params = new HttpParams().set('month', month).set('months', String(months));
+    return firstValueFrom(
+      this.http.get<CostTrendMonth[]>(`${this.url}/cost-trend`, { params })
     );
   }
 
@@ -112,8 +147,9 @@ export class PayrollService {
   // ─── Excel exports ─────────────────────────────────────────────
 
   /** Period summary XLSX — opens a browser save dialog via blob URL. */
-  downloadMonthlySummary(period: PayrollPeriod): void {
-    const url = `${this.url}/monthly/export?${this.periodQuery(period)}`;
+  downloadMonthlySummary(period: PayrollPeriod, division?: string): void {
+    const divPart = division ? `&division=${encodeURIComponent(division)}` : '';
+    const url = `${this.url}/monthly/export?${this.periodQuery(period)}${divPart}`;
     this.downloadBlob(url, `Mzdy_${this.periodToken(period)}.xlsx`);
   }
 

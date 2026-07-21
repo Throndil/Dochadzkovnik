@@ -232,9 +232,7 @@
               {{ testPushLoading() ? 'Posielam…' : 'Poslať testovaciu push' }}
             </button>
           </div>
-          <p class="text-xs text-slate-500 dark:text-slate-400">
-            Vyžaduje zariadenie s aktívnou push notifikáciou.
-          </p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Potrebné zariadenie s push.</p>
 
           @if (testResult()) {
             <p class="text-green-600 dark:text-green-400 text-sm">{{ testResult() }}</p>

@@ -18,7 +18,7 @@
         </button>
       </div>
 
-      <p class="text-slate-600 dark:text-slate-400 text-sm">Vyber pracovisko alebo „Inventár".</p>
+      <p class="text-slate-600 dark:text-slate-400 text-sm">Vyber pracovisko alebo „Sklad".</p>
 
       <!-- Hours auto-book section — visible only when the kiosk page resolved a
            trigger Location AND no šichta has been recorded yet (mode-pick path).
@@ -54,7 +54,7 @@
 
       <button (click)="pickGeneralStock()"
               class="touch-target w-full p-5 rounded-xl border-2 border-dashed border-slate-400 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 active:bg-amber-100 dark:active:bg-amber-900/30 text-left">
-        <div class="text-lg font-semibold text-slate-900 dark:text-white">Inventár</div>
+        <div class="text-lg font-semibold text-slate-900 dark:text-white">Sklad</div>
         <div class="text-sm text-slate-500 dark:text-slate-400">Materiál nepatrí konkrétnej stavbe</div>
       </button>
 
@@ -270,7 +270,6 @@
       @if (!receiptPreview()) {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <label class="touch-target flex flex-col items-center justify-center gap-2 py-6 rounded-xl border-2 border-dashed border-amber-400 dark:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer">
-            <span class="text-3xl">📷</span>
             <span class="font-semibold text-amber-600 dark:text-amber-400">Odfotiť účtenku</span>
             <input type="file" accept="image/*" capture="environment" (change)="onReceiptSelected($event)" class="hidden" />
           </label>
@@ -346,7 +345,7 @@
         } @else {
           <div class="flex justify-between items-baseline mb-2">
             <span class="text-slate-500 dark:text-slate-400">Pracovisko</span>
-            <span class="text-slate-500 dark:text-slate-400 italic">Inventár</span>
+            <span class="text-slate-500 dark:text-slate-400 italic">Sklad</span>
           </div>
         }
         <div class="flex justify-between items-baseline pt-2 border-t border-slate-200 dark:border-slate-700">

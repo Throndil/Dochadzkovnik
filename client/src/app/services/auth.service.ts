@@ -6,6 +6,9 @@ import { tap } from 'rxjs';
 interface AuthResponse {
   token: string;
   displayName: string;
+  /** True = password OK but the account requires a security PIN — no token
+   *  yet; show the PIN step and call login again with the pin. */
+  pinRequired?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -31,13 +34,29 @@ export class AuthService {
 
   constructor(private http: HttpClient) {}
 
-  login(username: string, password: string) {
-    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/login`, { username, password })
+  login(username: string, password: string, pin?: string) {
+    return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/login`, { username, password, pin })
       .pipe(tap(res => {
+        // The PIN-required half-response carries no token — persist nothing.
+        if (!res.token) return;
         localStorage.setItem('token', res.token);
         localStorage.setItem('displayName', res.displayName);
         this.tokenSignal.set(res.token);
         this.displayNameSignal.set(res.displayName);
+      }));
+  }
+
+  /** Set (currentPin null) or change (currentPin required) the security PIN. */
+  changeAdminPin(currentPin: string | null, newPin: string) {
+    return this.http.put(`${environment.apiUrl}/auth/admin-pin`, { currentPin, newPin });
+  }
+
+  /** Change the navbar display name; keeps the local session in sync. */
+  updateDisplayName(displayName: string) {
+    return this.http.put(`${environment.apiUrl}/auth/display-name`, { displayName })
+      .pipe(tap(() => {
+        localStorage.setItem('displayName', displayName);
+        this.displayNameSignal.set(displayName);
       }));
   }
 
@@ -58,7 +77,7 @@ export class AuthService {
   }
 
   getMe() {
-    return this.http.get<{ email: string; userName: string }>(`${environment.apiUrl}/auth/me`);
+    return this.http.get<{ email: string; userName: string; hasAdminPin: boolean }>(`${environment.apiUrl}/auth/me`);
   }
 
   logout() {

@@ -48,6 +48,45 @@ export interface PnlMaterialRow {
   cost: number;
 }
 
+// ─── Denník podľa dátumu (P1) — the per-day "zložka" of a workplace ───
+
+export interface DailyLogShift {
+  employeeName: string;
+  /** Null while the shift is still open. */
+  hours: number | null;
+  note: string | null;
+  carName: string | null;
+  machineName: string | null;
+}
+
+export interface DailyLogDiary {
+  employeeName: string;
+  bodyText: string;
+  attachmentUrl: string | null;
+}
+
+export interface DailyLogDoc {
+  purchaseId: number;
+  invoiceDocumentId: number | null;
+  supplierName: string | null;
+  deliveryNoteRef: string | null;
+  totalCost: number;
+}
+
+export interface DailyLogPhoto {
+  photoUrl: string;
+  employeeName: string;
+}
+
+export interface DailyLogDay {
+  date: string;
+  shifts: DailyLogShift[];
+  diaries: DailyLogDiary[];
+  materials: { materialName: string; quantity: number; unit: string; lineCost: number }[];
+  documents: DailyLogDoc[];
+  photos: DailyLogPhoto[];
+}
+
 export interface LocationPnl {
   location: { id: number; name: string; contractValue: number | null; isActive: boolean };
   labour: { hoursWorked: number; cost: number; breakdownByEmployee: PnlLabourRow[] };
@@ -56,6 +95,8 @@ export interface LocationPnl {
   /** Invoice money assigned to the location (s DPH, any status except
    *  discarded). Only filled by the pnl-summary endpoint. */
   invoicedInclVat?: number | null;
+  /** Výjazdy áut (F5): one ride per car per day. Null when no car was used. */
+  trips: { count: number; rate: number; cost: number } | null;
   revenue: number | null;
   profit: number | null;
 }
@@ -139,6 +180,11 @@ export class LocationService {
   }
 
   // ─── Náklady a zisk (P&L) — PayrollAndPnL flag ───
+
+  /** P1 — per-day zložka of the workplace (shifts, denník, materiál, doklady, fotky). */
+  getDailyLog(id: number, from: string, to: string) {
+    return this.http.get<DailyLogDay[]>(`${this.url}/${id}/daily-log?from=${from}&to=${to}`);
+  }
 
   getPnl(id: number, from: string, to: string) {
     return this.http.get<LocationPnl>(`${this.url}/${id}/pnl?from=${from}&to=${to}`);

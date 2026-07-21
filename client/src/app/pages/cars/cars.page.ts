@@ -1,4 +1,5 @@
 import { Component, signal, computed, OnInit } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
@@ -12,14 +13,14 @@ import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-cars',
-  imports: [NavbarComponent, RouterLink, FormsModule, SpinnerComponent, ModalComponent, EmptyStateComponent],
+  imports: [NavbarComponent, DecimalPipe, RouterLink, FormsModule, SpinnerComponent, ModalComponent, EmptyStateComponent],
   templateUrl: './cars.page.html'
 })
 export class CarsPage implements OnInit {
   cars = signal<Car[]>([]);
   loading = signal(true);
   showForm = signal(false);
-  newCar: CreateCar = { name: '', licensePlate: '' };
+  newCar: CreateCar = { name: '', licensePlate: '', division: 'profistav' };
   newCarPhoto: File | null = null;
   photoPreview = signal<string | null>(null);
   isDragOver = signal(false);
@@ -49,7 +50,7 @@ export class CarsPage implements OnInit {
 
   cancelForm() {
     this.showForm.set(false);
-    this.newCar = { name: '', licensePlate: '' };
+    this.newCar = { name: '', licensePlate: '', division: 'profistav' };
     this.newCarPhoto = null;
     this.photoPreview.set(null);
     this.isDragOver.set(false);
@@ -80,7 +81,11 @@ export class CarsPage implements OnInit {
   }
 
   onCreate() {
-    this.carService.create({ name: this.newCar.name, licensePlate: this.newCar.licensePlate || undefined }).subscribe(car => {
+    this.carService.create({
+      name: this.newCar.name,
+      licensePlate: this.newCar.licensePlate || undefined,
+      division: this.newCar.division
+    }).subscribe(car => {
       const finish = () => {
         this.cancelForm();
         this.toast.success('Vozidlo pridané');

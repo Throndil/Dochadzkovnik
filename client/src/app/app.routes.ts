@@ -5,6 +5,9 @@ import { notificationsFeatureGuard } from './guards/notifications-feature.guard'
 import { invoiceScanningFeatureGuard } from './guards/invoice-scanning-feature.guard';
 import { invoiceCameraScanFeatureGuard } from './guards/invoice-camera-scan-feature.guard';
 import { payrollAndPnLFeatureGuard } from './guards/payroll-and-pnl-feature.guard';
+import { plannerFeatureGuard } from './guards/planner-feature.guard';
+import { vehiclesFeatureGuard } from './guards/vehicles-feature.guard';
+import { strojeDivisionsFeatureGuard } from './guards/stroje-divisions-feature.guard';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'kiosk', pathMatch: 'full' },
@@ -55,6 +58,7 @@ export const routes: Routes = [
       },
       {
         path: 'cars',
+        canActivate: [vehiclesFeatureGuard],
         loadComponent: () => import('./pages/cars/cars.page').then(m => m.CarsPage)
       },
       {
@@ -92,8 +96,29 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/mzdy/mzdy.page').then(m => m.MzdyPage)
       },
       {
+        path: 'odvody',
+        canActivate: [payrollAndPnLFeatureGuard],
+        loadComponent: () => import('./pages/odvody/odvody.page').then(m => m.OdvodyPage)
+      },
+      {
         path: 'cars/:id',
+        canActivate: [vehiclesFeatureGuard],
         loadComponent: () => import('./pages/car-detail/car-detail.page').then(m => m.CarDetailPage)
+      },
+      {
+        path: 'stroje',
+        canActivate: [strojeDivisionsFeatureGuard],
+        loadComponent: () => import('./pages/stroje/stroje.page').then(m => m.StrojePage)
+      },
+      {
+        path: 'palivove-karty',
+        canActivate: [vehiclesFeatureGuard],
+        loadComponent: () => import('./pages/palivove-karty/palivove-karty.page').then(m => m.PalivoveKartyPage)
+      },
+      {
+        path: 'planner',
+        canActivate: [plannerFeatureGuard],
+        loadComponent: () => import('./pages/planner/planner.page').then(m => m.PlannerPage)
       },
       {
         path: 'time-entries',

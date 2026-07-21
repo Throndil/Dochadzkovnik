@@ -5,10 +5,12 @@ import { KioskService, KioskResponse, KioskStatus, WeeklyOverview, WeeklyRow, Wo
 import { TimeEntry } from '../../services/time-entry.service';
 import { Location } from '../../services/location.service';
 import { Car } from '../../services/car.service';
+import { Machine } from '../../services/machine.service';
 import { HmPipe } from '../../pipes/hm.pipe';
 import { normaliseFile, fileToDataUrl, compressImage } from '../../utils/image-utils';
 import { PushService } from '../../services/push.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
+import { ThemeService } from '../../services/theme.service';
 import { MaterialPurchaseService } from '../../services/material-purchase.service';
 import { WorkDiaryService } from '../../services/work-diary.service';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
@@ -79,6 +81,9 @@ export class KioskPage implements OnInit, OnDestroy {
    *  hours step render with the roll-up already in place (no late layout shift). */
   locationLoading = signal(false);
   selectedCar = signal<Car | null | 'none'>('none'); // null = not chosen yet, 'none' = no car
+  /** Machine used for the shift (Auto / Stroj / Pešo — Fáza F3). */
+  selectedMachine = signal<Machine | null>(null);
+  machines = signal<Machine[]>([]);
   hoursWorked = 8.0;
   selectedDate = '';   // YYYY-MM-DD, defaults to today when location is picked
   dateClampWarning = signal(false);  // shown when the date was silently clamped
@@ -252,6 +257,8 @@ export class KioskPage implements OnInit, OnDestroy {
   /** Exposed to template so every notification surface can be hidden when the
    *  Notifications feature flag is off in the customer's environment. */
   flags = inject(FeatureFlagService);
+  /** Workers switch light/dark on the kiosk themselves (not manager-only). */
+  theme = inject(ThemeService);
 
   // ─── "Treba pripomenúť" — missing-hours dashboard (Option A + D) ──
   /** Public list of workers with no entry for past 2 days. Visible to everyone. */
@@ -293,6 +300,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.loadMissingOverview();
     this.kioskService.getLocations().subscribe(locs => this.locations.set(locs));
     this.kioskService.getCars().subscribe(cars => this.cars.set(cars));
+    this.kioskService.getMachines().subscribe(ms => this.machines.set(ms));
     this.scheduleTick();
 
     // Load the trigger Location id for the post-šichta combined capture. Server
@@ -511,6 +519,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.locationLoading.set(false);
     this.selectedLocation.set(null);
     this.selectedCar.set('none');
+    this.selectedMachine.set(null);
     this.clockStep.set('pin');
     this.inlinePushDone.set(false);
     this.inlinePushError.set('');
@@ -534,6 +543,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.status.set(null);
     this.selectedLocation.set(null);
     this.selectedCar.set('none');
+    this.selectedMachine.set(null);
     this.response.set(null);
     this.responseError.set(false);
     this.photoFiles.set([]);
@@ -678,31 +688,42 @@ export class KioskPage implements OnInit, OnDestroy {
     this.selectedDate = this.todayString();
     this.comment = '';
     this.selectedCar.set('none');
+    this.selectedMachine.set(null);
     // Fetch today's roll-up so the hours step can show peer notes. Best-effort —
     // failures leave the card empty rather than blocking the flow.
     this.todayAtLocation.set([]);
-    const hasCars = this.cars().length > 0;
-    // When we go via the car step, the roll-up loads in the background and is
-    // ready by the time the worker reaches hours. When we skip straight to
-    // hours, wait for the roll-up first so it doesn't pop in late and shove
+    // Transport step shows when there is anything to pick (Auto / Stroj) —
+    // Pešo alone would be a pointless tap.
+    const hasTransport = this.cars().length > 0 || this.machines().length > 0;
+    // When we go via the transport step, the roll-up loads in the background
+    // and is ready by the time the worker reaches hours. When we skip straight
+    // to hours, wait for the roll-up first so it doesn't pop in late and shove
     // the hours form down (the "bump"). The tapped tile shows a spinner.
-    this.locationLoading.set(!hasCars);
+    this.locationLoading.set(!hasTransport);
     this.kioskService.getTodayAtLocation(this.pin, loc.id).subscribe({
       next: rows => {
         this.todayAtLocation.set(rows ?? []);
-        if (!hasCars) { this.locationLoading.set(false); this.clockStep.set('hours'); }
+        if (!hasTransport) { this.locationLoading.set(false); this.clockStep.set('hours'); }
       },
       error: () => {
         this.todayAtLocation.set([]);
-        if (!hasCars) { this.locationLoading.set(false); this.clockStep.set('hours'); }
+        if (!hasTransport) { this.locationLoading.set(false); this.clockStep.set('hours'); }
       }
     });
-    if (hasCars) this.clockStep.set('car');
+    if (hasTransport) this.clockStep.set('car');
   }
 
   selectCar(car: Car | null) {
-    // null = "no car used"
+    // null = "pešo" (no transport)
     this.selectedCar.set(car ?? 'none');
+    this.selectedMachine.set(null);
+    this.clockStep.set('hours');
+  }
+
+  /** Stroj choice — bagrista picks his bager (Fáza F3). */
+  selectMachine(m: Machine) {
+    this.selectedMachine.set(m);
+    this.selectedCar.set('none');
     this.clockStep.set('hours');
   }
 
@@ -849,6 +870,7 @@ export class KioskPage implements OnInit, OnDestroy {
     this.loading.set(true);
     const car = this.selectedCar();
     const carId = car !== 'none' && car !== null ? car.id : undefined;
+    const machineId = this.selectedMachine()?.id;
     const photoFiles = this.photoFiles();
 
     // Append a marker to the TimeEntry note so the admin Záznamy dochádzky
@@ -872,6 +894,7 @@ export class KioskPage implements OnInit, OnDestroy {
       finalComment,
       this.selectedDate || undefined,
       carId,
+      machineId,
       skipProof || undefined  // omit field entirely on the false path so flag-off behaviour is byte-identical
     ).subscribe({
       next: res => {

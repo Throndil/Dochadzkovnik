@@ -8,12 +8,18 @@ import { ModalComponent } from '../../components/modal/modal.component';
 import {
   InvoiceService,
   InvoiceDocument,
+  InvoiceDeliveryList,
   InvoiceLine,
   UpdateInvoiceLinePayload,
   UpdateInvoiceDeliveryListPayload
 } from '../../services/invoice.service';
 import { LocationService, Location } from '../../services/location.service';
+import { MachineService, Machine } from '../../services/machine.service';
+import { CarService, Car } from '../../services/car.service';
+import { AuthService } from '../../services/auth.service';
+import { FeatureFlagService } from '../../services/feature-flag.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
+import { SelectOnFocusDirective } from '../../directives/select-on-focus.directive';
 
 /**
  * /admin/invoices/:id — review one scanned invoice. The manager edits line
@@ -24,7 +30,7 @@ import { DatepickerDirective } from '../../directives/datepicker.directive';
 @Component({
   selector: 'app-invoice-review',
   standalone: true,
-  imports: [CommonModule, FormsModule, DatePipe, RouterLink, NavbarComponent, SpinnerComponent, ModalComponent, DatepickerDirective],
+  imports: [CommonModule, FormsModule, DatePipe, RouterLink, NavbarComponent, SpinnerComponent, ModalComponent, DatepickerDirective, SelectOnFocusDirective],
   templateUrl: './invoice-review.page.html'
 })
 export class InvoiceReviewPage implements OnInit {
@@ -36,6 +42,13 @@ export class InvoiceReviewPage implements OnInit {
   id = 0;
   invoice = signal<InvoiceDocument | null>(null);
   locations = signal<Location[]>([]);
+  /** F1 backtrack pickers. */
+  machinesList = signal<Machine[]>([]);
+  carsList = signal<Car[]>([]);
+  private machineService = inject(MachineService);
+  private carService = inject(CarService);
+  private flags = inject(FeatureFlagService);
+  private auth = inject(AuthService);
   loading = signal(false);
   error = signal<string | null>(null);
   committing = signal(false);
@@ -62,15 +75,24 @@ export class InvoiceReviewPage implements OnInit {
   isSupplierEditable = computed(() => this.invoice()?.status !== 'discarded');
 
   /** Where this document's money went: line totals grouped by the EFFECTIVE
-   *  location (line override ?? delivery list ?? Sklad/Inventár). Rendered
-   *  as chips in the header for a quick glance — both bez DPH and s DPH. */
+   *  destination. On AZ Profistav docs that's the location chain (line
+   *  override ?? delivery list ?? Sklad/Inventár); on AZ Stroje docs the
+   *  machine/car chain (line ?? DL ?? document ?? Bez priradenia) — stroje
+   *  documents never touch pracoviská or the material warehouse. Rendered
+   *  as chips in the header — both bez DPH and s DPH. */
   locationBreakdown = computed(() => {
     const inv = this.invoice();
     if (!inv) return [];
+    const stroje = inv.division === 'stroje';
     const sums = new Map<string, { excl: number; incl: number }>();
     for (const dl of inv.deliveryLists) {
       for (const l of dl.lines) {
-        const name = l.locationName ?? dl.locationName ?? 'Sklad / Inventár';
+        const name = stroje
+          ? this.assetName(l.machineId, l.carId)
+            ?? this.assetName(dl.machineId, dl.carId)
+            ?? this.assetName(inv.machineId, inv.carId)
+            ?? 'Bez priradenia'
+          : l.locationName ?? dl.locationName ?? 'Sklad';
         const acc = sums.get(name) ?? { excl: 0, incl: 0 };
         acc.excl += l.lineTotal || 0;
         acc.incl += (l.lineTotal || 0) + this.round2((l.lineTotal || 0) * l.vatRate / 100);
@@ -81,6 +103,16 @@ export class InvoiceReviewPage implements OnInit {
       .map(([name, v]) => ({ name, excl: this.round2(v.excl), incl: this.round2(v.incl) }))
       .sort((a, b) => b.excl - a.excl);
   });
+
+  /** Resolve a machine/car id pair to a display name via the loaded lists. */
+  private assetName(machineId?: number | null, carId?: number | null): string | null {
+    if (machineId) return this.machinesList().find(m => m.id === machineId)?.name ?? `Mašina #${machineId}`;
+    if (carId) {
+      const c = this.carsList().find(x => x.id === carId);
+      return c ? `${c.name}${c.licensePlate ? ' (' + c.licensePlate + ')' : ''}` : `Auto #${carId}`;
+    }
+    return null;
+  }
 
   /** Line total incl. VAT for the read-only "S DPH" column. */
   lineTotalInclVat(line: { lineTotal: number; vatRate: number }): number {
@@ -97,6 +129,120 @@ export class InvoiceReviewPage implements OnInit {
   showCommitConfirm  = signal(false);
   showCommitSuccess  = signal(false);
   showDiscardConfirm = signal(false);
+
+  // ─── "Kam to patrí?" step before commit ─────────────────────────
+  // Customer rule: NEVER silently save without asking. When any lines still
+  // resolve to no destination at commit time, this prompt asks where they
+  // belong — PER delivery list (a multi-DL invoice splits across targets).
+  // What a "destination" means depends on the division:
+  //   · AZ Profistav → pracovisko or explicit Sklad. Choice values:
+  //     -1 = Sklad, >0 = location id.
+  //   · AZ Stroje → mašina/auto (informational spending report) or nothing.
+  //     Choice values: 'm:{id}', 'c:{id}', 'none'.
+  showAssignPrompt = signal(false);
+  assignChoices = signal<Record<number, number | string>>({});
+  assignBusy = signal(false);
+
+  isStroje = computed(() => this.invoice()?.division === 'stroje');
+
+  setAssignChoice(dlId: number, value: string) {
+    const stroje = this.isStroje();
+    const v: number | string | undefined =
+      value === '' ? undefined : stroje ? value : +value;
+    this.assignChoices.update(m => {
+      const copy = { ...m };
+      if (v === undefined) delete copy[dlId];
+      else copy[dlId] = v;
+      return copy;
+    });
+  }
+
+  /** Every unassigned delivery list has an explicit choice. */
+  allAssignChosen = computed(() =>
+    this.unassignedDls().every(dl => this.assignChoices()[dl.id] !== undefined));
+
+  /** Division-aware "this line has no destination of its own" test. */
+  private lineUnassigned(l: InvoiceLine): boolean {
+    return this.isStroje()
+      ? l.machineId == null && l.carId == null
+      : l.locationId == null;
+  }
+
+  /** Per-DL display helpers for the prompt rows (s DPH, unassigned lines only). */
+  dlUnassignedCount(dl: { lines: InvoiceLine[] }): number {
+    return dl.lines.filter(l => this.lineUnassigned(l)).length;
+  }
+  dlUnassignedSumIncl(dl: { lines: InvoiceLine[] }): number {
+    return this.round2(dl.lines.filter(l => this.lineUnassigned(l))
+      .reduce((s, l) => s + (l.lineTotal || 0) + this.round2((l.lineTotal || 0) * l.vatRate / 100), 0));
+  }
+
+  /** Delivery lists with no destination of their own and at least one line
+   *  without an override. Profistav: destination = pracovisko (else Sklad).
+   *  Stroje: destination = mašina/auto (doc-level tag counts too — a doc
+   *  tagged "celý na bager XY" needs no per-DL nagging). */
+  unassignedDls = computed(() => {
+    const inv = this.invoice();
+    if (!inv) return [];
+    if (inv.division === 'stroje') {
+      if (inv.machineId != null || inv.carId != null) return [];
+      return inv.deliveryLists.filter(dl =>
+        dl.machineId == null && dl.carId == null
+        && dl.lines.some(l => l.machineId == null && l.carId == null));
+    }
+    return inv.deliveryLists.filter(dl =>
+      dl.locationId == null && dl.lines.some(l => l.locationId == null));
+  });
+
+  /** Count + s-DPH sum of the lines without a destination. */
+  unassignedLineCount = computed(() =>
+    this.unassignedDls().reduce((n, dl) => n + dl.lines.filter(l => this.lineUnassigned(l)).length, 0));
+  unassignedSumIncl = computed(() =>
+    this.round2(this.unassignedDls()
+      .flatMap(dl => dl.lines.filter(l => this.lineUnassigned(l)))
+      .reduce((s, l) => s + (l.lineTotal || 0) + this.round2((l.lineTotal || 0) * l.vatRate / 100), 0)));
+
+  /** "Uložiť bez priradenia" — skip the per-group picks entirely. Profistav:
+   *  everything lands in Sklad (its current state); stroje: cost stays on
+   *  the division only. Re-assignable later — the selects stay editable. */
+  assignSkipAll() {
+    this.showAssignPrompt.set(false);
+    this.showCommitConfirm.set(true);
+  }
+
+  /** Apply each delivery list's chosen destination, then continue to the
+   *  commit confirm. No-op choices (Sklad / none) leave the DL as-is. */
+  async assignAndContinue() {
+    if (!this.allAssignChosen() || this.assignBusy()) return;
+    this.assignBusy.set(true);
+    try {
+      // Snapshot — each update refreshes the invoice signal and shrinks the
+      // computed list under our feet.
+      const targets = [...this.unassignedDls()];
+      const choices = this.assignChoices();
+      for (const dl of targets) {
+        const choice = choices[dl.id];
+        if (choice === undefined) continue;
+        let patch: { locationId?: number; machineId?: number; carId?: number } | null = null;
+        if (typeof choice === 'string') {
+          if (choice.startsWith('m:')) patch = { machineId: +choice.slice(2) };
+          else if (choice.startsWith('c:')) patch = { carId: +choice.slice(2) };
+        } else if (choice > 0) {
+          patch = { locationId: choice };
+        }
+        if (!patch) continue;   // Sklad / none → stays as-is
+        const updated = await this.svc.updateDeliveryList(this.id, dl.id, patch);
+        this.invoice.set(updated);
+      }
+      this.showAssignPrompt.set(false);
+      this.showCommitConfirm.set(true);
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Priradenie zlyhalo.');
+      this.showAssignPrompt.set(false);
+    } finally {
+      this.assignBusy.set(false);
+    }
+  }
 
   // Sum of all line totals (excl. VAT) across all delivery lists.
   ourExclTotal = computed(() => {
@@ -123,6 +269,12 @@ export class InvoiceReviewPage implements OnInit {
     this.id = Number(this.route.snapshot.paramMap.get('id'));
     this.load();
     this.locationService.getAll().subscribe(locs => this.locations.set(locs.filter(l => l.isActive)));
+    // Machines API is behind the Stroje a divízie module — without it the
+    // mašina picker stays empty and the fetch would just 403.
+    if (this.flags.strojeDivisions() || this.auth.isSuperAdmin()) {
+      this.machineService.getAll().subscribe(ms => this.machinesList.set(ms.filter(m => m.isActive)));
+    }
+    this.carService.getAll().subscribe(cs => this.carsList.set(cs.filter(c => c.isActive)));
   }
 
   async load() {
@@ -176,8 +328,15 @@ export class InvoiceReviewPage implements OnInit {
     this.savedHintTimer = setTimeout(() => this.recentlySavedDlId.set(null), 2000);
   }
 
-  // Commit flow: open modal → confirm → success modal → close.
-  onCommit() { this.showCommitConfirm.set(true); }
+  // Commit flow: (ask where unassigned groups belong) → confirm → success.
+  onCommit() {
+    if (this.unassignedDls().length > 0) {
+      this.assignChoices.set({});
+      this.showAssignPrompt.set(true);
+      return;
+    }
+    this.showCommitConfirm.set(true);
+  }
 
   async onCommitConfirmed() {
     this.committing.set(true);
@@ -328,6 +487,110 @@ export class InvoiceReviewPage implements OnInit {
     } finally {
       this.savingLine.set(false);
     }
+  }
+
+  // ─── Division + direction (Fáza D) ──────────────────────────────
+  /** Division AND direction are review-only (server enforces both): a
+   *  committed profistav doc has minted material usages that a division
+   *  flip would strand. Wrong division after commit = discard + re-scan. */
+  async onDivisionChange(value: string) {
+    const inv = this.invoice();
+    if (!inv || inv.division === value) return;
+    try {
+      this.invoice.set(await this.svc.updateDivision(this.id, { division: value }));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Zmena divízie zlyhala.');
+    }
+  }
+
+  async onDirectionChange(value: string) {
+    const inv = this.invoice();
+    if (!inv || inv.direction === value) return;
+    try {
+      this.invoice.set(await this.svc.updateDivision(this.id, { direction: value }));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Zmena smeru dokladu zlyhala.');
+    }
+  }
+
+  /** DL-level Mašina/Auto (stroje docs): encoded 'm:{id}' | 'c:{id}' | ''. */
+  dlAssetValue(dl: InvoiceDeliveryList): string {
+    if (dl.machineId) return `m:${dl.machineId}`;
+    if (dl.carId) return `c:${dl.carId}`;
+    return '';
+  }
+
+  async onDlAssetChange(dl: InvoiceDeliveryList, value: string) {
+    try {
+      const payload: UpdateInvoiceDeliveryListPayload = value.startsWith('m:')
+        ? { machineId: +value.slice(2) }
+        : value.startsWith('c:')
+          ? { carId: +value.slice(2) }
+          : { machineId: -1, carId: -1 };
+      const updated = await this.svc.updateDeliveryList(this.id, dl.id, payload);
+      this.invoice.set(updated);
+      this.flashSavedHint(dl.id);
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Priradenie mašiny/auta zlyhalo.');
+    }
+  }
+
+  /** Per-line Mašina/Auto override (stroje docs). */
+  lineAssetValue(line: InvoiceLine): string {
+    if (line.machineId) return `m:${line.machineId}`;
+    if (line.carId) return `c:${line.carId}`;
+    return '';
+  }
+
+  async onLineAssetChange(line: InvoiceLine, value: string) {
+    try {
+      const payload: UpdateInvoiceLinePayload = value.startsWith('m:')
+        ? { machineId: +value.slice(2) }
+        : value.startsWith('c:')
+          ? { carId: +value.slice(2) }
+          : { machineId: -1, carId: -1 };
+      this.invoice.set(await this.svc.updateLine(this.id, line.id, payload));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Priradenie mašiny/auta riadku zlyhalo.');
+    }
+  }
+
+  /** Encoded current backtrack value for the select: 'm:{id}' | 'c:{id}' | ''. */
+  assetValue(): string {
+    const inv = this.invoice();
+    if (inv?.machineId) return `m:${inv.machineId}`;
+    if (inv?.carId) return `c:${inv.carId}`;
+    return '';
+  }
+
+  /** F1 backtrack select — informational only, never affects sums. */
+  async onAssetChange(value: string) {
+    try {
+      const payload = value.startsWith('m:')
+        ? { machineId: +value.slice(2) }
+        : value.startsWith('c:')
+          ? { carId: +value.slice(2) }
+          : { machineId: 0, carId: 0 };
+      this.invoice.set(await this.svc.updateDivision(this.id, payload));
+    } catch (e: any) {
+      this.error.set(e?.error ?? 'Priradenie mašiny/auta zlyhalo.');
+    }
+  }
+
+  /** Placeholder defaults clear themselves on focus — nobody should have to
+   *  hand-delete "(neznámy dodávateľ)" before typing the real name. */
+  onSupplierFocus(el: HTMLInputElement) {
+    if (el.value.trim() === '(neznámy dodávateľ)') el.value = '';
+  }
+
+  /** Blur with nothing typed restores the current name (visual only —
+   *  nothing was saved); otherwise persists the correction. */
+  onSupplierBlur(el: HTMLInputElement) {
+    if (!el.value.trim()) {
+      el.value = this.invoice()?.supplierName ?? '';
+      return;
+    }
+    void this.onSupplierNameChange(el.value);
   }
 
   /** Manager corrected the supplier name ("just in case" fix for OCR misreads). */

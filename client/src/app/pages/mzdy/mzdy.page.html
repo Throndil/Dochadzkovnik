@@ -1,10 +1,13 @@
-<app-navbar />
-<div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
+<app-navbar class="print:hidden" />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900 print:hidden">
   <div class="max-w-6xl mx-auto px-4 py-4 sm:p-6 space-y-4">
 
     <!-- ── Header + period picker ─────────────────────────────────── -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Mzdy</h1>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+        Mzdy
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">{{ division.label() }}</span>
+      </h1>
       <div class="flex items-center gap-2 flex-wrap">
         <!-- Period mode toggle -->
         <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-700 p-1">
@@ -56,6 +59,15 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
           {{ exporting() ? 'Pripravujem…' : 'Excel' }}
         </button>
+
+        <!-- W3 — výplatné pásky na tlač (viac zamestnancov na A4) -->
+        @if (data() && data()!.rows.length > 0) {
+          <button type="button" (click)="printSlips()"
+                  class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-600 hover:bg-slate-700 text-white text-sm font-semibold transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+            Tlačiť pásky
+          </button>
+        }
       </div>
     </div>
 
@@ -70,11 +82,21 @@
     } @else {
       <!-- ── Hero: total payout for the period ────────────────────── -->
       <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
-        <div class="text-sm text-slate-500 dark:text-slate-400">Výplaty spolu · {{ periodLabel() }}</div>
-        <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ formatMoney(data()!.totals.payout) }} €</div>
+        <div class="flex items-center gap-4">
+          <div class="w-11 h-11 shrink-0 rounded-2xl bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-300 flex items-center justify-center">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          </div>
+          <div>
+            <div class="text-sm text-slate-500 dark:text-slate-400">Výplaty spolu · {{ periodLabel() }}</div>
+            <div class="text-3xl font-bold text-slate-900 dark:text-white mt-0.5 tabular-nums">{{ formatMoney(data()!.totals.payout) }} €</div>
+          </div>
+        </div>
         <div class="flex flex-wrap gap-x-6 gap-y-2 mt-4 text-sm text-slate-600 dark:text-slate-300">
           <span>Hrubé mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatMoney(data()!.totals.gross) }} €</span></span>
-          <span>Zálohy <span class="font-semibold tabular-nums text-amber-600 dark:text-amber-400">− {{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+          <span>Zálohy <span class="font-semibold tabular-nums"
+                [class]="data()!.totals.advancesTotal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'">{{ data()!.totals.advancesTotal > 0 ? '− ' : '' }}{{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+          <span title="Odvody zamestnávateľa — platí firma navyše, nie sú súčasťou výplat">Odvody (firma) <span class="font-semibold tabular-nums"
+                [class]="data()!.totals.odvody > 0 ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'">{{ formatMoney(data()!.totals.odvody) }} €</span></span>
           <span>Odpracované <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatHours(data()!.totals.hoursWorked) }} h</span></span>
           <span>Zamestnanci <span class="font-semibold text-slate-900 dark:text-white">{{ data()!.rows.length }}</span></span>
         </div>
@@ -93,7 +115,7 @@
         @for (row of data()!.rows; track row.employeeId) {
           <div class="px-4 sm:px-5 py-4 border-t border-slate-100 dark:border-slate-700/50" [class.opacity-60]="!row.isActive">
             <div class="flex items-start gap-3">
-              <div class="w-9 h-9 shrink-0 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs font-semibold">{{ initials(row) }}</div>
+              <div class="w-9 h-9 shrink-0 rounded-xl flex items-center justify-center text-xs font-semibold" [class]="tagTint(row.firstName + ' ' + row.lastName)">{{ initials(row) }}</div>
               <div class="flex-1 min-w-0">
                 <!-- Name + payout -->
                 <div class="flex items-start justify-between gap-3">
@@ -138,6 +160,12 @@
                   <span class="text-slate-300 dark:text-slate-600">·</span>
                   <span class="tabular-nums">hrubá {{ formatMoney(row.gross) }} €</span>
                   <span class="text-slate-300 dark:text-slate-600">·</span>
+                  @if (row.odvodyPct == null) {
+                    <span class="text-slate-400 dark:text-slate-500">odvody nenastavené</span>
+                  } @else {
+                    <span class="tabular-nums">odvody {{ row.odvodyPct | number:'1.0-2' }} % · {{ formatMoney(row.odvody) }} €</span>
+                  }
+                  <span class="text-slate-300 dark:text-slate-600">·</span>
                   @if (row.advancesTotal > 0) {
                     <button type="button" (click)="openAdvancesDrawer(row)"
                             class="inline-flex items-center gap-1 tabular-nums text-amber-600 dark:text-amber-400 hover:underline" title="Upraviť zálohy">
@@ -154,15 +182,14 @@
                   <div class="text-[11px] text-slate-400 dark:text-slate-500 mt-1 tabular-nums">katalóg: {{ formatMoney(row.hourlyWageCurrent) }} €/h</div>
                 }
 
+
                 <!-- Inline rate edit -->
                 @if (editingRateFor() === row.employeeId) {
                   <div class="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40 border border-slate-200 dark:border-slate-600 space-y-2 max-w-sm">
-                    <div class="flex items-center gap-2">
-                      <input type="number" step="0.01" min="0" placeholder="€/h"
-                             [ngModel]="rateDraft()" (ngModelChange)="rateDraft.set($event)"
-                             [disabled]="savingRate()"
-                             (keyup.enter)="saveRate(row)" (keyup.escape)="cancelEditRate()"
-                             class="w-24 px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-right tabular-nums text-sm" />
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <app-stepper [(value)]="rateDraft" suffix="€/h" placeholder="€/h"
+                                   [disabled]="savingRate()"
+                                   (enter)="saveRate(row)" (escape)="cancelEditRate()" />
                       <button type="button" (click)="saveRate(row)" [disabled]="savingRate()"
                               class="text-sm px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white disabled:opacity-50">Uložiť</button>
                       <button type="button" (click)="cancelEditRate()" [disabled]="savingRate()"
@@ -198,7 +225,10 @@
           <span class="text-sm font-semibold text-slate-900 dark:text-white">Spolu · {{ formatHours(data()!.totals.hoursWorked) }} h</span>
           <span class="flex flex-wrap gap-x-4 gap-y-0.5 text-sm text-slate-500 dark:text-slate-400">
             <span>Hrubé <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ formatMoney(data()!.totals.gross) }} €</span></span>
-            <span>Zálohy <span class="tabular-nums text-amber-600 dark:text-amber-400">{{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+            <span>Zálohy <span class="tabular-nums"
+                  [class]="data()!.totals.advancesTotal > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'">{{ formatMoney(data()!.totals.advancesTotal) }} €</span></span>
+            <span>Odvody <span class="tabular-nums"
+                  [class]="data()!.totals.odvody > 0 ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400 dark:text-slate-500'">{{ formatMoney(data()!.totals.odvody) }} €</span></span>
             <span class="font-semibold text-slate-900 dark:text-white">Výplaty {{ formatMoney(data()!.totals.payout) }} €</span>
           </span>
         </div>
@@ -227,18 +257,17 @@
           <div class="p-4 space-y-4">
             <!-- New-advance form -->
             <div class="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3 space-y-2">
-              <div class="grid grid-cols-3 gap-2">
-                <label class="text-xs text-slate-600 dark:text-slate-300 col-span-1">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <label class="text-xs text-slate-600 dark:text-slate-300">
                   Dátum
                   <input type="date" appDate [ngModel]="newAdvanceDate()" (ngModelChange)="newAdvanceDate.set($event)"
                          class="mt-1 w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
                 </label>
-                <label class="text-xs text-slate-600 dark:text-slate-300 col-span-1">
-                  Suma (€)
-                  <input type="number" step="1" min="0" [ngModel]="newAdvanceAmount()" (ngModelChange)="newAdvanceAmount.set($event)"
-                         class="mt-1 w-full px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
+                <label class="text-xs text-slate-600 dark:text-slate-300">
+                  Suma
+                  <span class="block mt-1"><app-stepper [(value)]="newAdvanceAmount" suffix="€" [disabled]="newAdvanceSaving()" /></span>
                 </label>
-                <label class="text-xs text-slate-600 dark:text-slate-300 col-span-1">
+                <label class="text-xs text-slate-600 dark:text-slate-300">
                   Poznámka
                   <input type="text" [ngModel]="newAdvanceNote()" (ngModelChange)="newAdvanceNote.set($event)"
                          placeholder="(voliteľné)"
@@ -263,15 +292,13 @@
                   <li class="py-2">
                     @if (editingAdvanceId() === a.id) {
                       <div class="space-y-2">
-                        <div class="grid grid-cols-3 gap-2">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <input type="date" appDate [ngModel]="editAdvanceDate()" (ngModelChange)="editAdvanceDate.set($event)"
                                  [disabled]="editAdvanceSaving()"
                                  class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm" />
-                          <input type="number" step="0.01" min="0.01" placeholder="€"
-                                 [ngModel]="editAdvanceAmount()" (ngModelChange)="editAdvanceAmount.set($event)"
-                                 [disabled]="editAdvanceSaving()"
-                                 (keyup.enter)="saveEditAdvance(a)" (keyup.escape)="cancelEditAdvance()"
-                                 class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-right tabular-nums" />
+                          <app-stepper [(value)]="editAdvanceAmount" suffix="€" placeholder="€"
+                                       [disabled]="editAdvanceSaving()"
+                                       (enter)="saveEditAdvance(a)" (escape)="cancelEditAdvance()" />
                           <input type="text" placeholder="(voliteľné)"
                                  [ngModel]="editAdvanceNote()" (ngModelChange)="editAdvanceNote.set($event)"
                                  [disabled]="editAdvanceSaving()"
@@ -311,3 +338,33 @@
 
   </div>
 </div>
+
+<!-- ── W3: výplatné pásky — print-only (Tlačiť pásky button) ─────────
+     Hidden on screen; @media print hides the app above and shows this
+     2-column grid, ~6 slips per A4. Black-on-white regardless of theme. -->
+@if (data(); as d) {
+  <div class="hidden print:block bg-white text-black">
+    <div class="grid grid-cols-2 gap-3">
+      @for (row of d.rows; track row.employeeId) {
+        <div class="border border-black/60 rounded p-3 text-[12px] leading-snug break-inside-avoid">
+          <div class="flex justify-between items-baseline border-b border-black/30 pb-1 mb-1.5">
+            <span class="font-bold">Výplatná páska</span>
+            <span>{{ periodLabel() }}</span>
+          </div>
+          <div class="font-bold text-[13px] mb-1.5">{{ row.firstName }} {{ row.lastName }}</div>
+          <div class="flex justify-between"><span>Odpracované hodiny</span><span class="tabular-nums">{{ formatHours(row.hoursWorked) }} h</span></div>
+          <div class="flex justify-between"><span>Hodinová sadzba</span><span class="tabular-nums">{{ row.hourlyWageSnapshotAvg != null ? formatMoney(row.hourlyWageSnapshotAvg) + ' €' : '—' }}</span></div>
+          <div class="flex justify-between"><span>Hrubá mzda</span><span class="tabular-nums">{{ formatMoney(row.gross) }} €</span></div>
+          <div class="flex justify-between"><span>Zálohy</span><span class="tabular-nums">− {{ formatMoney(row.advancesTotal) }} €</span></div>
+          <div class="flex justify-between border-t border-black/30 mt-1 pt-1 font-bold text-[13px]">
+            <span>Výplata</span><span class="tabular-nums">{{ formatMoney(row.payout) }} €</span>
+          </div>
+          <div class="flex justify-between items-end mt-3 pt-1 text-[11px]">
+            <span>Dátum: ____________</span>
+            <span>Podpis: ______________</span>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+}

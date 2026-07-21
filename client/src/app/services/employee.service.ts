@@ -17,6 +17,12 @@ export interface Employee {
   notificationsDeclineReason?: string;
   /** EUR/h. Null when no rate has been set yet. Admin-only field; never on kiosk DTOs. */
   hourlyWage?: number | null;
+  /** Employer contributions % of gross wage (odvody). Null = unset. */
+  odvodyPct?: number | null;
+  /** 'profistav' | 'stroje' — company division (Fáza D8). */
+  division?: string;
+  /** Free-text pozícia (F6), e.g. 'šofér'. */
+  position?: string | null;
 }
 
 export interface CreateEmployee {
@@ -37,6 +43,12 @@ export interface UpdateEmployee {
   isActive: boolean;
   /** EUR/h. Omit to leave the existing value unchanged. */
   hourlyWage?: number | null;
+  /** Employer contributions % of gross. The form always sends it; null clears. */
+  odvodyPct?: number | null;
+  /** 'profistav' | 'stroje'. Omit to leave unchanged. */
+  division?: string;
+  /** Pozícia. Omit to leave unchanged; empty string clears. */
+  position?: string;
 }
 
 /**

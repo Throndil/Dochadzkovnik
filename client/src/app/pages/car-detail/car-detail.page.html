@@ -30,7 +30,6 @@
                    [class.bg-amber-900/30]="isDragOver()"
                    [class.text-amber-400]="isDragOver()"
                    [class.text-slate-500]="!isDragOver()">
-                <span class="text-4xl">🚗</span>
                 <span class="text-sm text-center px-4 leading-tight">
                   {{ isDragOver() ? 'Pustiť sem' : 'Kliknúť alebo pretiahnuť fotografiu vozidla' }}
                 </span>
@@ -48,6 +47,12 @@
                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
           </div>
           <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Divízia</label>
+            <select [(ngModel)]="division" name="division"
+                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 mb-4">
+              <option value="profistav">AZ Profistav (stavby)</option>
+              <option value="stroje">AZ Stroje</option>
+            </select>
             <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">ŠPZ <span class="text-slate-500 font-normal">(voliteľné)</span></label>
             <input type="text" [(ngModel)]="licensePlate" name="licensePlate" maxlength="20"
                    class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500" />
@@ -74,6 +79,32 @@
           </div>
         </form>
       </div>
+
+      <!-- F4 — servis / náklady priradené k autu (informačné, D4) -->
+      @if (costs().length) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6">
+          <div class="flex items-baseline justify-between mb-4">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Náklady na auto</h2>
+            <span class="text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">{{ costsTotal() | number:'1.2-2' }} € s DPH</span>
+          </div>
+          <div class="space-y-2">
+            @for (doc of costs(); track doc.invoiceDocumentId) {
+              <a [routerLink]="['/admin/invoices', doc.invoiceDocumentId]"
+                 class="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-700/50 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-slate-900 dark:text-white truncate">{{ doc.supplierName }}</p>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">
+                    {{ doc.documentKind === 'receipt' ? 'Bloček' : 'Faktúra' }} {{ doc.invoiceNumber }} · {{ doc.issueDate | date:'dd.MM.yyyy' }}
+                    @if (doc.status === 'review') { <span class="text-amber-500">· na kontrole</span> }
+                  </p>
+                </div>
+                <span class="text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200 shrink-0">{{ doc.grossTotal | number:'1.2-2' }} €</span>
+              </a>
+            }
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">Len prehľad, do bilancie divízie sa počítajú doklady.</p>
+        </div>
+      }
 
       <app-commander-car-panel [licensePlate]="licensePlate" />
     }

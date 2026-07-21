@@ -2,6 +2,7 @@ using System.Text;
 using API.BackgroundServices;
 using API.Data;
 using API.Models;
+using API.Provisioning;
 using API.Services;
 using CloudinaryDotNet;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -73,6 +74,11 @@ builder.Services.AddIdentityCore<AppUser>(opt =>
         opt.Password.RequireNonAlphanumeric = false;
         opt.Password.RequireUppercase = false;
         opt.User.RequireUniqueEmail = false;
+        // Security-PIN brute-force guard: wrong PINs at login count as access
+        // failures — 5 misses lock the account for 5 minutes.
+        opt.Lockout.MaxFailedAccessAttempts = 5;
+        opt.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+        opt.Lockout.AllowedForNewUsers = true;
     })
     .AddEntityFrameworkStores<AppDbContext>()
     .AddDefaultTokenProviders();
@@ -1151,16 +1157,36 @@ using (var scope = app.Services.CreateScope())
         ");
     }
 
-    // Seed FeatureFlags. Default OFF so the customer-facing prod environment ships with
-    // hidden features invisible. The superadmin flips them on via the Funkcie card on
-    // the Account page; the dev environment has its own DB so devs can keep them on.
+    // Seed FeatureFlags. Default OFF so a fresh (white-label) environment ships
+    // with hidden features invisible; the superadmin flips them on via the Moduly
+    // card on the Account page.
+    //
+    // Exception — the two module flags introduced 2026-07 (Vehicles, StrojeDivisions)
+    // default ON when seeded into an install that ALREADY HAS DATA. That install is
+    // the existing customer, where the Autá/Karty pages were ungated before this
+    // release (so leaving Vehicles off would be a regression) and the AZ Stroje
+    // division was built specifically for them. Detection is "has any employee":
+    // a fresh install has none at first boot, so it still seeds OFF. The seed only
+    // runs per key when the row is missing, so this decides the value exactly once
+    // (first boot after the flag is introduced); the superadmin can toggle freely
+    // afterwards.
     {
-        var knownFlags = new[] { "Notifications", "CommanderIntegration", "MaterialPurchases", "ProofOfWorkChoices", "InvoiceScanning", "InvoiceCameraScan", "PayrollAndPnL" };
+        var knownFlags = new[] { "Notifications", "CommanderIntegration", "MaterialPurchases", "ProofOfWorkChoices", "InvoiceScanning", "InvoiceCameraScan", "PayrollAndPnL", "Planner", "Vehicles", "StrojeDivisions" };
+        var existingInstall = await db.Employees.AnyAsync();
+        var onForExistingInstall = new HashSet<string> { "Vehicles", "StrojeDivisions" };
+
+        // New subscription customer: provision flags from the bought bundle (Provision:Tier
+        // = "Start"|"Profi"|"Komplet"). Only for fresh installs; ignored once flags exist.
+        var tierFlags = existingInstall ? null : SubscriptionTiers.EnabledFor(builder.Configuration["Provision:Tier"]);
+
         foreach (var key in knownFlags)
         {
             if (!await db.FeatureFlags.AnyAsync(f => f.Key == key))
             {
-                db.FeatureFlags.Add(new FeatureFlag { Key = key, Enabled = false, UpdatedAt = DateTime.UtcNow });
+                var enabled = tierFlags != null
+                    ? tierFlags.Contains(key)
+                    : existingInstall && onForExistingInstall.Contains(key);
+                db.FeatureFlags.Add(new FeatureFlag { Key = key, Enabled = enabled, UpdatedAt = DateTime.UtcNow });
             }
         }
         await db.SaveChangesAsync();

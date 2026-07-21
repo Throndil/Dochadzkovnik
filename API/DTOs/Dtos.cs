@@ -8,12 +8,31 @@ public class LoginDto
 {
     [Required] public string Username { get; set; } = string.Empty;
     [Required] public string Password { get; set; } = string.Empty;
+    /// <summary>Second step of the login when the account has a security PIN.</summary>
+    public string? Pin { get; set; }
 }
 
 public class AuthResponseDto
 {
     public string Token { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
+    /// <summary>True = password OK but the account requires a PIN — no token
+    /// yet; the client shows the PIN step and repeats login with Pin set.</summary>
+    public bool PinRequired { get; set; }
+}
+
+public class UpdateDisplayNameDto
+{
+    [Required, StringLength(100, MinimumLength = 2)]
+    public string DisplayName { get; set; } = string.Empty;
+}
+
+public class UpdateAdminPinDto
+{
+    /// <summary>Required when a PIN is already set (change needs the old one).</summary>
+    public string? CurrentPin { get; set; }
+    [Required, RegularExpression(@"^\d{4,8}$", ErrorMessage = "PIN musí mať 4 až 8 číslic.")]
+    public string NewPin { get; set; } = string.Empty;
 }
 
 public class ForgotPasswordDto
@@ -60,6 +79,14 @@ public class UpdateEmployeeDto
     public bool IsActive { get; set; } = true;
     /// <summary>EUR/h. Optional; NULL leaves the existing value untouched on PUT.</summary>
     [Range(0, 1_000_000)] public decimal? HourlyWage { get; set; }
+    /// <summary>Employer contributions % of gross wage (odvody). The employee
+    /// form always sends this field, so NULL clears it (unlike HourlyWage).</summary>
+    [Range(0, 100)] public decimal? OdvodyPct { get; set; }
+    /// <summary>"profistav" | "stroje" (Fáza D8). NULL leaves untouched.</summary>
+    public string? Division { get; set; }
+    /// <summary>Free-text pozícia (F6): "šofér", "murár"… NULL leaves untouched;
+    /// empty string clears.</summary>
+    [StringLength(100)] public string? Position { get; set; }
 }
 
 public class SetPinDto
@@ -88,6 +115,36 @@ public class EmployeeDto
     /// uses a separate DTO that doesn't include it.
     /// </summary>
     public decimal? HourlyWage { get; set; }
+    /// <summary>Employer contributions % of gross wage (odvody). NULL = unset.
+    /// Set on the employee profile, like the hourly rate.</summary>
+    public decimal? OdvodyPct { get; set; }
+    /// <summary>"profistav" | "stroje" — company division (Fáza D8).</summary>
+    public string Division { get; set; } = "profistav";
+    /// <summary>Free-text pozícia (F6), e.g. "šofér".</summary>
+    public string? Position { get; set; }
+}
+
+// Fuel cards (F6)
+public class FuelCardDto
+{
+    public int Id { get; set; }
+    public string Label { get; set; } = string.Empty;
+    public string? Note { get; set; }
+    public int? EmployeeId { get; set; }
+    /// <summary>Holder's display name, resolved server-side. Null when unassigned.</summary>
+    public string? EmployeeName { get; set; }
+    /// <summary>Holder's pozícia — shown on the cards page. Null when unassigned.</summary>
+    public string? EmployeePosition { get; set; }
+    public bool IsActive { get; set; }
+}
+
+public class SaveFuelCardDto
+{
+    [Required, StringLength(100, MinimumLength = 1)] public string Label { get; set; } = string.Empty;
+    [StringLength(500)] public string? Note { get; set; }
+    /// <summary>Holder. Null/0 = unassigned (holder may not be in the system yet).</summary>
+    public int? EmployeeId { get; set; }
+    public bool IsActive { get; set; } = true;
 }
 
 // Location
@@ -114,11 +171,13 @@ public class LocationDto
 }
 
 // Time Entry
+// MachineId ("Mašina/Tatra") mirrors CarId on all three time-entry DTOs.
 public class CreateTimeEntryDto
 {
     [Required] public int EmployeeId { get; set; }
     [Required] public int LocationId { get; set; }
     public int? CarId { get; set; }
+    public int? MachineId { get; set; }
     [Required] public DateTime ClockIn { get; set; }
     public DateTime? ClockOut { get; set; }
     public string? Note { get; set; }
@@ -127,6 +186,7 @@ public class CreateTimeEntryDto
 public class UpdateTimeEntryDto
 {
     public int? CarId { get; set; }
+    public int? MachineId { get; set; }
     [Required] public DateTime ClockIn { get; set; }
     public DateTime? ClockOut { get; set; }
     public string? Note { get; set; }
@@ -142,6 +202,8 @@ public class TimeEntryDto
     public string LocationName { get; set; } = string.Empty;
     public int? CarId { get; set; }
     public string? CarName { get; set; }
+    public int? MachineId { get; set; }
+    public string? MachineName { get; set; }
     public DateTime ClockIn { get; set; }
     public DateTime? ClockOut { get; set; }
     public double? HoursWorked { get; set; }
@@ -204,6 +266,9 @@ public class LogHoursDto
     [Required] public int LocationId { get; set; }
     [Required, Range(0.25, 24)] public double HoursWorked { get; set; }
     public int? CarId { get; set; }
+    /// <summary>Kiosk transport choice Stroj (Fáza F3) — mutually exclusive
+    /// with CarId; both null = pešo.</summary>
+    public int? MachineId { get; set; }
     public string? Note { get; set; }
     public DateTime? Date { get; set; }
 
@@ -301,6 +366,15 @@ public class InvoiceDocumentDto
     public string Status { get; set; } = string.Empty;
     /// <summary>"invoice" | "receipt" (pokladničný blok).</summary>
     public string DocumentKind { get; set; } = "invoice";
+    /// <summary>"profistav" (stavby) | "stroje" — company division.</summary>
+    public string Division { get; set; } = "profistav";
+    /// <summary>"cost" (výdaj) | "income" (príjem — AZ issued the invoice).</summary>
+    public string Direction { get; set; } = "cost";
+    /// <summary>Informational mašina/auto backtrack (F1) — never affects sums.</summary>
+    public int? MachineId { get; set; }
+    public string? MachineName { get; set; }
+    public int? CarId { get; set; }
+    public string? CarName { get; set; }
     public bool ReconciliationOk { get; set; }
     public string? ReconciliationNote { get; set; }
     public string UploadedBy { get; set; } = string.Empty;
@@ -331,6 +405,9 @@ public class InvoiceDeliveryListDto
     public string? DeliveryNote { get; set; }
     public int? LocationId { get; set; }
     public string? LocationName { get; set; }
+    /// <summary>Mašina/Auto assignment (stroje docs) — F1.</summary>
+    public int? MachineId { get; set; }
+    public int? CarId { get; set; }
     /// <summary>Auto-suggested site name from "akcia:". Null when blank or already mapped.</summary>
     public string? AkciaSuggestion { get; set; }
     public decimal? SubtotalExclVat { get; set; }
@@ -358,6 +435,9 @@ public class InvoiceLineDto
     public int? LocationId { get; set; }
     /// <summary>Name of the line's own Location when overridden; null when inheriting.</summary>
     public string? LocationName { get; set; }
+    /// <summary>Per-line Mašina/Auto override (stroje docs) — F1.</summary>
+    public int? MachineId { get; set; }
+    public int? CarId { get; set; }
 }
 
 public class UpdateInvoiceLineDto
@@ -379,11 +459,18 @@ public class UpdateInvoiceLineDto
     /// again. Null (omitted) leaves the current value unchanged.
     /// </summary>
     public int? LocationId { get; set; }
+    /// <summary>Per-line Mašina/Auto override — same sentinel semantics.</summary>
+    public int? MachineId { get; set; }
+    public int? CarId { get; set; }
 }
 
 public class UpdateInvoiceDeliveryListDto
 {
     public int? LocationId { get; set; }
+    /// <summary>Mašina/Auto assignment (stroje docs): positive id assigns
+    /// (clears the other), -1/0 clears. Null = unchanged.</summary>
+    public int? MachineId { get; set; }
+    public int? CarId { get; set; }
     [StringLength(200)] public string? PickedUpBy { get; set; }
     [StringLength(2000)] public string? DeliveryNote { get; set; }
 }
@@ -412,20 +499,70 @@ public class CarDto
     public string Name { get; set; } = string.Empty;
     public string? LicensePlate { get; set; }
     public string? PhotoUrl { get; set; }
+    /// <summary>"profistav" | "stroje" — vehicle's division (Fáza F).</summary>
+    public string Division { get; set; } = "profistav";
     public bool IsActive { get; set; }
+    /// <summary>Informational: s-DPH sum of cost documents tagged to this
+    /// vehicle (F1 backtrack).</summary>
+    public decimal CostTotal { get; set; }
 }
 
 public class CreateCarDto
 {
     [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
     [StringLength(20)] public string? LicensePlate { get; set; }
+    /// <summary>"profistav" | "stroje"; anything else falls back to profistav.</summary>
+    public string? Division { get; set; }
 }
 
 public class UpdateCarDto
 {
     [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
     [StringLength(20)] public string? LicensePlate { get; set; }
+    /// <summary>"profistav" | "stroje". Null leaves untouched.</summary>
+    public string? Division { get; set; }
     public bool IsActive { get; set; } = true;
+}
+
+// Machines (AZ Stroje, Fáza F0)
+public class MachineDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Note { get; set; }
+    public string? PhotoUrl { get; set; }
+    public bool IsActive { get; set; }
+    /// <summary>Informational: s-DPH sum of cost documents tagged to this
+    /// mašina (F1 backtrack). Division money never computes here.</summary>
+    public decimal CostTotal { get; set; }
+}
+
+public class CreateMachineDto
+{
+    [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
+    [StringLength(500)] public string? Note { get; set; }
+}
+
+public class UpdateMachineDto
+{
+    [Required, StringLength(200)] public string Name { get; set; } = string.Empty;
+    [StringLength(500)] public string? Note { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+/// <summary>One cost document effectively tagged to a car/mašina (F4 —
+/// per-asset service ledger). Amount is s DPH, informational only (D4).</summary>
+public class AssetCostDocDto
+{
+    public int InvoiceDocumentId { get; set; }
+    public string InvoiceNumber { get; set; } = string.Empty;
+    public string SupplierName { get; set; } = string.Empty;
+    public DateTime IssueDate { get; set; }
+    /// <summary>"invoice" | "receipt".</summary>
+    public string DocumentKind { get; set; } = "invoice";
+    /// <summary>"review" | "committed".</summary>
+    public string Status { get; set; } = string.Empty;
+    public decimal GrossTotal { get; set; }
 }
 
 public class MyHoursDto
@@ -541,6 +678,53 @@ public class UpdateMaterialDto
 }
 
 // Material usage (per location)
+// ─── Denník podľa dátumu (P1) — the per-day "zložka" of a workplace ───
+
+/// <summary>One calendar day of a workplace's folder: shifts, diary entries,
+/// material, documents and photos that happened that day.</summary>
+public class DailyLogDayDto
+{
+    public DateTime Date { get; set; }
+    public List<DailyLogShiftDto> Shifts { get; set; } = new();
+    public List<DailyLogDiaryDto> Diaries { get; set; } = new();
+    public List<MaterialUsageDto> Materials { get; set; } = new();
+    public List<DailyLogDocDto> Documents { get; set; } = new();
+    public List<DailyLogPhotoDto> Photos { get; set; } = new();
+}
+
+public class DailyLogShiftDto
+{
+    public string EmployeeName { get; set; } = string.Empty;
+    /// <summary>Null while the shift is still open (no clock-out yet).</summary>
+    public decimal? Hours { get; set; }
+    public string? Note { get; set; }
+    public string? CarName { get; set; }
+    public string? MachineName { get; set; }
+}
+
+public class DailyLogDiaryDto
+{
+    public string EmployeeName { get; set; } = string.Empty;
+    public string BodyText { get; set; } = string.Empty;
+    public string? AttachmentUrl { get; set; }
+}
+
+/// <summary>A delivery list / receipt / purchase targeted at the workplace.</summary>
+public class DailyLogDocDto
+{
+    public int PurchaseId { get; set; }
+    public int? InvoiceDocumentId { get; set; }
+    public string? SupplierName { get; set; }
+    public string? DeliveryNoteRef { get; set; }
+    public decimal TotalCost { get; set; }
+}
+
+public class DailyLogPhotoDto
+{
+    public string PhotoUrl { get; set; } = string.Empty;
+    public string EmployeeName { get; set; } = string.Empty;
+}
+
 public class MaterialUsageDto
 {
     public int Id { get; set; }
@@ -1033,6 +1217,11 @@ public class PayrollRowDto
     public decimal Gross { get; set; }
     /// <summary>Gross − AdvancesTotal.</summary>
     public decimal Payout { get; set; }
+    /// <summary>Employer contributions % from Employee.OdvodyPct. Null = unset.</summary>
+    public decimal? OdvodyPct { get; set; }
+    /// <summary>Gross × OdvodyPct / 100 — employer cost ON TOP of the wage,
+    /// never part of Payout.</summary>
+    public decimal Odvody { get; set; }
 }
 
 public class PayrollMonthlyDto
@@ -1042,6 +1231,35 @@ public class PayrollMonthlyDto
     public List<PayrollRowDto> Rows { get; set; } = new();
     /// <summary>Sum of each Row column — for the table footer.</summary>
     public PayrollRowDto Totals { get; set; } = new();
+}
+
+/// <summary>
+/// One month of the /admin/finance cost sparkline (GET /api/payroll/cost-trend).
+/// Wages uses the same definition as PayrollMonthlyDto.Totals.Payout
+/// (gross − advances) so the hero number and the trend agree.
+/// </summary>
+public class CostTrendMonthDto
+{
+    /// <summary>YYYY-MM.</summary>
+    public string Month { get; set; } = string.Empty;
+    public decimal Wages { get; set; }
+    public decimal Material { get; set; }
+    /// <summary>AZ Stroje division expense invoices — excluded from material
+    /// views by design, so they are a separate cost pillar here.</summary>
+    public decimal Stroje { get; set; }
+    /// <summary>Výjazdy — distinct car+day rides × the live "vyjazd_auta"
+    /// rate, same definition as the per-location P&L.</summary>
+    public decimal Trips { get; set; }
+    /// <summary>Odvody — worked hours × the sum of "€/h" CompanyRates rows
+    /// (odvody, ubytovanie, customer-added), same add-on the P&L uses.</summary>
+    public decimal Odvody { get; set; }
+    /// <summary>All cost pillars: wages + material + stroje + trips + odvody.</summary>
+    public decimal Total { get; set; }
+    /// <summary>Income invoices (both divisions), by dátum dokladu.</summary>
+    public decimal Income { get; set; }
+    /// <summary>DPH inside the month's expense documents (faktúry + bločky,
+    /// both divisions) — what a VAT payer could reclaim.</summary>
+    public decimal Vat { get; set; }
 }
 
 // ─── Per-location P&L (Náklady a zisk) — PAYROLL_AND_PNL_PLAN.md ───
@@ -1065,10 +1283,23 @@ public class LocationPnlDto
     /// committed usages only). Computed by the pnl-summary endpoint; null on
     /// the single-location P&amp;L.</summary>
     public decimal? InvoicedInclVat { get; set; }
+    /// <summary>Car trips to the site (F5) — null when no car was used in the range.</summary>
+    public PnlTripsDto? Trips { get; set; }
     /// <summary>= Location.ContractValue. Null when no contract is recorded.</summary>
     public decimal? Revenue { get; set; }
-    /// <summary>Revenue − Labour.Cost − Material.Cost. Null when Revenue is null.</summary>
+    /// <summary>Revenue − Labour.Cost − Material.Cost − Trips.Cost. Null when Revenue is null.</summary>
     public decimal? Profit { get; set; }
+}
+
+/// <summary>Výjazdy (F5): one ride per car per calendar day, no matter how
+/// many workers shared the vehicle. Priced at the current "vyjazd_auta"
+/// rate from Odvody.</summary>
+public class PnlTripsDto
+{
+    public int Count { get; set; }
+    /// <summary>EUR per výjazd at report time.</summary>
+    public decimal Rate { get; set; }
+    public decimal Cost { get; set; }
 }
 
 public class PnlLocationDto

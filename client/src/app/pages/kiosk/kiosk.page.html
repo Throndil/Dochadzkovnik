@@ -1,4 +1,4 @@
-<div class="min-h-dvh bg-slate-50 dark:bg-slate-900 flex flex-col">
+<div class="kiosk-root min-h-dvh bg-slate-50 dark:bg-slate-900 flex flex-col">
 
   <!-- ══ Header bar ══════════════════════════════════════════════ -->
   <!-- Inline safe-area padding so the header stays clear of the iPhone dynamic island /
@@ -14,7 +14,24 @@
       <span class="mx-2 text-slate-500">|</span>
       <span>{{ currentTime() | date:'EEEE, d. M. yyyy' }}</span>
     </div>
-    <a href="/login" class="text-xs text-slate-500 dark:text-slate-400 hover:text-amber-400 transition-colors shrink-0 ml-2">Vladimír Sroka →</a>
+    <div class="flex items-center gap-1 shrink-0 ml-2">
+      <!-- Theme toggle — available to every worker, not just the manager. -->
+      <button type="button" (click)="theme.toggleTheme()"
+              class="touch-target p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-500 dark:text-slate-300"
+              [title]="theme.isDark() ? 'Prepnúť na svetlý režim' : 'Prepnúť na tmavý režim'">
+        @if (theme.isDark()) {
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/>
+          </svg>
+        } @else {
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+          </svg>
+        }
+      </button>
+      <a href="/login" class="text-xs text-slate-500 dark:text-slate-400 hover:text-amber-400 transition-colors">Vladimír Sroka →</a>
+    </div>
   </header>
 
   <!-- ══ Nákup materiálu capture ═══════════════════════════════════════════════
@@ -895,7 +912,7 @@
                         </td>
                         <td class="px-4 py-3 text-slate-800 dark:text-slate-100">
                           @if (e.carName) {
-                            <span class="inline-flex items-center gap-1 text-sm font-medium">🚗 {{ e.carName }}</span>
+                            <span class="inline-flex items-center gap-1 text-sm font-medium">{{ e.carName }}</span>
                           } @else {
                             <span class="text-slate-400 dark:text-slate-500">—</span>
                           }
@@ -958,7 +975,7 @@
             @if (clockStep() === 'pin') { <span>Zadajte váš PIN</span> }
             @if (clockStep() === 'mode-pick') { <span>Čo chceš urobiť?</span> }
             @if (clockStep() === 'location') { <span>Vyberte pracovisko</span> }
-            @if (clockStep() === 'car') { <span>Použili ste auto?</span> }
+            @if (clockStep() === 'car') { <span>Ako ste sa dopravili?</span> }
             @if (clockStep() === 'hours') { <span>Počet hodín</span> }
             @if (clockStep() === 'proof-pick') { <span>Pridať dôkaz</span> }
             @if (clockStep() === 'diary') { <span>Zápis do denníka</span> }
@@ -1045,7 +1062,6 @@
 
           <button (click)="pickNakupFromModePick()"
                   class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-green-400 dark:border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 active:bg-green-100 dark:active:bg-green-900/40">
-            <span class="text-4xl">🛒</span>
             <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Nákup materiálu</span>
             <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Materiál + cena + účtenka</span>
           </button>
@@ -1142,25 +1158,42 @@
       <!-- ── Step: Car selection ───────────────────────────── -->
       @if (clockStep() === 'car') {
         <div class="p-6">
-          <p class="text-slate-500 dark:text-slate-400 text-sm mb-4 text-center">Vybrali ste firemné auto?</p>
-          <div class="grid grid-cols-2 gap-3">
-            @for (car of cars(); track car.id) {
-              <button (click)="selectCar(car)"
-                      class="bg-slate-100 dark:bg-slate-700 hover:bg-amber-900/40 hover:border-amber-500 border border-slate-300 dark:border-slate-600 text-white font-medium py-4 px-3 rounded-xl transition-all text-center active:scale-95">
-                <div class="text-2xl mb-1">🚗</div>
-                <div class="text-sm font-semibold leading-tight">{{ car.name }}</div>
-                @if (car.licensePlate) {
-                  <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ car.licensePlate }}</div>
-                }
-              </button>
-            }
-            <!-- No car option -->
-            <button (click)="selectCar(null)"
-                    class="bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 hover:border-slate-500 text-slate-600 dark:text-slate-300 font-medium py-4 px-3 rounded-xl transition-all text-center active:scale-95">
-              <div class="text-2xl mb-1">🚶</div>
-              <div class="text-sm leading-tight">Bez auta</div>
-            </button>
-          </div>
+          <!-- Pešo first — the most common one-tap answer. -->
+          <button (click)="selectCar(null)"
+                  class="w-full mb-4 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 hover:border-slate-500 text-slate-700 dark:text-slate-200 font-medium py-3 px-3 rounded-xl transition-all text-center active:scale-95">
+            <span class="text-xl mr-2 align-middle">🚶</span>
+            <span class="text-sm font-semibold align-middle">Pešo — bez auta a mašiny</span>
+          </button>
+
+          @if (cars().length > 0) {
+            <p class="text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Auto</p>
+            <div class="grid grid-cols-2 gap-3 mb-4">
+              @for (car of cars(); track car.id) {
+                <button (click)="selectCar(car)"
+                        class="bg-slate-100 dark:bg-slate-700 hover:bg-amber-900/40 hover:border-amber-500 border border-slate-300 dark:border-slate-600 text-white font-medium py-4 px-3 rounded-xl transition-all text-center active:scale-95">
+                  <div class="text-sm font-semibold leading-tight">{{ car.name }}</div>
+                  @if (car.licensePlate) {
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ car.licensePlate }}</div>
+                  }
+                </button>
+              }
+            </div>
+          }
+
+          @if (machines().length > 0) {
+            <p class="text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Mašina/Tatra</p>
+            <div class="grid grid-cols-2 gap-3">
+              @for (m of machines(); track m.id) {
+                <button (click)="selectMachine(m)"
+                        class="bg-slate-100 dark:bg-slate-700 hover:bg-amber-900/40 hover:border-amber-500 border border-slate-300 dark:border-slate-600 text-white font-medium py-4 px-3 rounded-xl transition-all text-center active:scale-95">
+                  <div class="text-sm font-semibold leading-tight">{{ m.name }}</div>
+                  @if (m.note) {
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ m.note }}</div>
+                  }
+                </button>
+              }
+            </div>
+          }
         </div>
       }
 
@@ -1180,6 +1213,12 @@
               <div class="flex-1 p-2.5 bg-slate-100 dark:bg-slate-700 rounded-xl text-center">
                 <p class="text-slate-500 dark:text-slate-400 text-xs mb-0.5">Auto</p>
                 <p class="text-slate-900 dark:text-white font-semibold text-sm">{{ $any(selectedCar()).name }}</p>
+              </div>
+            }
+            @if (selectedMachine(); as sm) {
+              <div class="flex-1 p-2.5 bg-slate-100 dark:bg-slate-700 rounded-xl text-center">
+                <p class="text-slate-500 dark:text-slate-400 text-xs mb-0.5">Mašina/Tatra</p>
+                <p class="text-slate-900 dark:text-white font-semibold text-sm">{{ sm.name }}</p>
               </div>
             }
           </div>
@@ -1280,14 +1319,12 @@
         <div class="p-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button (click)="pickProofPhoto()"
                   class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-amber-400 dark:border-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 active:bg-amber-100 dark:active:bg-amber-900/40">
-            <span class="text-4xl">📷</span>
             <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Nahrať fotku</span>
             <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Vyfotiť alebo z galérie</span>
           </button>
 
           <button (click)="pickProofDiary()"
                   class="touch-target flex flex-col items-center justify-center gap-3 p-6 rounded-2xl bg-white dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 active:bg-blue-100 dark:active:bg-blue-900/40">
-            <span class="text-4xl">📓</span>
             <span class="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Zapísať do denníka</span>
             <span class="text-xs text-slate-500 dark:text-slate-400 text-center">Krátka poznámka o práci</span>
           </button>
@@ -1364,7 +1401,7 @@
                 @if (diaryAttachmentPreview()) {
                   <img [src]="diaryAttachmentPreview()" alt="Náhľad" class="w-16 h-16 rounded object-cover border border-slate-300 dark:border-slate-600" />
                 } @else {
-                  <div class="w-16 h-16 rounded bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-3xl">📄</div>
+                  <div class="w-16 h-16 rounded bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs font-semibold">PDF</div>
                 }
                 <div class="flex-1 min-w-0">
                   <div class="text-sm text-slate-900 dark:text-white truncate">{{ diaryAttachmentFile()?.name }}</div>

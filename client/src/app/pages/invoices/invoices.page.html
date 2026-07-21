@@ -2,27 +2,45 @@
 <div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
   <div class="max-w-6xl mx-auto px-4 py-4 sm:p-6 space-y-4">
     <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Faktúry</h1>
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+        {{ division.label() }}
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">divízia</span>
+      </h1>
       <div class="flex items-center gap-2 flex-wrap">
-        <select [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)"
-                class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
-          <option value="">Všetky stavy</option>
-          <option value="review">Na kontrolu</option>
-          <option value="committed">Uložené</option>
-        </select>
-        <!-- Date range: pick the basis (printed doc date vs. scan date), then Od/Do. -->
-        <select [value]="dateBasis()" (change)="dateBasis.set($any($event.target).value)"
-                class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
-          <option value="issue">Dátum dokladu</option>
-          <option value="scan">Dátum skenu</option>
-        </select>
-        <div class="date-field w-40">
-          <input type="date" appDate [value]="dateFrom()" (change)="dateFrom.set($any($event.target).value)" aria-label="Od dátumu" />
-        </div>
-        <span class="text-slate-400 dark:text-slate-500 text-sm">–</span>
-        <div class="date-field w-40">
-          <input type="date" appDate [value]="dateTo()" (change)="dateTo.set($any($event.target).value)" aria-label="Do dátumu" />
-        </div>
+        <!-- Mobile: filters collapse behind this toggle; desktop shows them inline. -->
+        <button type="button" (click)="filtersOpen.set(!filtersOpen())"
+                class="sm:hidden touch-target inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium"
+                [attr.aria-expanded]="filtersOpen()">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+          Filtre
+          <svg class="w-3.5 h-3.5 transition-transform" [class.rotate-180]="filtersOpen()" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <span [class]="filtersOpen() ? 'contents' : 'hidden sm:contents'">
+          <input type="search" [value]="searchText()" (input)="searchText.set($any($event.target).value)"
+                 placeholder="Hľadať: dodávateľ / IČO / číslo"
+                 class="px-3 py-2 w-56 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm placeholder:text-slate-400" />
+          <select [value]="statusFilter()" (change)="statusFilter.set($any($event.target).value)"
+                  class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+            <option value="">Všetky stavy</option>
+            <option value="review">Na kontrolu</option>
+            <option value="committed">Uložené</option>
+          </select>
+          <!-- Date range: pick the basis (printed doc date vs. scan date), then Od/Do. -->
+          <select [value]="dateBasis()" (change)="dateBasis.set($any($event.target).value)"
+                  class="px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+            <option value="issue">Dátum dokladu</option>
+            <option value="scan">Dátum skenu</option>
+          </select>
+          <div class="date-field w-40">
+            <input type="date" appDate [value]="dateFrom()" [fpMaxDate]="dateTo()"
+                   (change)="dateFrom.set($any($event.target).value)" aria-label="Od dátumu" />
+          </div>
+          <span class="text-slate-400 dark:text-slate-500 text-sm">–</span>
+          <div class="date-field w-40">
+            <input type="date" appDate [value]="dateTo()" [fpMinDate]="dateFrom()"
+                   (change)="dateTo.set($any($event.target).value)" aria-label="Do dátumu" />
+          </div>
+        </span>
         @if (showCameraButton()) {
           <a routerLink="/admin/invoices/scan"
              class="touch-target inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-semibold transition-colors">
@@ -44,6 +62,50 @@
           <span>{{ uploading() ? 'Skenujem...' : 'Nahrať faktúru' }}</span>
           <input #pdfUpload type="file" accept="application/pdf,image/*" (change)="onFile($event)" class="hidden" [disabled]="uploading()" />
         </label>
+      </div>
+    </div>
+
+    <!-- Active range row — always visible so the customer knows what subset
+         they're looking at (default: previous + current month). -->
+    <div class="flex items-center gap-2 flex-wrap text-sm text-slate-500 dark:text-slate-400 -mt-1">
+      <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+        <line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>
+      </svg>
+      Zobrazené: <span class="font-medium text-slate-700 dark:text-slate-200">{{ rangeLabel() }}</span>
+      <span>· {{ shownCount() }} {{ shownCount() === 1 ? 'doklad' : (shownCount() >= 2 && shownCount() <= 4 ? 'doklady' : 'dokladov') }}</span>
+      @if (dateFrom() || dateTo()) {
+        <button type="button" (click)="showAll()"
+                class="text-amber-600 dark:text-amber-400 hover:underline">Zobraziť všetko</button>
+      }
+    </div>
+
+    <!-- Division month strip: mesiac + Príjem / Výdaj / Rozdiel (Fáza D) -->
+    <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 sm:p-5 flex items-center gap-5 sm:gap-8 flex-wrap">
+      <div class="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-700 rounded-full p-1">
+        <button type="button" (click)="shiftStripMonth(-1)" aria-label="Predošlý mesiac"
+                class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-full text-slate-500 hover:bg-white dark:hover:bg-slate-800">‹</button>
+        <span class="px-2 text-sm font-semibold text-slate-900 dark:text-white whitespace-nowrap">{{ stripMonthLabel() }}</span>
+        <button type="button" (click)="shiftStripMonth(1)" aria-label="Nasledujúci mesiac"
+                class="touch-target w-8 h-8 inline-flex items-center justify-center rounded-full text-slate-500 hover:bg-white dark:hover:bg-slate-800">›</button>
+      </div>
+      <button type="button" (click)="resetToCurrent()" title="Späť na aktuálne obdobie"
+              class="touch-target text-xs font-medium px-3 py-1.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600">
+        Aktuálne
+      </button>
+      <div class="text-sm text-slate-500 dark:text-slate-400">Príjem
+        <div class="text-lg font-semibold tabular-nums"
+             [class]="stripIncome() > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ stripIncome() > 0 ? '+ ' : '' }}{{ formatMoney(stripIncome()) }} €</div>
+      </div>
+      <div class="text-sm text-slate-500 dark:text-slate-400">Výdaj
+        <div class="text-lg font-semibold tabular-nums"
+             [class]="stripExpense() > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ stripExpense() > 0 ? '− ' : '' }}{{ formatMoney(stripExpense()) }} €</div>
+      </div>
+      <div class="text-sm text-slate-500 dark:text-slate-400">Rozdiel
+        <div class="text-xl font-bold tabular-nums"
+             [class]="stripDiff() > 0 ? 'text-emerald-600 dark:text-emerald-400' : stripDiff() < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
+          {{ stripDiff() > 0 ? '+ ' : stripDiff() < 0 ? '− ' : '' }}{{ formatMoney(stripDiff() < 0 ? -stripDiff() : stripDiff()) }} €
+        </div>
       </div>
     </div>
 
@@ -99,13 +161,14 @@
         </div>
       </div>
 
-      <!-- Faktúry and Bločky side by side; stacks to one column under lg. -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <!-- Faktúry column -->
+      <!-- FLOWii-style ledger: full-width sections with band headers that
+           carry Príjmy / Výdavky / Rozdiel subtotals of the visible rows. -->
+      <div class="space-y-4">
+        <!-- Faktúry section -->
         <section class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
-            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Faktúry</h2>
-            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">{{ invoicesFiltered().length }}</span>
+          <div class="flex items-center gap-x-5 gap-y-1 flex-wrap px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Faktúry <span class="font-normal text-slate-400 dark:text-slate-500 tabular-nums">({{ invoicesFiltered().length }})</span></h2>
+            <ng-container [ngTemplateOutlet]="bandTotals" [ngTemplateOutletContext]="{ t: invoiceTotals() }"></ng-container>
           </div>
           @if (invoicesFiltered().length === 0) {
             <p class="p-8 text-center text-sm text-slate-500">Žiadne faktúry.</p>
@@ -118,11 +181,11 @@
           }
         </section>
 
-        <!-- Bločky column -->
+        <!-- Bločky section -->
         <section class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
-            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Bločky</h2>
-            <span class="text-xs font-medium text-slate-500 dark:text-slate-400 tabular-nums">{{ receiptsFiltered().length }}</span>
+          <div class="flex items-center gap-x-5 gap-y-1 flex-wrap px-4 py-3 bg-slate-100 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-600 dark:text-slate-300">Bločky <span class="font-normal text-slate-400 dark:text-slate-500 tabular-nums">({{ receiptsFiltered().length }})</span></h2>
+            <ng-container [ngTemplateOutlet]="bandTotals" [ngTemplateOutletContext]="{ t: receiptTotals() }"></ng-container>
           </div>
           @if (receiptsFiltered().length === 0) {
             <p class="p-8 text-center text-sm text-slate-500">Žiadne bločky.</p>
@@ -137,6 +200,25 @@
       </div>
     }
 
+    <!-- Band subtotals shared by both section headers. Zero values render
+         neutral gray without a sign — a red "− 0,00 €" reads as nonsense. -->
+    <ng-template #bandTotals let-t="t">
+      <span class="ml-auto flex items-center gap-x-4 gap-y-1 flex-wrap text-xs">
+        <span class="text-slate-500 dark:text-slate-400">Príjmy:
+          <span class="font-semibold tabular-nums"
+                [class]="t.income > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ t.income > 0 ? '+ ' : '' }}{{ formatMoney(t.income) }} €</span>
+        </span>
+        <span class="text-slate-500 dark:text-slate-400">Výdavky:
+          <span class="font-semibold tabular-nums"
+                [class]="t.expense > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ t.expense > 0 ? '− ' : '' }}{{ formatMoney(t.expense) }} €</span>
+        </span>
+        <span class="text-slate-500 dark:text-slate-400">Rozdiel:
+          <span class="font-bold tabular-nums"
+                [class]="t.diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : t.diff < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ t.diff > 0 ? '+ ' : t.diff < 0 ? '− ' : '' }}{{ formatMoney(t.diff < 0 ? -t.diff : t.diff) }} €</span>
+        </span>
+      </span>
+    </ng-template>
+
     <!-- One row card, shared by both columns. -->
     <ng-template #docCard let-inv="inv">
       <div class="p-4 border-l-4 {{ statusAccentClass(inv.status) }}">
@@ -145,10 +227,21 @@
             <div class="w-9 h-9 shrink-0 rounded-full bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300 flex items-center justify-center text-xs font-semibold">{{ initials(inv.supplierName) }}</div>
             <div class="flex-1 min-w-0 flex justify-between items-start gap-3">
               <div class="min-w-0">
-                <div class="font-medium text-slate-900 dark:text-white truncate">{{ inv.invoiceNumber }}</div>
+                <div class="font-medium text-slate-900 dark:text-white truncate flex items-center gap-2">
+                  <span class="truncate">{{ inv.invoiceNumber }}</span>
+                  @if (isManualDoc(inv)) {
+                    <span class="shrink-0 text-[11px] font-medium px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-200"
+                          title="Bez čísla dokladu">Ručný doklad</span>
+                  }
+                </div>
                 <div class="text-sm text-slate-500 dark:text-slate-400 truncate">{{ inv.supplierName }}</div>
                 <div class="text-xs text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
                   <span>{{ inv.issueDate | date:'dd.MM.yyyy' }}</span>
+                  @if (inv.machineName) {
+                    <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ inv.machineName }}</span>
+                  } @else if (inv.carName) {
+                    <span class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{ inv.carName }}</span>
+                  }
                   @if (!inv.reconciliationOk) {
                     <span class="text-red-600 dark:text-red-400 font-medium">Nesedia</span>
                   }
@@ -165,7 +258,12 @@
                 }
               </div>
               <div class="text-right shrink-0">
-                <div class="font-semibold text-slate-900 dark:text-white tabular-nums whitespace-nowrap">{{ formatMoney(inv.totalInclVat) }} €</div>
+                @if (inv.direction === 'income') {
+                  <div class="font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums whitespace-nowrap">+ {{ formatMoney(inv.totalInclVat) }} €</div>
+                  <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 mr-1">príjem</span>
+                } @else {
+                  <div class="font-semibold text-slate-900 dark:text-white tabular-nums whitespace-nowrap">{{ formatMoney(inv.totalInclVat) }} €</div>
+                }
                 <span [class]="statusClass(inv.status)" class="inline-block text-xs font-medium px-2 py-0.5 rounded-full mt-1 whitespace-nowrap">{{ statusLabel(inv.status) }}</span>
               </div>
             </div>
@@ -184,7 +282,7 @@
       [open]="!!uploadedInvoice()"
       variant="success"
       title="Úspešné nahranie"
-      [message]="uploadedInvoice() ? 'Faktúra ' + uploadedInvoice()!.invoiceNumber + ' bola spracovaná. Skontrolujte rozpoznané položky a uložte.' : ''"
+      [message]="uploadedInvoice() ? 'Faktúra ' + uploadedInvoice()!.invoiceNumber + ' spracovaná. Skontrolujte a uložte.' : ''"
       confirmLabel="Otvoriť na kontrolu"
       (confirm)="onOpenUploaded()"
       (cancel)="uploadedInvoice.set(null)">
@@ -192,12 +290,12 @@
       <div class="mt-3 flex flex-wrap gap-2 justify-center">
         <button type="button" (click)="onUploadAnother()"
                 class="touch-target px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium">
-          📄 Nahrať ďalšiu
+          Nahrať ďalšiu
         </button>
         @if (showCameraButton()) {
           <a routerLink="/admin/invoices/scan" (click)="uploadedInvoice.set(null)"
              class="touch-target px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm font-medium">
-            📷 Naskenovať ďalšiu mobilom
+            Naskenovať ďalšiu mobilom
           </a>
         }
       </div>

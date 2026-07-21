@@ -92,6 +92,15 @@ public sealed class InvoiceParser : IInvoiceParser
     private static readonly Regex MoneyTokenRx = new(
         @"(?<![\d,])(-?\d{1,4}(?:[  ]\d{3})*,\d{2})(\s*(?:EUR|€))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    // Same token without thousand-grouping. The grouped regex can glue the
+    // bare rate column onto the base ("… 23% 23 249,12 …" → 23 249,12), which
+    // then never reconciles against the EUR-anchored incl-total. When the
+    // grouped read fails the base+VAT=incl check, the row is re-read with
+    // this stricter token; the reconciliation check is the gate, so invoices
+    // with genuine thousands keep the grouped read.
+    private static readonly Regex MoneyTokenNoGroupRx = new(
+        @"(?<![\d,])(-?\d{1,4},\d{2})(\s*(?:EUR|€))?",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static (decimal? Base, decimal? Vat, decimal? Incl) ExtractVatSummaryTotals(string text)
     {
@@ -99,9 +108,17 @@ public sealed class InvoiceParser : IInvoiceParser
         if (!label.Success) return (null, null, null);
         var window = text[label.Index..Math.Min(text.Length, label.Index + label.Length + 400)];
 
+        var grouped = ExtractVatSummaryFromWindow(window, MoneyTokenRx);
+        if (grouped.Base.HasValue) return grouped;
+        var ungrouped = ExtractVatSummaryFromWindow(window, MoneyTokenNoGroupRx);
+        return ungrouped.Base.HasValue ? ungrouped : grouped;
+    }
+
+    private static (decimal? Base, decimal? Vat, decimal? Incl) ExtractVatSummaryFromWindow(string window, Regex tokenRx)
+    {
         var plain = new List<decimal>();
         decimal? incl = null;
-        foreach (Match m in MoneyTokenRx.Matches(window))
+        foreach (Match m in tokenRx.Matches(window))
         {
             var v = SlovakNumberHelper.TryParse(m.Groups[1].Value);
             if (!v.HasValue) continue;

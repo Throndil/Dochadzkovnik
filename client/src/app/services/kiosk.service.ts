@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environments/environment';
 import { Location } from './location.service';
 import { Car } from './car.service';
+import { Machine } from './machine.service';
 import { TimeEntry } from './time-entry.service';
 
 export interface KioskResponse {
@@ -68,6 +69,11 @@ export class KioskService {
     return this.http.get<Car[]>(`${this.url}/cars`);
   }
 
+  /** Active machines for the transport step (Auto / Stroj / Pešo, Fáza F3). */
+  getMachines() {
+    return this.http.get<Machine[]>(`${this.url}/machines`);
+  }
+
   getOverview(weekStart?: string) {
     const params = weekStart ? `?weekStart=${weekStart}` : '';
     return this.http.get<WeeklyOverview>(`${this.url}/overview${params}`);
@@ -81,8 +87,8 @@ export class KioskService {
     return this.http.post<KioskResponse>(`${this.url}/clock-out`, { pin, note });
   }
 
-  logHours(pin: string, locationId: number, hoursWorked: number, note?: string, date?: string, carId?: number, proofOfWorkSkipped?: boolean) {
-    return this.http.post<KioskResponse>(`${this.url}/log-hours`, { pin, locationId, hoursWorked, note, date, carId, proofOfWorkSkipped });
+  logHours(pin: string, locationId: number, hoursWorked: number, note?: string, date?: string, carId?: number, machineId?: number, proofOfWorkSkipped?: boolean) {
+    return this.http.post<KioskResponse>(`${this.url}/log-hours`, { pin, locationId, hoursWorked, note, date, carId, machineId, proofOfWorkSkipped });
   }
 
   /**

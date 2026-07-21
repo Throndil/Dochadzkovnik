@@ -13,11 +13,18 @@
         <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div class="min-w-0">
             <div class="text-xs text-slate-500 uppercase tracking-wider">Faktúra č.</div>
-            <div class="text-2xl font-bold text-slate-900 dark:text-white">{{ inv.invoiceNumber }}</div>
+            <div class="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+              <span>{{ inv.invoiceNumber }}</span>
+              @if (inv.invoiceNumber.startsWith('BEZ-CISLA')) {
+                <span class="text-xs font-medium px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-200"
+                      title="Bez čísla dokladu">Ručný doklad</span>
+              }
+            </div>
             @if (isSupplierEditable()) {
               <input type="text"
                      [value]="inv.supplierName"
-                     (blur)="onSupplierNameChange($any($event.target).value)"
+                     (focus)="onSupplierFocus($any($event.target))"
+                     (blur)="onSupplierBlur($any($event.target))"
                      title="Opravte meno dodávateľa"
                      class="text-sm w-full max-w-md mt-1 bg-transparent border-b border-dashed border-slate-400 dark:border-slate-500 focus:border-amber-500 focus:outline-none text-slate-700 dark:text-slate-300" />
             } @else {
@@ -26,6 +33,60 @@
             @if (inv.supplierIco) {
               <div class="text-xs text-slate-500 dark:text-slate-400">IČO {{ inv.supplierIco }}<span *ngIf="inv.supplierIcDph"> · IČ DPH {{ inv.supplierIcDph }}</span></div>
             }
+
+            <!-- Division + direction (Fáza D) -->
+            <div class="flex items-center gap-3 flex-wrap mt-2">
+              <label class="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                Divízia
+                <select [disabled]="!isReview()"
+                        (change)="onDivisionChange($any($event.target).value)"
+                        class="px-2 py-1 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-xs">
+                  <option value="profistav" [selected]="inv.division !== 'stroje'">AZ Profistav</option>
+                  <option value="stroje" [selected]="inv.division === 'stroje'">AZ Stroje</option>
+                </select>
+              </label>
+              <div class="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                Smer
+                <div class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-700 p-0.5">
+                  <button type="button" (click)="onDirectionChange('cost')" [disabled]="!isReview()"
+                          [class]="inv.direction !== 'income'
+                            ? 'bg-white dark:bg-slate-800 shadow-sm text-red-600 dark:text-red-400 font-semibold'
+                            : 'text-slate-500 dark:text-slate-400'"
+                          class="px-2.5 py-1 rounded-md text-xs transition-colors disabled:opacity-60">Výdaj</button>
+                  <button type="button" (click)="onDirectionChange('income')" [disabled]="!isReview()"
+                          [class]="inv.direction === 'income'
+                            ? 'bg-white dark:bg-slate-800 shadow-sm text-emerald-600 dark:text-emerald-400 font-semibold'
+                            : 'text-slate-500 dark:text-slate-400'"
+                          class="px-2.5 py-1 rounded-md text-xs transition-colors disabled:opacity-60">Príjem</button>
+                </div>
+              </div>
+              @if (inv.direction === 'income') {
+                <span class="text-[11px] text-emerald-600 dark:text-emerald-400">Príjem — nezapočítava sa do materiálu ani pracovísk.</span>
+              }
+              <!-- F1: informational mašina/auto backtrack ("aby vedeli"). -->
+              <label class="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+                Mašina/Auto
+                <select [disabled]="inv.status === 'discarded'"
+                        (change)="onAssetChange($any($event.target).value)"
+                        class="px-2 py-1 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-xs">
+                  <option value="" [selected]="assetValue() === ''">— bez priradenia —</option>
+                  @if (machinesList().length > 0) {
+                    <optgroup label="Mašiny/Tatry">
+                      @for (m of machinesList(); track m.id) {
+                        <option [value]="'m:' + m.id" [selected]="assetValue() === 'm:' + m.id">{{ m.name }} (mašina)</option>
+                      }
+                    </optgroup>
+                  }
+                  @if (carsList().length > 0) {
+                    <optgroup label="Autá">
+                      @for (c of carsList(); track c.id) {
+                        <option [value]="'c:' + c.id" [selected]="assetValue() === 'c:' + c.id">{{ c.name }} (auto)</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              </label>
+            </div>
           </div>
           <div class="text-right shrink-0 space-y-1">
             <div class="text-xs text-slate-500">Dátum vyhotovenia</div>
@@ -67,7 +128,7 @@
                   <app-spinner size="sm" [inline]="true" />
                   Čítam dokument…
                 } @else {
-                  ✨ Skúsiť AI rozpoznanie
+                  Skúsiť AI rozpoznanie
                 }
               </button>
             }
@@ -87,7 +148,7 @@
             <div class="text-xs text-slate-500">Vytlačené spolu</div>
             @if (isReview()) {
               <div class="flex items-baseline gap-1">
-                <input type="text" inputmode="decimal"
+                <input type="text" appSelectOnFocus inputmode="decimal"
                        [value]="formatMoney(inv.totalInclVat)"
                        (blur)="onPrintedTotalBlur($any($event.target).value)"
                        title="Opravte sumu podľa faktúry"
@@ -108,13 +169,14 @@
           </div>
         </div>
 
-        <!-- Where the money went: effective location per line, summed. -->
+        <!-- Where the money went: effective destination per line, summed.
+             Profistav → pracoviská; stroje → mašiny/autá. -->
         @if (locationBreakdown().length > 0) {
           <div class="flex items-center gap-2 flex-wrap pt-3 border-t border-slate-200 dark:border-slate-700 mt-3">
-            <span class="text-xs text-slate-500">Pracoviská:</span>
+            <span class="text-xs text-slate-500">{{ isStroje() ? 'Mašiny / autá:' : 'Pracoviská:' }}</span>
             @for (b of locationBreakdown(); track b.name) {
               <span class="inline-flex items-baseline gap-1.5 text-xs px-2 py-1 rounded-full"
-                    [class]="b.name === 'Sklad / Inventár'
+                    [class]="b.name === 'Sklad' || b.name === 'Bez priradenia'
                       ? 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
                       : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'">
                 <span class="font-medium">{{ b.name }}</span>
@@ -150,25 +212,55 @@
               }
             </div>
             <div class="shrink-0">
-              <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">
-                Pracovisko
-                @if (recentlySavedDlId() === dl.id) {
-                  <span class="ml-2 text-green-500 dark:text-green-400 font-medium">✓ Uložené</span>
-                }
-              </label>
-              <!-- [selected] on each option (rather than [value] on the select)
-                   guarantees the right option is highlighted even when the
-                   locations list resolves AFTER the select first renders.
-                   The (change) handler immediately PUTs the new locationId
-                   to the backend — no save button. -->
-              <select [disabled]="!isLocationEditable()"
-                      (change)="onLocationChange(dl.id, $any($event.target).value ? +$any($event.target).value : null)"
-                      class="w-full sm:w-64 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
-                <option value="" [selected]="dl.locationId == null">— Sklad / Inventár —</option>
-                @for (loc of locations(); track loc.id) {
-                  <option [value]="loc.id" [selected]="dl.locationId === loc.id">{{ loc.name }}</option>
-                }
-              </select>
+              @if (inv.division === 'stroje') {
+                <!-- Stroje division: the delivery list maps to a Mašina/Auto
+                     (per-mašina spending report), not a pracovisko. -->
+                <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                  Mašina/Auto
+                  @if (recentlySavedDlId() === dl.id) {
+                    <span class="ml-2 text-green-500 dark:text-green-400 font-medium">✓ Uložené</span>
+                  }
+                </label>
+                <select [disabled]="!isLocationEditable()"
+                        (change)="onDlAssetChange(dl, $any($event.target).value)"
+                        class="w-full sm:w-64 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+                  <option value="" [selected]="dlAssetValue(dl) === ''">— Bez priradenia —</option>
+                  @if (machinesList().length > 0) {
+                    <optgroup label="Mašiny/Tatry">
+                      @for (m of machinesList(); track m.id) {
+                        <option [value]="'m:' + m.id" [selected]="dlAssetValue(dl) === 'm:' + m.id">{{ m.name }} (mašina)</option>
+                      }
+                    </optgroup>
+                  }
+                  @if (carsList().length > 0) {
+                    <optgroup label="Autá">
+                      @for (c of carsList(); track c.id) {
+                        <option [value]="'c:' + c.id" [selected]="dlAssetValue(dl) === 'c:' + c.id">{{ c.name }} (auto)</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              } @else {
+                <label class="block text-xs text-slate-500 dark:text-slate-400 mb-1">
+                  Pracovisko
+                  @if (recentlySavedDlId() === dl.id) {
+                    <span class="ml-2 text-green-500 dark:text-green-400 font-medium">✓ Uložené</span>
+                  }
+                </label>
+                <!-- [selected] on each option (rather than [value] on the select)
+                     guarantees the right option is highlighted even when the
+                     locations list resolves AFTER the select first renders.
+                     The (change) handler immediately PUTs the new locationId
+                     to the backend — no save button. -->
+                <select [disabled]="!isLocationEditable()"
+                        (change)="onLocationChange(dl.id, $any($event.target).value ? +$any($event.target).value : null)"
+                        class="w-full sm:w-64 px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+                  <option value="" [selected]="dl.locationId == null">— Sklad —</option>
+                  @for (loc of locations(); track loc.id) {
+                    <option [value]="loc.id" [selected]="dl.locationId === loc.id">{{ loc.name }}</option>
+                  }
+                </select>
+              }
             </div>
           </div>
 
@@ -197,7 +289,7 @@
                     <td class="px-2 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{ line.supplierItemCode || '—' }}</td>
                     <td class="px-2 py-2 text-slate-900 dark:text-white">
                       @if (isReview()) {
-                        <input type="text" [value]="line.materialNameRaw"
+                        <input type="text" appSelectOnFocus [value]="line.materialNameRaw"
                                (blur)="onDescriptionBlur(line, $any($event.target).value)"
                                placeholder="Názov položky"
                                class="w-full min-w-[9rem] px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
@@ -206,7 +298,7 @@
                       }
                     </td>
                     <td class="px-2 py-2 text-right tabular-nums">
-                      <input type="text" [value]="formatQty(line.quantity)"
+                      <input type="text" appSelectOnFocus [value]="formatQty(line.quantity)"
                              [disabled]="!isReview()"
                              (blur)="onQuantityBlur(line, $any($event.target).value)"
                              class="w-20 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
@@ -214,7 +306,7 @@
                     <td class="px-2 py-2 text-slate-700 dark:text-slate-300">{{ line.unit }}</td>
                     <!-- Cena = list price (cenník bez DPH). Editable. -->
                     <td class="px-2 py-2 text-right tabular-nums">
-                      <input type="text" [value]="formatMoney(listPriceFor(line))"
+                      <input type="text" appSelectOnFocus [value]="formatMoney(listPriceFor(line))"
                              [disabled]="!isReview()"
                              (blur)="onListPriceBlur(line, $any($event.target).value)"
                              class="w-24 px-2 py-1 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
@@ -222,7 +314,7 @@
                     <!-- Zľava % — editable during review (informational). -->
                     <td class="px-2 py-2 text-right tabular-nums">
                       @if (isReview()) {
-                        <input type="text" inputmode="decimal"
+                        <input type="text" appSelectOnFocus inputmode="decimal"
                                [value]="line.discountPercent ?? ''"
                                (blur)="onDiscountBlur(line, $any($event.target).value)"
                                placeholder="—" title="Zľava v %"
@@ -253,7 +345,7 @@
                          The expected value (list × (1−zľava) × qty) is shown underneath
                          in small text when it differs, so the manager spots OCR errors. -->
                     <td class="px-2 py-2 text-right tabular-nums font-semibold">
-                      <input type="text" [value]="formatMoney(line.lineTotal)"
+                      <input type="text" appSelectOnFocus [value]="formatMoney(line.lineTotal)"
                              [disabled]="!isReview()"
                              (blur)="onLineTotalBlur(line, $any($event.target).value)"
                              [class.border-red-500]="!totalsMatch(line)"
@@ -268,7 +360,7 @@
                          GROSS per row, the net is back-computed on blur. -->
                     <td class="px-2 py-2 text-right tabular-nums text-slate-700 dark:text-slate-300 whitespace-nowrap">
                       @if (isReview()) {
-                        <input type="text" inputmode="decimal"
+                        <input type="text" appSelectOnFocus inputmode="decimal"
                                [value]="formatMoney(lineTotalInclVat(line))"
                                (blur)="onLineInclBlur(line, $any($event.target).value)"
                                title="Zadajte sumu s DPH z bločku"
@@ -282,16 +374,40 @@
                          Stays editable after commit (like the DL select) — the
                          API moves the minted usage rows along. -->
                     <td class="px-2 py-2">
-                      <select [disabled]="!isLocationEditable()"
-                              (change)="onLineLocationChange(line, $any($event.target).value ? +$any($event.target).value : null)"
-                              [class.text-amber-600]="line.locationId != null"
-                              [class.dark:text-amber-400]="line.locationId != null"
-                              class="w-40 px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
-                        <option value="" [selected]="line.locationId == null">— Podľa DL —</option>
-                        @for (loc of locations(); track loc.id) {
-                          <option [value]="loc.id" [selected]="line.locationId === loc.id">{{ loc.name }}</option>
-                        }
-                      </select>
+                      @if (inv.division === 'stroje') {
+                        <select [disabled]="!isLocationEditable()"
+                                (change)="onLineAssetChange(line, $any($event.target).value)"
+                                [class.text-amber-600]="lineAssetValue(line) !== ''"
+                                [class.dark:text-amber-400]="lineAssetValue(line) !== ''"
+                                class="w-40 px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                          <option value="" [selected]="lineAssetValue(line) === ''">— Podľa DL —</option>
+                          @if (machinesList().length > 0) {
+                            <optgroup label="Mašiny/Tatry">
+                              @for (m of machinesList(); track m.id) {
+                                <option [value]="'m:' + m.id" [selected]="lineAssetValue(line) === 'm:' + m.id">{{ m.name }} (mašina)</option>
+                              }
+                            </optgroup>
+                          }
+                          @if (carsList().length > 0) {
+                            <optgroup label="Autá">
+                              @for (c of carsList(); track c.id) {
+                                <option [value]="'c:' + c.id" [selected]="lineAssetValue(line) === 'c:' + c.id">{{ c.name }} (auto)</option>
+                              }
+                            </optgroup>
+                          }
+                        </select>
+                      } @else {
+                        <select [disabled]="!isLocationEditable()"
+                                (change)="onLineLocationChange(line, $any($event.target).value ? +$any($event.target).value : null)"
+                                [class.text-amber-600]="line.locationId != null"
+                                [class.dark:text-amber-400]="line.locationId != null"
+                                class="w-40 px-2 py-1 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                          <option value="" [selected]="line.locationId == null">— Podľa DL —</option>
+                          @for (loc of locations(); track loc.id) {
+                            <option [value]="loc.id" [selected]="line.locationId === loc.id">{{ loc.name }}</option>
+                          }
+                        </select>
+                      }
                     </td>
                     <td class="px-1 py-2 text-center">
                       @if (isReview()) {
@@ -332,7 +448,7 @@
                 <div class="flex items-start justify-between gap-2">
                   <div class="min-w-0 flex-1">
                     @if (isReview()) {
-                      <input type="text" [value]="line.materialNameRaw"
+                      <input type="text" appSelectOnFocus [value]="line.materialNameRaw"
                              (blur)="onDescriptionBlur(line, $any($event.target).value)"
                              placeholder="Názov položky"
                              class="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
@@ -357,14 +473,14 @@
                 <div class="grid grid-cols-3 gap-2 text-sm">
                   <label class="block">
                     <span class="block text-[11px] text-slate-500 dark:text-slate-400">Mn. ({{ line.unit }})</span>
-                    <input type="text" inputmode="decimal" [value]="formatQty(line.quantity)"
+                    <input type="text" appSelectOnFocus inputmode="decimal" [value]="formatQty(line.quantity)"
                            [disabled]="!isReview()"
                            (blur)="onQuantityBlur(line, $any($event.target).value)"
                            class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded" />
                   </label>
                   <label class="block">
                     <span class="block text-[11px] text-slate-500 dark:text-slate-400">Cena</span>
-                    <input type="text" inputmode="decimal" [value]="formatMoney(listPriceFor(line))"
+                    <input type="text" appSelectOnFocus inputmode="decimal" [value]="formatMoney(listPriceFor(line))"
                            [disabled]="!isReview()"
                            (blur)="onListPriceBlur(line, $any($event.target).value)"
                            class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded" />
@@ -372,7 +488,7 @@
                   <label class="block">
                     <span class="block text-[11px] text-slate-500 dark:text-slate-400">Zľava %</span>
                     @if (isReview()) {
-                      <input type="text" inputmode="decimal" [value]="line.discountPercent ?? ''"
+                      <input type="text" appSelectOnFocus inputmode="decimal" [value]="line.discountPercent ?? ''"
                              (blur)="onDiscountBlur(line, $any($event.target).value)" placeholder="—"
                              class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded" />
                     } @else {
@@ -392,7 +508,7 @@
                   </label>
                   <label class="block">
                     <span class="block text-[11px] text-slate-500 dark:text-slate-400">Spolu bez DPH</span>
-                    <input type="text" inputmode="decimal" [value]="formatMoney(line.lineTotal)"
+                    <input type="text" appSelectOnFocus inputmode="decimal" [value]="formatMoney(line.lineTotal)"
                            [disabled]="!isReview()"
                            (blur)="onLineTotalBlur(line, $any($event.target).value)"
                            [class.border-red-500]="!totalsMatch(line)"
@@ -401,7 +517,7 @@
                   <label class="block">
                     <span class="block text-[11px] text-slate-500 dark:text-slate-400">S DPH</span>
                     @if (isReview()) {
-                      <input type="text" inputmode="decimal" [value]="formatMoney(lineTotalInclVat(line))"
+                      <input type="text" appSelectOnFocus inputmode="decimal" [value]="formatMoney(lineTotalInclVat(line))"
                              (blur)="onLineInclBlur(line, $any($event.target).value)"
                              class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded" />
                     } @else {
@@ -413,16 +529,40 @@
                   <div class="text-xs text-amber-500 dark:text-amber-400">≈ {{ formatMoney(expectedTotal(line)) }} € (Cena × (1 − Zľava) × Mn.)</div>
                 }
                 <div class="flex items-center gap-3">
-                  <select [disabled]="!isLocationEditable()"
-                          (change)="onLineLocationChange(line, $any($event.target).value ? +$any($event.target).value : null)"
-                          [class.text-amber-600]="line.locationId != null"
-                          [class.dark:text-amber-400]="line.locationId != null"
-                          class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
-                    <option value="" [selected]="line.locationId == null">— Podľa DL —</option>
-                    @for (loc of locations(); track loc.id) {
-                      <option [value]="loc.id" [selected]="line.locationId === loc.id">{{ loc.name }}</option>
-                    }
-                  </select>
+                  @if (inv.division === 'stroje') {
+                    <select [disabled]="!isLocationEditable()"
+                            (change)="onLineAssetChange(line, $any($event.target).value)"
+                            [class.text-amber-600]="lineAssetValue(line) !== ''"
+                            [class.dark:text-amber-400]="lineAssetValue(line) !== ''"
+                            class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                      <option value="" [selected]="lineAssetValue(line) === ''">— Podľa DL —</option>
+                      @if (machinesList().length > 0) {
+                        <optgroup label="Mašiny/Tatry">
+                          @for (m of machinesList(); track m.id) {
+                            <option [value]="'m:' + m.id" [selected]="lineAssetValue(line) === 'm:' + m.id">{{ m.name }} (mašina)</option>
+                          }
+                        </optgroup>
+                      }
+                      @if (carsList().length > 0) {
+                        <optgroup label="Autá">
+                          @for (c of carsList(); track c.id) {
+                            <option [value]="'c:' + c.id" [selected]="lineAssetValue(line) === 'c:' + c.id">{{ c.name }} (auto)</option>
+                          }
+                        </optgroup>
+                      }
+                    </select>
+                  } @else {
+                    <select [disabled]="!isLocationEditable()"
+                            (change)="onLineLocationChange(line, $any($event.target).value ? +$any($event.target).value : null)"
+                            [class.text-amber-600]="line.locationId != null"
+                            [class.dark:text-amber-400]="line.locationId != null"
+                            class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm">
+                      <option value="" [selected]="line.locationId == null">— Podľa DL —</option>
+                      @for (loc of locations(); track loc.id) {
+                        <option [value]="loc.id" [selected]="line.locationId === loc.id">{{ loc.name }}</option>
+                      }
+                    </select>
+                  }
                   <label class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
                     <input type="checkbox" [checked]="line.isReverseCharge" [disabled]="!isReview()"
                            (change)="onReverseToggle(line, $any($event.target).checked)"
@@ -443,17 +583,17 @@
               @if (addingToDl() === dl.id) {
                 <div class="space-y-2">
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input type="text" [ngModel]="draftName()" (ngModelChange)="draftName.set($event)"
+                    <input type="text" appSelectOnFocus [ngModel]="draftName()" (ngModelChange)="draftName.set($event)"
                            placeholder="Názov položky *"
                            class="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm sm:col-span-2" />
                     <div class="grid grid-cols-4 gap-2">
-                      <input type="text" inputmode="decimal" [ngModel]="draftQty()" (ngModelChange)="draftQty.set($event)"
+                      <input type="text" appSelectOnFocus inputmode="decimal" [ngModel]="draftQty()" (ngModelChange)="draftQty.set($event)"
                              placeholder="Mn." title="Množstvo"
                              class="px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
-                      <input type="text" [ngModel]="draftUnit()" (ngModelChange)="draftUnit.set($event)"
+                      <input type="text" appSelectOnFocus [ngModel]="draftUnit()" (ngModelChange)="draftUnit.set($event)"
                              placeholder="MJ" title="Merná jednotka"
                              class="px-2 py-1.5 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
-                      <input type="text" inputmode="decimal" [ngModel]="draftPrice()" (ngModelChange)="draftPrice.set($event)"
+                      <input type="text" appSelectOnFocus inputmode="decimal" [ngModel]="draftPrice()" (ngModelChange)="draftPrice.set($event)"
                              placeholder="Cena" title="Jednotková cena bez DPH"
                              class="px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
                       <select [ngModel]="draftVat()" (ngModelChange)="draftVat.set($event)"
@@ -465,7 +605,7 @@
                         <option value="23">23 %</option>
                       </select>
                     </div>
-                    <input type="text" inputmode="decimal" [ngModel]="draftTotal()" (ngModelChange)="draftTotal.set($event)"
+                    <input type="text" appSelectOnFocus inputmode="decimal" [ngModel]="draftTotal()" (ngModelChange)="draftTotal.set($event)"
                            placeholder="Spolu bez DPH (nepovinné — dopočíta sa)"
                            title="Ak zadáte len Spolu, jednotková cena sa dopočíta"
                            class="w-full px-2 py-1.5 text-right bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white border border-slate-300 dark:border-slate-600 rounded text-sm" />
@@ -543,11 +683,11 @@
             <div class="mt-3 flex flex-wrap gap-2">
               <a routerLink="/admin/invoices"
                  class="touch-target inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold">
-                📄 Nahrať ďalší doklad
+                Nahrať ďalší doklad
               </a>
               <a routerLink="/admin/invoices/scan"
                  class="touch-target inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-600 hover:bg-slate-300 dark:hover:bg-slate-500 text-slate-800 dark:text-slate-100 text-sm font-medium">
-                📷 Naskenovať mobilom
+                Naskenovať mobilom
               </a>
             </div>
           }
@@ -559,6 +699,86 @@
       </div>
     }
 
+    <!-- "Kam to patrí?" — pre-commit step whenever lines would land in
+         Sklad. EVERY unassigned delivery list picks its own destination
+         (multi-DL invoices split across sites); Sklad is an explicit choice. -->
+    @if (showAssignPrompt()) {
+      <div class="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+           (click)="showAssignPrompt.set(false)">
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xl w-full max-w-lg p-5 space-y-4 max-h-[90dvh] overflow-y-auto"
+             (click)="$event.stopPropagation()">
+          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Kam patrí tento nákup?</h2>
+          <p class="text-sm text-slate-600 dark:text-slate-300">
+            {{ unassignedLineCount() }} {{ unassignedLineCount() === 1 ? 'položka' : (unassignedLineCount() >= 2 && unassignedLineCount() <= 4 ? 'položky' : 'položiek') }}
+            za <span class="font-semibold tabular-nums">{{ unassignedSumIncl() | number:'1.2-2' }} € s DPH</span>
+            @if (isStroje()) {
+              nemá priradenú mašinu ani auto. Priradenie je len pre prehľad nákladov na mašinu — náklad sa vždy počíta divízii AZ Stroje.
+            } @else {
+              nemá priradené pracovisko. Vyberte cieľ pre každú skupinu.
+            }
+          </p>
+
+          <div class="space-y-3">
+            @for (dl of unassignedDls(); track dl.id) {
+              <div class="rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/40 p-3">
+                <div class="flex items-baseline justify-between gap-2 mb-2">
+                  <span class="text-sm font-medium text-slate-900 dark:text-white truncate">
+                    {{ dl.deliveryNoteRef || 'Bez čísla dodacieho listu' }}
+                  </span>
+                  <span class="text-xs text-slate-500 dark:text-slate-400 tabular-nums whitespace-nowrap">
+                    {{ dlUnassignedCount(dl) }} {{ dlUnassignedCount(dl) === 1 ? 'položka' : (dlUnassignedCount(dl) >= 2 && dlUnassignedCount(dl) <= 4 ? 'položky' : 'položiek') }}
+                    · {{ dlUnassignedSumIncl(dl) | number:'1.2-2' }} € s DPH
+                  </span>
+                </div>
+                <select [disabled]="assignBusy()"
+                        (change)="setAssignChoice(dl.id, $any($event.target).value)"
+                        class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm">
+                  <option value="" [selected]="assignChoices()[dl.id] === undefined">— Vyberte —</option>
+                  @if (isStroje()) {
+                    <option value="none" [selected]="assignChoices()[dl.id] === 'none'">Bez priradenia (len divízia)</option>
+                    @if (machinesList().length > 0) {
+                      <optgroup label="Mašiny / Tatry">
+                        @for (m of machinesList(); track m.id) {
+                          <option [value]="'m:' + m.id" [selected]="assignChoices()[dl.id] === 'm:' + m.id">{{ m.name }}</option>
+                        }
+                      </optgroup>
+                    }
+                    @if (carsList().length > 0) {
+                      <optgroup label="Autá">
+                        @for (c of carsList(); track c.id) {
+                          <option [value]="'c:' + c.id" [selected]="assignChoices()[dl.id] === 'c:' + c.id">{{ c.name }}{{ c.licensePlate ? ' (' + c.licensePlate + ')' : '' }}</option>
+                        }
+                      </optgroup>
+                    }
+                  } @else {
+                    <option value="-1" [selected]="assignChoices()[dl.id] === -1">Sklad</option>
+                    @for (loc of locations(); track loc.id) {
+                      <option [value]="loc.id" [selected]="assignChoices()[dl.id] === loc.id">{{ loc.name }}</option>
+                    }
+                  }
+                </select>
+              </div>
+            }
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-2 pt-1">
+            <button type="button" (click)="assignAndContinue()" [disabled]="!allAssignChosen() || assignBusy()"
+                    class="touch-target flex-1 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold text-sm">
+              {{ assignBusy() ? 'Priraďujem…' : 'Priradiť a uložiť' }}
+            </button>
+            <button type="button" (click)="assignSkipAll()" [disabled]="assignBusy()"
+                    class="touch-target flex-1 px-4 py-2 rounded-lg bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-sm">
+              {{ isStroje() ? 'Uložiť bez priradenia' : 'Uložiť bez priradenia (do skladu)' }}
+            </button>
+            <button type="button" (click)="showAssignPrompt.set(false)" [disabled]="assignBusy()"
+                    class="touch-target px-4 py-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-sm">
+              Späť
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
     <!-- Commit confirm modal. When the invoice doesn't reconcile, it becomes a
          warning the manager must explicitly acknowledge (override). -->
     <app-modal
@@ -566,8 +786,10 @@
       [variant]="reconcileOk() ? 'confirm' : 'danger'"
       [title]="reconcileOk() ? 'Uložiť faktúru?' : 'Uložiť napriek nezhode súčtov?'"
       [message]="reconcileOk()
-        ? 'Po uložení sa riadky zafixujú a materiál sa premietne do spotreby priradených pracovísk. Pracovisko každého dodacieho listu môžete neskôr ešte zmeniť.'
-        : 'Súčty riadkov sa nezhodujú s vytlačenou sumou. Skontrolujte, či sú sumy na faktúre správne. Ak je faktúra v poriadku, môžete ju uložiť — nezhoda sa zaznamená.'"
+        ? (isStroje()
+          ? 'Započíta sa do bilancie AZ Stroje. Priradenie zmeníte neskôr.'
+          : 'Materiál sa premietne do pracovísk. Pracovisko zmeníte neskôr.')
+        : 'Súčty sa nezhodujú s vytlačenou sumou. Uložiť sa dá, nezhoda sa zaznamená.'"
       [confirmLabel]="reconcileOk() ? 'Áno, uložiť' : 'Uložiť aj tak'"
       busyLabel="Ukladám..."
       [busy]="committing()"
@@ -579,7 +801,9 @@
       [open]="showCommitSuccess()"
       variant="success"
       title="Faktúra uložená"
-      message="Záznamy sú v účtovníctve (Materiál → Nákupy) a materiál bol pridaný do spotreby pracovísk."
+      [message]="isStroje()
+        ? 'Doklad je uložený a započítaný do bilancie divízie AZ Stroje.'
+        : 'Záznamy sú v účtovníctve (Materiál → Nákupy) a materiál bol pridaný do spotreby pracovísk.'"
       confirmLabel="OK"
       (confirm)="showCommitSuccess.set(false)"
       (cancel)="showCommitSuccess.set(false)" />

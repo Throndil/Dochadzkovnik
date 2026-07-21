@@ -12,6 +12,7 @@ import { ReportService } from '../../services/report.service';
 import { EmployeeService, Employee } from '../../services/employee.service';
 import { LocationService, Location } from '../../services/location.service';
 import { CarService, Car } from '../../services/car.service';
+import { MachineService, Machine } from '../../services/machine.service';
 import { ToastService } from '../../services/toast.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { HmPipe } from '../../pipes/hm.pipe';
@@ -28,13 +29,14 @@ export class TimeEntriesPage implements OnInit {
   employees = signal<Employee[]>([]);
   locations = signal<Location[]>([]);
   cars = signal<Car[]>([]);
+  machines = signal<Machine[]>([]);
   showAddForm = signal(false);
   editingEntry = signal<TimeEntry | null>(null);
   // Admin add/edit forms are hours-based (like the kiosk "log hours" flow),
   // not clockIn/clockOut timestamps. The backend still stores clockIn + clockOut,
   // so we back-calculate them on submit.
-  newEntry = { employeeId: 0, locationId: 0, carId: 0, date: '', hoursWorked: 8, note: '' };
-  editForm = { carId: 0, date: '', hoursWorked: 8, note: '' };
+  newEntry = { employeeId: 0, locationId: 0, carId: 0, machineId: 0, date: '', hoursWorked: 8, note: '' };
+  editForm = { carId: 0, machineId: 0, date: '', hoursWorked: 8, note: '' };
   from = '';
   to = '';
   filterEmployeeId = 0;
@@ -75,6 +77,7 @@ export class TimeEntriesPage implements OnInit {
     private employeeService: EmployeeService,
     private locationService: LocationService,
     private carService: CarService,
+    private machineService: MachineService,
     private toast: ToastService,
     private apiError: ApiErrorService,
     private route: ActivatedRoute
@@ -86,6 +89,7 @@ export class TimeEntriesPage implements OnInit {
     this.employeeService.getAll().subscribe(e => this.employees.set(e));
     this.locationService.getAll().subscribe(l => this.locations.set(l));
     this.carService.getAll().subscribe(c => this.cars.set(c.filter(x => x.isActive)));
+    this.machineService.getAll().subscribe(ms => this.machines.set(ms.filter(x => x.isActive)));
     const params = this.route.snapshot.queryParams;
     if (params['employeeId']) this.filterEmployeeId = +params['employeeId'];
     if (params['locationId']) this.filterLocationId = +params['locationId'];
@@ -327,7 +331,7 @@ export class TimeEntriesPage implements OnInit {
       this.editPhotoPreviews.set([]);
     } else {
       const today = new Date();
-      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: this.fmtDate(today), hoursWorked: 8, note: '' };
+      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, machineId: 0, date: this.fmtDate(today), hoursWorked: 8, note: '' };
       this.showAddForm.set(true);
     }
   }
@@ -383,6 +387,7 @@ export class TimeEntriesPage implements OnInit {
       employeeId: this.newEntry.employeeId,
       locationId: this.newEntry.locationId,
       carId: this.newEntry.carId || undefined,
+      machineId: this.newEntry.machineId || undefined,
       clockIn,
       clockOut,
       note: this.newEntry.note || undefined
@@ -398,7 +403,7 @@ export class TimeEntriesPage implements OnInit {
       }
       this.newPhotoFiles.set([]);
       this.newPhotoPreviews.set([]);
-      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, date: '', hoursWorked: 8, note: '' };
+      this.newEntry = { employeeId: 0, locationId: 0, carId: 0, machineId: 0, date: '', hoursWorked: 8, note: '' };
       this.toast.success('Záznam dochádzky pridaný');
       this.load();
     });
@@ -414,6 +419,7 @@ export class TimeEntriesPage implements OnInit {
       : 8;
     this.editForm = {
       carId: entry.carId ?? 0,
+      machineId: entry.machineId ?? 0,
       date: dateStr,
       hoursWorked: hours,
       note: entry.note || ''
@@ -436,6 +442,7 @@ export class TimeEntriesPage implements OnInit {
     const { clockIn, clockOut } = this.buildClockWindow(this.editForm.date, this.editForm.hoursWorked);
     const dto: any = {
       carId: this.editForm.carId || undefined,
+      machineId: this.editForm.machineId || undefined,
       clockIn,
       clockOut,
       note: this.editForm.note || undefined

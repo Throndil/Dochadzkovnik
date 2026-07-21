@@ -167,7 +167,7 @@ public class MaterialPurchasesExcelExportService : IMaterialPurchasesExcelExport
             sP.Cell(pRow, 1).Value = p.PurchaseDate;
             sP.Cell(pRow, 1).Style.DateFormat.Format = "dd.MM.yyyy";
             sP.Cell(pRow, 2).Value = p.EmployeeName;
-            sP.Cell(pRow, 3).Value = p.LocationName ?? "Inventár";
+            sP.Cell(pRow, 3).Value = p.LocationName ?? "Sklad";
             sP.Cell(pRow, 4).Value = p.SupplierName ?? "";
             sP.Cell(pRow, 5).Value = p.Lines.Count;
 
@@ -250,7 +250,7 @@ public class MaterialPurchasesExcelExportService : IMaterialPurchasesExcelExport
                 s2.Cell(row, 1).Value = p.PurchaseDate;
                 s2.Cell(row, 1).Style.DateFormat.Format = "dd.MM.yyyy";
                 s2.Cell(row, 2).Value = p.EmployeeName;
-                s2.Cell(row, 3).Value = p.LocationName ?? "Inventár";
+                s2.Cell(row, 3).Value = p.LocationName ?? "Sklad";
                 s2.Cell(row, 4).Value = p.SupplierName ?? "";
                 // Use the raw name — survives admin renames and matches what the worker entered.
                 s2.Cell(row, 5).Value = l.MaterialNameRaw;

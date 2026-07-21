@@ -26,6 +26,12 @@ export class EmployeeDetailPage implements OnInit {
   isActive = true;
   /** Hourly wage in EUR. Blank string means "no rate set yet". */
   hourlyWage: number | null = null;
+  /** Employer contributions % of gross (odvody). Null = unset. */
+  odvodyPct: number | null = null;
+  /** Company division (Fáza D8) — drives the division-scoped Mzdy view. */
+  division = 'profistav';
+  /** Free-text pozícia (F6): "šofér", "murár"… */
+  position = '';
   currentPin = signal<string | null>(null);
   showCurrentPin = signal(false);
   newPin = '';
@@ -55,6 +61,9 @@ export class EmployeeDetailPage implements OnInit {
       this.city = emp.city ?? '';
       this.isActive = emp.isActive;
       this.hourlyWage = emp.hourlyWage ?? null;
+      this.odvodyPct = emp.odvodyPct ?? null;
+      this.division = emp.division === 'stroje' ? 'stroje' : 'profistav';
+      this.position = emp.position ?? '';
       this.photoPreview.set(emp.photoUrl ?? null);
       this.currentPin.set(emp.pinPlain ?? null);
     });
@@ -68,7 +77,10 @@ export class EmployeeDetailPage implements OnInit {
       address: this.address || undefined,
       city: this.city || undefined,
       isActive: this.isActive,
-      hourlyWage: this.hourlyWage
+      hourlyWage: this.hourlyWage,
+      odvodyPct: this.odvodyPct,
+      division: this.division,
+      position: this.position
     }).subscribe({
       next: () => {
         this.toast.success('Zmeny uložené');
@@ -90,7 +102,7 @@ export class EmployeeDetailPage implements OnInit {
       },
       error: e => {
         if (e.status === 409) {
-          this.toast.error('Tento PIN je už priradený inému zamestnancovi. Prosím zvoľte iný PIN.');
+          this.toast.error('PIN už používa iný zamestnanec.');
         } else {
           this.toast.error(this.apiError.friendly(e, 'PIN sa nepodarilo zmeniť'));
         }

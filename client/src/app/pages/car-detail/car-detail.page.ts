@@ -1,26 +1,32 @@
 import { Component, signal, OnInit } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { CommanderCarPanelComponent } from '../../components/commander-car-panel/commander-car-panel.component';
 import { AlertComponent } from '../../components/alert/alert.component';
-import { CarService } from '../../services/car.service';
+import { AssetCostDoc, CarService } from '../../services/car.service';
 import { ApiErrorService } from '../../services/api-error.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 @Component({
   selector: 'app-car-detail',
-  imports: [NavbarComponent, CommanderCarPanelComponent, FormsModule, RouterLink, AlertComponent],
+  imports: [NavbarComponent, CommanderCarPanelComponent, FormsModule, RouterLink, AlertComponent, DatePipe, DecimalPipe],
   templateUrl: './car-detail.page.html'
 })
 export class CarDetailPage implements OnInit {
   car = signal<any>(null);
   name = '';
   licensePlate = '';
+  /** 'profistav' | 'stroje' (Fáza F). */
+  division = 'profistav';
   isActive = true;
   saved = signal(false);
   /** Save/photo failure — the audit found this page failed silently. */
   error = signal<string | null>(null);
+
+  /** F4 — cost documents tagged to this vehicle (servis, tankovanie…). */
+  costs = signal<AssetCostDoc[]>([]);
 
   photoPreview = signal<string | null>(null);
   isDragOver = signal(false);
@@ -39,9 +45,15 @@ export class CarDetailPage implements OnInit {
       this.car.set(c);
       this.name = c.name;
       this.licensePlate = c.licensePlate ?? '';
+      this.division = c.division === 'stroje' ? 'stroje' : 'profistav';
       this.isActive = c.isActive;
       if (c.photoUrl) this.photoPreview.set(c.photoUrl);
     });
+    this.carService.getCosts(id).subscribe(docs => this.costs.set(docs));
+  }
+
+  costsTotal() {
+    return this.costs().reduce((sum, d) => sum + d.grossTotal, 0);
   }
 
   onSave() {
@@ -51,6 +63,7 @@ export class CarDetailPage implements OnInit {
     const save$ = this.carService.update(id, {
       name: this.name,
       licensePlate: this.licensePlate || undefined,
+      division: this.division,
       isActive: this.isActive
     });
     const fail = (e: any, context: string) => this.error.set(this.apiError.friendly(e, context));

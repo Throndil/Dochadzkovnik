@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
 import { InvoiceService, ScanStatus } from '../../services/invoice.service';
+import { DivisionService } from '../../services/division.service';
 import { normaliseFile } from '../../utils/image-utils';
 
 /**
@@ -32,6 +33,8 @@ import { normaliseFile } from '../../utils/image-utils';
 export class InvoiceCameraPage implements OnInit, OnDestroy {
   private svc = inject(InvoiceService);
   private router = inject(Router);
+  /** Scans land in the division active in the navbar burger (Fáza D). */
+  division = inject(DivisionService);
 
   // ── View refs (live <video>, hidden capture canvas, hidden file-picker fallback) ──
   videoRef       = viewChild<ElementRef<HTMLVideoElement>>('preview');
@@ -147,13 +150,27 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     this.svc.getScanStatus().then(s => this.scanStatus.set(s)).catch(() => {});
   }
 
+  /** "Odfotiť prázdny doklad": the photo is archived but NOT sent to AI —
+   *  an empty editable document is created and the manager types the
+   *  supplier + rows on review. For hand-written papers of unknown shape. */
+  blankMode = signal(false);
+
   /** Primary capture: the phone's native camera app (input[capture]).
    *  Full-res stills, native night mode/flash, zero in-tab memory. */
   openNativeCamera() {
+    this.blankMode.set(false);
     this.preferLive = false;
     // Release any in-app viewfinder stream first — a leftover live stream would
     // otherwise reroute later navigation (e.g. "add another") into the live
     // view even though the manager is on the native camera.
+    this.stopStream();
+    this.cameraInputRef()?.nativeElement.click();
+  }
+
+  /** Blank-document capture — same native camera, no AI on submit. */
+  openBlankCamera() {
+    this.blankMode.set(true);
+    this.preferLive = false;
     this.stopStream();
     this.cameraInputRef()?.nativeElement.click();
   }
@@ -773,7 +790,7 @@ export class InvoiceCameraPage implements OnInit, OnDestroy {
     );
 
     try {
-      const doc = await this.svc.uploadPhotos(files);
+      const doc = await this.svc.uploadPhotos(files, this.blankMode(), this.division.active());
       this.stopStream();
       this.router.navigate(['/admin/invoices', doc.id]);
     } catch (e: any) {

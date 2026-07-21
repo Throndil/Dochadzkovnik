@@ -1,0 +1,152 @@
+<app-navbar />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-5xl mx-auto px-4 py-4 sm:p-6">
+    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6">
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+        Mašiny/Tatry
+        <span class="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">AZ Stroje</span>
+      </h1>
+      <button (click)="showForm() ? cancelForm() : showForm.set(true)"
+              class="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition-colors">
+        {{ showForm() ? 'Zrušiť' : '+ Pridať mašinu' }}
+      </button>
+    </div>
+
+    @if (showForm()) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-6">
+        <h2 class="text-slate-900 dark:text-white font-semibold text-lg mb-4">Nová mašina/Tatra</h2>
+        <form (ngSubmit)="onCreate()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Názov</label>
+            <input type="text" [(ngModel)]="newMachine.name" name="name" required placeholder="napr. Bager JCB"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder-slate-400 dark:placeholder-slate-500" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Poznámka</label>
+            <input type="text" [(ngModel)]="newMachine.note" name="note" maxlength="500" placeholder="model, evidenčné číslo…"
+                   class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 placeholder-slate-400 dark:placeholder-slate-500" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Fotografia (voliteľné)</label>
+            <div class="relative w-40 h-40 rounded-lg cursor-pointer overflow-hidden transition-colors border-2"
+                 [class.border-dashed]="!photoPreview()"
+                 [class.border-amber-400]="isDragOver()"
+                 [class.border-slate-600]="!isDragOver()"
+                 (click)="photoInput.click()"
+                 (dragover)="onDragOver($event)"
+                 (dragleave)="onDragLeave()"
+                 (drop)="onDrop($event)">
+              @if (photoPreview()) {
+                <img [src]="photoPreview()" class="w-full h-full object-cover" alt="Náhľad" />
+                <div class="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <span class="text-white text-xs text-center px-2">Zmeniť foto</span>
+                </div>
+              } @else {
+                <div class="w-full h-full bg-slate-100 dark:bg-slate-700 flex flex-col items-center justify-center gap-2 transition-colors"
+                     [class.bg-amber-900/30]="isDragOver()"
+                     [class.text-amber-400]="isDragOver()"
+                     [class.text-slate-500]="!isDragOver()">
+                  <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span class="text-xs text-center px-2 leading-tight">
+                    {{ isDragOver() ? 'Pustiť sem' : 'Kliknúť alebo pretiahnuť' }}
+                  </span>
+                </div>
+              }
+              <input #photoInput type="file" accept="image/*" class="hidden" (change)="onPhotoSelected($event)" />
+            </div>
+          </div>
+          <div class="md:col-span-2">
+            <button type="submit" [disabled]="!newMachine.name.trim()"
+                    class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-40">
+              Vytvoriť
+            </button>
+          </div>
+        </form>
+      </div>
+    }
+
+    @if (loading()) {
+      <app-spinner />
+    } @else {
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      @for (m of machines(); track m.id) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          @if (m.photoUrl) {
+            <img [src]="m.photoUrl" class="w-full h-40 object-cover" alt="Fotografia mašiny" />
+          } @else {
+            <div class="w-full h-40 bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500">Bez fotky</div>
+          }
+          <div class="p-4">
+            @if (editingId() === m.id) {
+              <div class="space-y-2">
+                <input type="text" [(ngModel)]="draftName" placeholder="Názov"
+                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+                <input type="text" [(ngModel)]="draftNote" maxlength="500" placeholder="Poznámka"
+                       class="w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+                <div class="flex gap-2">
+                  <button (click)="saveEdit(m)" [disabled]="saving() || !draftName.trim()"
+                          class="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50">
+                    {{ saving() ? 'Ukladám…' : 'Uložiť' }}
+                  </button>
+                  <button (click)="cancelEdit()" [disabled]="saving()"
+                          class="flex-1 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 px-4 py-1.5 rounded-lg text-sm">
+                    Zrušiť
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <div class="flex items-start justify-between gap-2 mb-1">
+                <p class="text-slate-900 dark:text-white font-semibold text-base leading-tight">{{ m.name }}</p>
+                <span [class]="m.isActive ? 'text-green-400 bg-green-900/40' : 'text-red-400 bg-red-900/40'"
+                      class="px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap">
+                  {{ m.isActive ? 'Aktívny' : 'Neaktívny' }}
+                </span>
+              </div>
+              @if (m.note) {
+                <p class="text-slate-500 dark:text-slate-400 text-sm">{{ m.note }}</p>
+              }
+              @if (m.costTotal) {
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-3">Náklady (doklady): <span class="font-semibold tabular-nums text-slate-700 dark:text-slate-200">{{ m.costTotal | number:'1.2-2' }} € s DPH</span></p>
+              } @else {
+                <div class="mb-3"></div>
+              }
+              <div class="flex flex-wrap gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
+                <button (click)="startEdit(m)"
+                        class="text-amber-400 hover:text-amber-300 text-sm font-medium transition-colors">Upraviť</button>
+                <button (click)="onToggleActive(m)"
+                        class="text-sm font-medium transition-colors"
+                        [class]="m.isActive ? 'text-slate-400 hover:text-slate-200' : 'text-green-400 hover:text-green-300'">
+                  {{ m.isActive ? 'Deaktivovať' : 'Aktivovať' }}
+                </button>
+                <button (click)="onDelete(m)"
+                        class="text-red-400 hover:text-red-300 text-sm font-medium transition-colors">Odstrániť</button>
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      @if (machines().length === 0) {
+        <div class="col-span-3">
+          <app-empty-state message="Žiadne mašiny." />
+        </div>
+      }
+    </div>
+    }
+
+    <!-- Permanent-delete confirmation -->
+    <app-modal
+      [open]="!!deleting()"
+      variant="danger"
+      title="Odstrániť mašinu"
+      [message]="deleteMessage()"
+      confirmLabel="Natrvalo odstrániť"
+      [busy]="deleteBusy()"
+      busyLabel="Odstraňujem…"
+      (confirm)="confirmDelete()"
+      (cancel)="deleting.set(null)" />
+  </div>
+</div>

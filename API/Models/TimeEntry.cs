@@ -22,6 +22,10 @@ public class TimeEntry
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public int? CarId { get; set; }
+    /// <summary>Machine used for the shift (kiosk choice Auto/Stroj/Pešo,
+    /// Fáza F3). Null = no machine. Mutually exclusive with CarId in the
+    /// kiosk flow; both nullable for pešo.</summary>
+    public int? MachineId { get; set; }
 
     /// <summary>
     /// Snapshot of <see cref="Employee.HourlyWage"/> at the moment this entry
@@ -36,4 +40,5 @@ public class TimeEntry
     public Employee Employee { get; set; } = null!;
     public Location Location { get; set; } = null!;
     public Car? Car { get; set; }
+    public Machine? Machine { get; set; }
 }

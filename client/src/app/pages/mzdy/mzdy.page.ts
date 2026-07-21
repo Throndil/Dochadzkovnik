@@ -3,7 +3,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
-import { ModalComponent } from '../../components/modal/modal.component';
 import { AlertComponent } from '../../components/alert/alert.component';
 import {
   PayrollService,
@@ -14,8 +13,11 @@ import {
 } from '../../services/payroll.service';
 import { EmployeeService } from '../../services/employee.service';
 import { ApiErrorService } from '../../services/api-error.service';
+import { DivisionService } from '../../services/division.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
+import { StepperComponent } from '../../components/stepper/stepper.component';
+import { tagTint } from '../../utils/tag-color';
 
 type PeriodMode = 'month' | 'week' | 'custom';
 
@@ -30,13 +32,15 @@ type PeriodMode = 'month' | 'week' | 'custom';
 @Component({
   selector: 'app-mzdy',
   standalone: true,
-  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, ModalComponent, AlertComponent, DatepickerDirective, MonthPickerComponent],
+  imports: [CommonModule, FormsModule, NavbarComponent, SpinnerComponent, AlertComponent, DatepickerDirective, MonthPickerComponent, StepperComponent],
   templateUrl: './mzdy.page.html'
 })
 export class MzdyPage implements OnInit {
   private svc = inject(PayrollService);
   private empSvc = inject(EmployeeService);
   private apiError = inject(ApiErrorService);
+  /** Mzdy are division-scoped (Fáza D8) — follows the navbar burger. */
+  division = inject(DivisionService);
 
   // ─── Period selection ─────────────────────────────────────────
   /** Mesiac | Týždeň | Vlastné. Persists in localStorage. */
@@ -76,7 +80,7 @@ export class MzdyPage implements OnInit {
 
   // ─── Inline rate edit ─────────────────────────────────────────
   editingRateFor = signal<number | null>(null);
-  rateDraft = signal<string>('');
+  rateDraft = signal<number | null>(null);
   /** "Od" date for the rate change. Defaults to first of currently-viewed month. */
   rateApplyFromDraft = signal<string>('');
   /** When true, the rate change retroactively updates WageAtTime on existing entries. */
@@ -113,7 +117,7 @@ export class MzdyPage implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     try {
-      const d = await this.svc.monthly(this.periodParam());
+      const d = await this.svc.monthly(this.periodParam(), this.division.active());
       this.data.set(d);
     } catch (e: any) {
       this.error.set(this.errMsg(e));
@@ -241,7 +245,7 @@ export class MzdyPage implements OnInit {
 
   startEditRate(row: PayrollRow) {
     this.editingRateFor.set(row.employeeId);
-    this.rateDraft.set(row.hourlyWageCurrent != null ? String(row.hourlyWageCurrent) : '');
+    this.rateDraft.set(row.hourlyWageCurrent);
     // Default "from" date = start of currently-viewed period. Manager can
     // override if they're recording a mid-month promotion (e.g. 15.05.).
     this.rateApplyFromDraft.set(this.periodRange().from);
@@ -250,13 +254,12 @@ export class MzdyPage implements OnInit {
 
   cancelEditRate() {
     this.editingRateFor.set(null);
-    this.rateDraft.set('');
+    this.rateDraft.set(null);
     this.rateApplyFromDraft.set('');
   }
 
   async saveRate(row: PayrollRow) {
-    const raw = this.rateDraft().replace(',', '.').trim();
-    const parsed = raw === '' ? null : Number(raw);
+    const parsed = this.rateDraft();
     if (parsed !== null && (!isFinite(parsed) || parsed < 0)) {
       alert('Neplatná sadzba.');
       return;
@@ -268,7 +271,7 @@ export class MzdyPage implements OnInit {
     try {
       const backfilled = await this.svc.setWage(row.employeeId, parsed, applyFrom);
       this.editingRateFor.set(null);
-      this.rateDraft.set('');
+      this.rateDraft.set(null);
       this.rateApplyFromDraft.set('');
       // Feedback when there was a meaningful retroactive change.
       if (backfilled > 0) {
@@ -448,11 +451,17 @@ export class MzdyPage implements OnInit {
 
   downloadMonthlySummary() {
     this.exporting.set(true);
-    this.svc.downloadMonthlySummary(this.periodParam());
+    this.svc.downloadMonthlySummary(this.periodParam(), this.division.active());
     // The download helper is fire-and-forget (no completion callback), so
     // clear the busy state after a bounded ~4s delay — a bounded visual
     // busy beats a permanently dead button.
     setTimeout(() => this.exporting.set(false), 4000);
+  }
+
+  /** W3 — výplatné pásky: prints the hidden print-only slips grid
+   *  (multiple employees per A4). */
+  printSlips() {
+    window.print();
   }
 
   downloadEmployeeReport(row: PayrollRow) {
@@ -477,6 +486,8 @@ export class MzdyPage implements OnInit {
   formatHours(v: number): string {
     return new Intl.NumberFormat('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
   }
+
+  tagTint = tagTint;
 
   /** 1–2 letter monogram for the row avatar. */
   initials(row: PayrollRow): string {

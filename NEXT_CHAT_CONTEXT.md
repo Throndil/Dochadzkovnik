@@ -1,106 +1,110 @@
-# NEXT_CHAT_CONTEXT.md — handoff for a fresh session (2026-07-14)
+<!--
+Writing style: this file is read by AI assistants. Write plainly. No emojis,
+no "—" as rhetoric, no exclamation marks, no "super!" / "great!" / "perfect!",
+no enthusiastic openings, no padding sentences. When in doubt, write less.
+-->
 
-Šichtovnica/Dochádzkovník — .NET 9 API + Angular 20 client (signals, @if/@for, Tailwind,
-dark mode) for construction company **AZ Profistav, s.r.o.** (IČO 47208368 — always the
-CUSTOMER on documents, never the supplier). Slovak UI. Invoice/receipt scanning via
-Google Document AI + Gemini.
+# NEXT_CHAT_CONTEXT.md — handoff for a fresh session (2026-07-19)
 
-## Environments & workflow rules (IMPORTANT)
+Šichtovnica/Dochádzkovník — .NET 9 API + Angular 20 client (signals, @if/@for,
+Tailwind v4, dark mode) for construction company **AZ Profistav, s.r.o.**
+(IČO 47208368 — always the CUSTOMER on documents, never the supplier).
+Slovak UI. Invoice scanning: Claude Sonnet primary, Gemini fallback.
+Plan: sell the app white-label — 2 more customers lined up, each with own branding.
+
+## Environments & workflow (UPDATED 2026-07-19)
+
 - Branches: `dev` (Vercel preview + Railway dev API `dochadzkovnik-dev.up.railway.app`),
-  `master` (production: `dochadzkovnik.vercel.app` + `dochadzkovnik-production.up.railway.app`).
-- **The user builds, commits and pushes THEMSELVES.** Never run `git add/commit/push`
-  from the sandbox — a sandbox commit once captured TRUNCATED files (stale FUSE mount)
-  and broke the build (commit 249efd1, fixed by re-committing from Windows).
-- The Linux sandbox mount can serve stale/truncated views of recently edited files.
-  **Read/Edit/Write tools are authoritative**; use bash only for git *reads* and Python
-  simulations, and distrust it right after heavy editing.
-- Local testing: `http://localhost:4200` via Chrome MCP (admin login; Bearer token in
-  localStorage). Never test against live sites.
-- Rejected photo uploads dump their OCR text to `API/rejected-scans/*.txt` (gitignored,
-  like `API/scans/`). Accepted docs: `GET /api/invoices/{id}/ocr-diagnostic`.
-- Parser philosophy: **the printed total is ground truth** — any extraction (regex or AI)
-  must reconcile lines+VAT to the printed total (cent-gates, ±0.05/0.06 cash tolerance)
-  or it is not trusted. Tests replicate real OCR fixtures verbatim (`API.Tests/fixtures/`).
-- CLAUDE.md applies: surgical diffs, no speculative features, simplicity first.
+  `master` (production). Push to a branch auto-deploys both.
+- **The agent MAY commit, push and deploy to dev** (user authorized 2026-07-18;
+  supersedes the old "user pushes themselves" rule — that was a Linux-FUSE-sandbox
+  problem, sessions now run on native Windows). Production merges need the user's OK.
+- Connected tooling: git push via Windows Credential Manager; `gh` CLI (Throndil);
+  Railway CLI (urbanek.m08@gmail.com) linked to project `distinguished-blessing`,
+  env `dev`, service `Dochadzkovnik` — `railway deployment list --json`, `railway logs`.
+  Do NOT link project `michal-urbanek` (personal site). Vercel MCP connector:
+  team `team_Y782SEs8fNnovdGKrbzBU1G0`, project `dochadzkovnik`.
+  Ignore the Railway CLI banner about `railway setup agent`.
+- Local dev: docker compose postgres (user `dochadzkovnik`), API `dotnet run` on
+  :5122, client ng serve on **:4400** (NOT 4200 — Windows reserved 4125-4324 after
+  a reboot; `.claude/launch.json` is configured). Login for testing: superadmin
+  `admin` / `SuperAdmin123!!` (from appsettings.Local.json; `vladosroka` has a
+  security PIN the agent does not know).
+- Verification loop: `dotnet test` in API.Tests (27 green), `npx tsc --noEmit -p
+  tsconfig.app.json` in client, `npx ng build` before deploys, browser pane for
+  functional checks. Restart the API server before `dotnet build` (file locks).
 
-## Invoice scanning architecture (current)
-Upload pipeline (`API/Controllers/InvoicesController.cs` → `Upload`):
-1. **Gemini primary** (`ILlmInvoiceExtractor` / `GeminiInvoiceExtractor`): vision read of
-   the original file, strict JSON schema, temp 0. If it passes `ParsedReconciles` →
-   Document AI is SKIPPED (~$0.002 vs $0.10/doc). `RawOcrJson` then stores
-   `{"source":"gemini-primary"}`.
-2. Else **Document AI + deterministic parser** (`API/Services/InvoiceParser.cs`) +
-   acceptance ladder: AI-reconciles → AI wins; AI-has-number+total while parser doesn't →
-   AI accepted for review (Nesedí banner); else parser kept.
-3. Both failed → BIG Slovak reject message (retake with flash / fill frame).
-- Config: `Gemini__ApiKey` (free tier, resets midnight Pacific), default model
-  `gemini-3.1-flash-lite`, `Gemini__Model` override, `Gemini__Primary=false` kill switch.
-  429/503 → retry + model fallback chain; per-day 429 recorded in **ScanStatusService**
-  → `GET /api/invoices/scan-status` → client banners (fallback/ai-only/down modes) on
-  invoices + camera pages. Quota exhaustion degrades to DocAI silently (still works).
-- Manual **"✨ Skúsiť AI rozpoznanie"** button on Nesedí review docs → `POST {id}/ai-reparse`
-  (review-only, replaces draft, dedup-checked).
-- Photo pages get server-side `EnhanceForOcr` (ImageSharp: gated shadow-flattening +
-  sharpen) inside `CombineImagesToPdfAsync` (3000px/q90).
-- Parser recovery formats (all fixture-tested): DEK multi-DL, Hilti, KOVOUNI snap,
-  A-Z STAV, receipts (MPL qty-shuffle repair, PRESPOR orphan-row pairing incl. Cyrillic
-  с, HORNBACH per-item "Základ" rebuild), receipt gross→net, zľava variants.
-  DEK repair gated by text marker `"za dodací list"` (adopted from master at merge).
+## State: CUSTOMER_ROADMAP_2026-07.md is DONE
 
-## Camera page (client/src/app/pages/invoice-camera/)
-- **Primary flow = native camera app** via `<input capture="environment">` ("Odfotiť
-  stranu") — no getUserMedia, no permission prompts, full-res stills, native flash/night
-  mode (flash hint text: set ⚡ On, not Auto). Pages get ≤3000px shrink when >4MB + 480px
-  grid thumbs (full-res thumbs used to exhaust WebKit canvas memory → black frames/crashes).
-- Secondary: in-app live viewfinder (1080p, burst-of-2 sharpest, WYSIWYG 3:4 crop, torch,
-  zoom, low-light hint, degradation watchdog, camera released during review). All
-  browser-side OpenCV was REMOVED (document-scan.ts deleted) after repeated phone crashes.
-- Upload cap 40MB; dedup = invoice number + issue date.
+Everything shipped and verified on dev; the roadmap file has per-row notes.
+Highlights from 2026-07-18/19 (commits 751e106..a35a6f6):
 
-## Recent completed (this session stream)
-- Editable after commit: supplier name, issue date (cascades), per-ROW pracovisko
-  (usage rows follow; mint/move/remove). Manual add-row during review
-  (`POST {id}/delivery-lists/{purchaseId}/lines`). Per-row delete, editable S DPH/zľava.
-- Financie report: rows = ALL locations with activity in range (inactive tagged
-  "neaktívne"), synthetic "Sklad / Nepriradené" row, Faktúry column allocates PRINTED
-  totals (residual→largest share) so it matches the card to the cent; zero-activity rows
-  hidden client-side.
-- Locations page: active grid + collapsed "Neaktívne pracoviská (N)" (auto-expands on
-  deactivate). Materials Katalóg: grouped by jednotka, inactive collapsed.
-- **Admin QOL redesign** (audit → kit → all 18 pages): shared
-  `components/alert/AlertComponent`, `components/empty-state/EmptyStateComponent`,
-  `services/api-error.service.ts (ApiErrorService.friendly(e, context))`. Fixed silent
-  failures (employee-detail save/PIN/photo, car-detail, location-detail, dashboard/
-  reports/finance loads, notifications fire-now). Danger ModalComponent replaces browser
-  confirm() for destructive cascades. Unified export green + busy states, back links on
-  detail pages, focus rings, empty states.
-- Upload-another: success modal → "Nahrať ďalšiu"/"Naskenovať mobilom"; committed review
-  page → next-document shortcuts.
-- Mobile: invoice-review lines render as cards under `lg`.
+- Fáza D complete (divisions, direction, burger, Súhrn, D6 monthly Excel report).
+- F4 car/machine cost ledgers, F5 výjazdy (unique car+day, rate from Odvody),
+  F6 fuel cards page /admin/palivove-karty + Employee.Position, F7 = no-op
+  (Commander invoices are regular invoices).
+- W1 hrubá sadzba (WageAtTime + Odvody "€/h" rows; payroll payouts unchanged),
+  W2 was already done, W3 print pay slips (Tlačiť pásky on Mzdy).
+- P1 Zložka podľa dní on location detail (week/day/range, per-day shifts,
+  diary, material, documents, photos).
+- AI usage window ("AI" button on invoices: month + total Claude spend).
+- Bugfixes: parser VAT-summary thousand-grouping (A-Z STAV), payroll D8 filter
+  (empty division counts as profistav).
+- **Planner** (/admin/planner) behind `Planner` feature flag (seeded OFF):
+  PlanEntry table (praca+LocationId | dovolenka/pn/volno, inclusive ranges),
+  week grid with lane stacking, cross-week clipping, drag-select via pointer
+  events (mouse only; touch taps). Kiosk deliberately not included yet.
+- **PR #22 (dev -> master) is open and contains all of it.** Merging deploys
+  prod; that is the user's call.
 
-## OPEN ISSUES (priority order)
-1. **PRODUCTION 500 on POST /api/invoices/upload** — reported from
-   `dochadzkovnik.vercel.app` → production Railway. The CORS error in console is a RED
-   HERRING (ASP.NET 500s lack CORS headers). **Waiting on Railway production logs**
-   (stack trace) from the user. Suspects: production deployed a partial master state;
-   parser edge case on a specific doc; check whether prod master includes matching
-   Program.cs registrations for controller ctor deps (ILlmInvoiceExtractor,
-   IHttpClientFactory, ScanStatusService). Production does NOT need Gemini key (graceful).
-2. **Uncommitted working tree** — the whole QOL round + pnl/locations/materials changes
-   + new kit files are local only; user must commit+push (they know). `dotnet test`
-   should be run (parser gate change) before pushing master.
-3. Customer-device testing of the native camera flow + poor-light path pending.
-4. Minor cleanups: unused PdfSharpCore reference in API.csproj; dead recovery-email code
-   in account.page.ts; unused ModalComponent import in mzdy.page.ts; NG8113 warning for
-   ModalComponent in MzdyPage template.
+## Redesign (in progress — "Vzduch" direction)
+
+- User picked light/airy "Vzduch" style; customer + workers prefer DARK MODE,
+  so dark is the primary target. Implemented as a token layer in
+  `client/src/styles.css`: slate ramp remapped to warm neutrals, amber ramp
+  = brand variables (ten values), Figtree body + Bricolage Grotesque headings.
+  Templates untouched; navigation/buttons/routing identical (hard rule).
+- White-label: rebrand = override the ten `--color-amber-*` values + logo.
+  Example ramps documented in styles.css (AZ amber, trust blue, teal).
+- Kiosk keeps the old look: overrides scoped to `body:not(:has(.kiosk-root))`.
+- NEXT STEP (not started): per-page polish pass from the approved mockup —
+  greeting header ("Dobré ráno, <meno>"), tinted icon chips on KPI cards,
+  colored pracovisko tags, squircle avatars. Top pages first: Prehľad,
+  Financie, Mzdy. Mockup reference lived in the session scratchpad
+  (redesign-mockups.html, served on :4390) — regenerate if needed: Smer 1
+  "Vzduch" from the 2026-07-19 conversation.
+
+## New tools: design skills installed in ~/.claude/skills (auto-load)
+
+frontend-design (Anthropic official), web-design-guidelines (Vercel audit
+rules), taste-skill + redesign-skill, impeccable, emil-design-eng +
+improve-animations + animation-vocabulary, ui-ux-pro-max suite (design,
+design-system, ui-styling, brand, banner-design, slides). Use frontend-design
++ redesign-skill for any UI work; ui-ux-pro-max/data/colors.csv has validated
+palettes. Key lessons already applied: no purple/blue AI gradients, one
+desaturated accent, warm neutral family, tabular-nums for money.
+
+## Open items / parked
+
+- P4 (dodatočné priraďovanie) deferred; Z2 device admin code; Z3 chatbot idea.
+- D7 partial: pracovisko "Firma" and "Servis auta" remap waits on customer
+  (see BACKLOG "Firma" clarification). Old service docs re-file manually via
+  invoice review.
+- Employee in BOTH divisions: parked question for next customer call.
+- Výjazdy + hrubá sadzba read LIVE Odvody rates (ponytail comments in code);
+  snapshot per TimeEntry if the customer ever complains about history shifts.
+- PROJECT_NOTES Migration Safety Rule 3 (self-heal blocks) diverges from
+  practice since the division migrations; either add blocks or amend the rule.
+- MailKit NU1902 warning and heic2any CommonJS warning are known noise.
+- Planner flag is OFF everywhere; flip in Account -> Funkcie to demo.
 
 ## Key files
-- Parser: `API/Services/InvoiceParser.cs` (+`IInvoiceParser.cs` records)
-- Extractor: `API/Services/GeminiInvoiceExtractor.cs`; health: `API/Services/ScanStatusService.cs`
-- Upload/review endpoints: `API/Controllers/InvoicesController.cs`
-- PnL/report: `API/Controllers/LocationsController.cs` (`GetPnlSummary`)
-- Camera: `client/src/app/pages/invoice-camera/*`; review: `.../invoice-review/*`
-- Kit: `client/src/app/components/{alert,empty-state}/`, `client/src/app/services/api-error.service.ts`
-- Tests+fixtures: `API.Tests/InvoiceParserTextLayerTests.cs`, `API.Tests/fixtures/*`
-- Migrations pending on prod DB if not auto-applied: AddInvoiceLineLocation,
-  AddInvoiceDocumentKind.
+
+- Roadmap + status notes: CUSTOMER_ROADMAP_2026-07.md
+- Theme tokens: client/src/styles.css (top block)
+- Planner: API/Controllers/PlannerController.cs, API/Models/PlanEntry.cs,
+  client/src/app/pages/planner/*
+- P&L math (výjazdy, hrubá): API/Controllers/LocationsController.cs
+  BuildPnlDtoAsync
+- Division report: API/Services/DivisionMonthlyReportBuilder.cs
+- Parser: API/Services/InvoiceParser.cs; tests API.Tests/ (27)

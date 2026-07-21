@@ -1,0 +1,88 @@
+<app-navbar />
+<div class="min-h-dvh bg-slate-50 dark:bg-slate-900">
+  <div class="max-w-3xl mx-auto px-4 py-4 sm:p-6 space-y-4">
+
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Odvody</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Sumy, ktoré firma platí navyše.</p>
+      </div>
+      <button type="button" (click)="adding.set(!adding())"
+              class="touch-target px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold">
+        {{ adding() ? 'Zrušiť' : '+ Pridať položku' }}
+      </button>
+    </div>
+
+    <app-alert variant="error" [message]="error()" class="block" />
+
+    @if (adding()) {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border-2 border-amber-400 dark:border-amber-500 p-4 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label class="text-xs text-slate-600 dark:text-slate-300">
+            Názov
+            <input type="text" [(ngModel)]="newLabel" maxlength="100" placeholder="napr. Stravné"
+                   class="mt-1 w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+          </label>
+          <label class="text-xs text-slate-600 dark:text-slate-300">
+            Suma
+            <span class="block mt-1"><app-stepper [(value)]="newAmount" suffix="€" [disabled]="saving()" /></span>
+          </label>
+          <label class="text-xs text-slate-600 dark:text-slate-300">
+            Jednotka
+            <input type="text" [(ngModel)]="newUnit" maxlength="50" placeholder="napr. €/h na pracovníka"
+                   class="mt-1 w-full px-3 py-2 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+          </label>
+        </div>
+        <button type="button" (click)="addRow()" [disabled]="saving() || !newLabel.trim() || newAmount == null"
+                class="touch-target px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-sm font-semibold">
+          {{ saving() ? 'Ukladám…' : 'Pridať' }}
+        </button>
+      </div>
+    }
+
+    @if (loading()) {
+      <app-spinner />
+    } @else {
+      <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        @for (r of rates(); track r.id) {
+          <div class="px-4 py-3 border-t border-slate-100 dark:border-slate-700/50 first:border-t-0">
+            @if (editingId() === r.id) {
+              <div class="flex flex-wrap items-center gap-2">
+                <input type="text" [(ngModel)]="draftLabel" maxlength="100"
+                       class="flex-1 min-w-[10rem] px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+                <app-stepper [(value)]="draftAmount" suffix="€" [disabled]="saving()"
+                             (enter)="saveEdit(r)" (escape)="cancelEdit()" />
+                <input type="text" [(ngModel)]="draftUnit" maxlength="50" placeholder="jednotka"
+                       class="w-44 px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white rounded-lg text-sm" />
+                <button type="button" (click)="saveEdit(r)" [disabled]="saving()"
+                        class="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold disabled:opacity-50">Uložiť</button>
+                <button type="button" (click)="cancelEdit()" [disabled]="saving()"
+                        class="px-2 py-1.5 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-sm">Zrušiť</button>
+              </div>
+            } @else {
+              <div class="flex items-center gap-3">
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium text-slate-900 dark:text-white">{{ r.label }}
+                    @if (r.key) {
+                      <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400" title="Túto položku používa aplikácia">systémová</span>
+                    }
+                  </div>
+                  @if (r.unit) { <div class="text-xs text-slate-500 dark:text-slate-400">{{ r.unit }}</div> }
+                </div>
+                <span class="text-lg font-semibold tabular-nums text-slate-900 dark:text-white">{{ formatMoney(r.amount) }} €</span>
+                <button type="button" (click)="startEdit(r)"
+                        class="text-amber-600 dark:text-amber-400 hover:underline text-sm font-medium">Upraviť</button>
+                @if (!r.key) {
+                  <button type="button" (click)="remove(r)"
+                          class="text-red-500 hover:text-red-400 text-sm">Zmazať</button>
+                }
+              </div>
+            }
+          </div>
+        } @empty {
+          <div class="p-6 text-center text-sm text-slate-500 dark:text-slate-400">Žiadne položky.</div>
+        }
+      </div>
+    }
+  </div>
+</div>

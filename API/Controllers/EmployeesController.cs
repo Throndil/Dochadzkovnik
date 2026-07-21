@@ -122,7 +122,10 @@ public class EmployeesController : ControllerBase
                 IsActive = e.IsActive,
                 CreatedAt = e.CreatedAt,
                 NotificationsDeclineReason = e.NotificationsDeclineReason,
-                HourlyWage = e.HourlyWage
+                HourlyWage = e.HourlyWage,
+                OdvodyPct = e.OdvodyPct,
+                Division = e.Division,
+                Position = e.Position
             })
             .ToListAsync();
     }
@@ -146,7 +149,10 @@ public class EmployeesController : ControllerBase
             CreatedAt = emp.CreatedAt,
             PinPlain = emp.PinPlain,
             NotificationsDeclineReason = emp.NotificationsDeclineReason,
-            HourlyWage = emp.HourlyWage
+            HourlyWage = emp.HourlyWage,
+            OdvodyPct = emp.OdvodyPct,
+            Division = emp.Division,
+            Position = emp.Position
         };
     }
 
@@ -209,6 +215,16 @@ public class EmployeesController : ControllerBase
         emp.Address = dto.Address;
         emp.City = dto.City;
         emp.IsActive = dto.IsActive;
+        // Division (Fáza D8): null = don't touch; only the two known values land.
+        if (dto.Division is "profistav" or "stroje")
+            emp.Division = dto.Division;
+        // Pozícia (F6): null = don't touch; empty string clears.
+        if (dto.Position != null)
+            emp.Position = string.IsNullOrWhiteSpace(dto.Position) ? null : dto.Position.Trim();
+        // Odvody % — the employee form always sends this field, so it is
+        // authoritative (null clears). Set for the whole employment, like the
+        // wage; the Mzdy view only reads it.
+        emp.OdvodyPct = dto.OdvodyPct;
 
         // HourlyWage is optional on the DTO: omitting it means "don't touch".
         // When it changed, route it through the wage service so it lands in the

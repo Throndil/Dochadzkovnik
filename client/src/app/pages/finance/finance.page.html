@@ -35,29 +35,292 @@
       <app-spinner />
     } @else {
 
-      <!-- Hero: total month cost = wages + material (invoices are inside material) -->
+      <!-- Hero row: Náklady (all cost pillars) + Príjmy, side by side on lg. -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       @if (canPayroll() || canMaterial()) {
-        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
-          <div class="text-sm text-slate-500 dark:text-slate-400 capitalize">Náklady spolu · {{ monthLabel() }}</div>
-          <div class="text-3xl font-bold text-slate-900 dark:text-white mt-1 tabular-nums">{{ costTotal() | number:'1.2-2' }} €</div>
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6"
+             [class.lg:col-span-2]="!canInvoices()">
+          <div class="flex items-center gap-4">
+            <div class="w-11 h-11 shrink-0 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300 flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.121 15.536c-1.171 1.952-3.07 1.952-4.242 0-1.172-1.953-1.172-5.119 0-7.072 1.171-1.952 3.07-1.952 4.242 0M8 10.5h4m-4 3h4m9-1.5a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </div>
+            <div class="min-w-0">
+              <div class="text-sm text-slate-500 dark:text-slate-400 capitalize">Náklady spolu · {{ monthLabel() }}</div>
+              <div class="flex items-baseline gap-2.5 flex-wrap mt-0.5">
+                <span class="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">{{ costTotal() | number:'1.2-2' }} €</span>
+                @if (trendDelta() !== null) {
+                  <span class="inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap"
+                        [class]="trendDelta()! > 0
+                          ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                          : trendDelta()! < 0
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                            : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'"
+                        title="Zmena celkových nákladov oproti predchádzajúcemu mesiacu">
+                    {{ trendDelta()! > 0 ? '▲' : trendDelta()! < 0 ? '▼' : '•' }} {{ trendDelta()! > 0 ? '+' : '' }}{{ trendDelta() }} % vs minulý mesiac
+                  </span>
+                }
+              </div>
+            </div>
+            @if (trendPoints()) {
+              <span class="hidden sm:block relative ml-auto shrink-0">
+                <svg class="w-32 h-9 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img"
+                     aria-label="Vývoj nákladov za zvolené obdobie" (mouseleave)="hoveredSpark.set(null)">
+                  <polyline [attr.points]="trendPoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  @for (c of trendCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+                  }
+                  @if (trendLastPoint(); as p) {
+                    <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-amber-500" />
+                  }
+                  @for (c of trendCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="6" fill="transparent"
+                            (mouseenter)="hoveredSpark.set({ card: 'cost', i: $index })" />
+                  }
+                </svg>
+                @if (hoveredSpark(); as h) {
+                  @if (h.card === 'cost' && trendCoords()[h.i]; as c) {
+                    <span class="absolute bottom-full mb-1 z-10 pointer-events-none bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-lg px-2 py-1 text-xs whitespace-nowrap text-slate-700 dark:text-slate-200"
+                          [class]="c.x > 60 ? '-translate-x-full' : '-translate-x-1/2'"
+                          [style.left.%]="c.x">{{ sparkTitle(c.m, c.m.total) }}</span>
+                  }
+                }
+              </span>
+            }
+          </div>
 
-          <div class="flex h-3 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700 mt-4">
-            <span class="bg-sky-500" [style.flexGrow]="wagesPayout() ?? 0"></span>
-            <span class="bg-amber-500" [style.flexGrow]="materialSpend() ?? 0"></span>
-          </div>
-          <div class="flex flex-wrap gap-x-6 gap-y-2 mt-3 text-sm">
-            @if (canPayroll()) {
-              <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}</span></span>
+          <div class="flex items-center gap-5 mt-4">
+            @if (heroDonut().length) {
+              <svg class="w-20 h-20 shrink-0 -rotate-90" viewBox="0 0 36 36" fill="none" role="img"
+                   aria-label="Podiel miezd a materiálu na nákladoch mesiaca">
+                <circle cx="18" cy="18" r="15.9155" stroke-width="3.8" class="stroke-slate-100 dark:stroke-slate-700" />
+                @for (s of heroDonut(); track s.cls) {
+                  <circle cx="18" cy="18" r="15.9155" stroke-width="3.8" [class]="s.cls"
+                          [attr.stroke-dasharray]="s.dash" [attr.stroke-dashoffset]="s.offset" />
+                }
+              </svg>
             }
-            @if (canMaterial()) {
-              <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Materiál <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}</span></span>
-            }
+            <div class="flex flex-col gap-1.5 text-sm">
+              @if (canPayroll()) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-sky-500"></span> Mzdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ wagesPayout() !== null ? (wagesPayout() | number:'1.2-2') + ' €' : '—' }}</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(wagesPayout()) }} %</span> }
+                </span>
+              }
+              @if (canMaterial()) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Materiál <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ materialSpend() !== null ? (materialSpend() | number:'1.2-2') + ' €' : '—' }}</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(materialSpend()) }} %</span> }
+                </span>
+              }
+              @if (canInvoices() && strojeExpense() > 0) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-rose-500"></span> Stroje <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ strojeExpense() | number:'1.2-2' }} €</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(strojeExpense()) }} %</span> }
+                </span>
+              }
+              @if (tripsCost() > 0) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-violet-500"></span> Výjazdy <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ tripsCost() | number:'1.2-2' }} €</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(tripsCost()) }} %</span> }
+                </span>
+              }
+              @if (odvodyCost() > 0) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-teal-500"></span> Odvody <span class="font-semibold tabular-nums text-slate-900 dark:text-white">{{ odvodyCost() | number:'1.2-2' }} €</span>
+                  @if (heroDonut().length && costTotal() > 0) { <span class="text-xs text-slate-400 dark:text-slate-500 tabular-nums">{{ pctOf(odvodyCost()) }} %</span> }
+                </span>
+              }
+            </div>
           </div>
-          @if (canInvoices() && invoiceTotal() !== null) {
-            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
-              Materiál zahŕňa aj položky z faktúr od dodávateľov ({{ invoiceTotal() | number:'1.2-2' }} € s DPH@if (invoiceCount() !== null) { · {{ invoiceCount() }} faktúr }). Faktúry sa nepripočítavajú zvlášť.
+          @if (canInvoices() && ((invoiceTotal() ?? 0) > 0 || expenseVat() > 0)) {
+            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50 space-y-1">
+              @if (expenseVat() > 0) {
+                <div>DPH na odpočet <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ expenseVat() | number:'1.2-2' }} €</span> · bez DPH <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ costTotal() - expenseVat() | number:'1.2-2' }} €</span></div>
+              }
+              @if ((invoiceTotal() ?? 0) > 0) {
+                <div>Z toho faktúry <span class="tabular-nums">{{ invoiceTotal() | number:'1.2-2' }} €</span>@if (invoiceCount() !== null) { · {{ invoiceCount() }} dokl. }</div>
+              }
             </div>
           }
+        </div>
+      }
+
+      <!-- Príjmy hero: income invoices of both divisions -->
+      @if (canInvoices()) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6"
+             [class.lg:col-span-2]="!(canPayroll() || canMaterial())">
+          <div class="flex items-center gap-4">
+            <div class="w-11 h-11 shrink-0 rounded-2xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            </div>
+            <div class="min-w-0">
+              <div class="text-sm text-slate-500 dark:text-slate-400 capitalize">Príjmy spolu · {{ monthLabel() }}</div>
+              <div class="flex items-baseline gap-2.5 flex-wrap mt-0.5">
+                <span class="text-3xl font-bold text-slate-900 dark:text-white tabular-nums">{{ incomeTotal() | number:'1.2-2' }} €</span>
+                @if (incomeDelta() !== null) {
+                  <span class="inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap"
+                        [class]="incomeDelta()! > 0
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                          : incomeDelta()! < 0
+                            ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                            : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'"
+                        title="Zmena príjmov oproti predchádzajúcemu mesiacu">
+                    {{ incomeDelta()! > 0 ? '▲' : incomeDelta()! < 0 ? '▼' : '•' }} {{ incomeDelta()! > 0 ? '+' : '' }}{{ incomeDelta() }} % vs minulý mesiac
+                  </span>
+                }
+              </div>
+            </div>
+            @if (incomePoints()) {
+              <span class="hidden sm:block relative ml-auto shrink-0">
+                <svg class="w-32 h-9 text-slate-300 dark:text-slate-600 overflow-visible" viewBox="0 0 100 28" fill="none" role="img"
+                     aria-label="Vývoj príjmov za zvolené obdobie" (mouseleave)="hoveredSpark.set(null)">
+                  <polyline [attr.points]="incomePoints()" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  @for (c of incomeCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="1.6" class="fill-slate-400 dark:fill-slate-500" />
+                  }
+                  @if (incomeLastPoint(); as p) {
+                    <circle [attr.cx]="p.x" [attr.cy]="p.y" r="3" class="fill-emerald-500" />
+                  }
+                  @for (c of incomeCoords(); track c.m.month) {
+                    <circle [attr.cx]="c.x" [attr.cy]="c.y" r="6" fill="transparent"
+                            (mouseenter)="hoveredSpark.set({ card: 'income', i: $index })" />
+                  }
+                </svg>
+                @if (hoveredSpark(); as h) {
+                  @if (h.card === 'income' && incomeCoords()[h.i]; as c) {
+                    <span class="absolute bottom-full mb-1 z-10 pointer-events-none bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-md shadow-lg px-2 py-1 text-xs whitespace-nowrap text-slate-700 dark:text-slate-200"
+                          [class]="c.x > 60 ? '-translate-x-full' : '-translate-x-1/2'"
+                          [style.left.%]="c.x">{{ sparkTitle(c.m, c.m.income) }}</span>
+                  }
+                }
+              </span>
+            }
+          </div>
+          <div class="flex flex-col gap-1.5 mt-4 text-sm">
+            @for (d of divisionStats(); track d.key) {
+              @if (d.income > 0) {
+                <span class="inline-flex items-center gap-2 text-slate-600 dark:text-slate-300"><span class="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> {{ d.label }} <span class="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">+ {{ d.income | number:'1.2-2' }} €</span></span>
+              }
+            }
+            @if (incomeTotal() === 0) {
+              <span class="text-slate-400 dark:text-slate-500">V tomto mesiaci zatiaľ žiadne príjmové faktúry.</span>
+            }
+          </div>
+          @if (incomeVat() > 0) {
+            <div class="text-xs text-slate-400 dark:text-slate-500 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50">
+              Bez DPH <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeTotal() - incomeVat() | number:'1.2-2' }} €</span> · DPH <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ incomeVat() | number:'1.2-2' }} €</span>
+            </div>
+          }
+        </div>
+      }
+      </div>
+
+      <!-- Consolidated: Príjmy vs. Náklady per month, both sides in one chart -->
+      @if (consolidated(); as ch) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Príjmy vs. náklady</h2>
+            <span class="flex items-center gap-4 flex-wrap text-xs text-slate-500 dark:text-slate-400">
+              <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-emerald-500"></span> Príjmy</span>
+              <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-red-400"></span> Náklady</span>
+              <span class="inline-flex rounded-lg bg-slate-100 dark:bg-slate-700 p-0.5">
+                <button type="button" (click)="setTrendMonths(6)"
+                        class="px-2.5 py-1 rounded-md transition-colors"
+                        [class]="trendMonths() === 6
+                          ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                          : 'text-slate-600 dark:text-slate-300'">6 mesiacov</button>
+                <button type="button" (click)="setTrendMonths(12)"
+                        class="px-2.5 py-1 rounded-md transition-colors"
+                        [class]="trendMonths() === 12
+                          ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white font-medium'
+                          : 'text-slate-600 dark:text-slate-300'">Celý rok</button>
+              </span>
+            </span>
+          </div>
+          <div class="text-xs text-slate-400 dark:text-slate-500 mb-3">Posledných {{ trendMonths() }} mesiacov</div>
+          <div class="relative">
+            <svg class="w-full" [attr.viewBox]="'0 0 ' + ch.W + ' 130'" role="img"
+                 aria-label="Mesačné príjmy a náklady za zvolené obdobie" (mouseleave)="hoveredBar.set(null)">
+              <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.top" [attr.y2]="ch.top" stroke-width="0.5" class="stroke-slate-100 dark:stroke-slate-700" />
+              <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.midY" [attr.y2]="ch.midY" stroke-width="0.5" class="stroke-slate-100 dark:stroke-slate-700" />
+              <line x1="0" [attr.x2]="ch.W" [attr.y1]="ch.bottom" [attr.y2]="ch.bottom" stroke-width="1" class="stroke-slate-200 dark:stroke-slate-600" />
+              <text [attr.x]="ch.W" [attr.y]="ch.top - 2" text-anchor="end" font-size="7" class="fill-slate-400 dark:fill-slate-500">{{ axisLabel(ch.niceMax) }} €</text>
+              <text [attr.x]="ch.W" [attr.y]="ch.midY - 2" text-anchor="end" font-size="7" class="fill-slate-400 dark:fill-slate-500">{{ axisLabel(ch.niceMax / 2) }} €</text>
+              @for (g of ch.groups; track g.m.month) {
+                @if (hoveredBar() === $index) {
+                  <rect [attr.x]="g.groupX" y="2" [attr.width]="g.groupW" [attr.height]="ch.bottom - 2" rx="2" class="fill-slate-100 dark:fill-slate-700/40" />
+                }
+                <rect [attr.x]="g.incX" [attr.y]="g.incY" [attr.width]="g.barW" [attr.height]="g.incH" rx="1.5" class="fill-emerald-500" />
+                <rect [attr.x]="g.costX" [attr.y]="g.costY" [attr.width]="g.barW" [attr.height]="g.costH" rx="1.5" class="fill-red-400" />
+                <text [attr.x]="g.cx" y="124" text-anchor="middle" font-size="8" class="fill-slate-500 dark:fill-slate-400">{{ g.label }}</text>
+                <rect [attr.x]="g.groupX" y="0" [attr.width]="g.groupW" height="130" fill="transparent"
+                      (mouseenter)="hoveredBar.set($index)" />
+              }
+            </svg>
+            @if (hoveredBar() !== null && ch.groups[hoveredBar()!]; as g) {
+              <div class="absolute top-0 z-10 pointer-events-none -translate-x-1/2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg px-3 py-2 text-xs whitespace-nowrap"
+                   [style.left.%]="(g.cx / ch.W) * 100">
+                <div class="font-semibold text-slate-900 dark:text-white capitalize mb-1">{{ barMonthLabel(g.m) }}</div>
+                <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300"><span class="w-2 h-2 rounded-sm bg-emerald-500"></span> Príjmy <span class="ml-auto pl-4 font-semibold tabular-nums">{{ g.m.income | number:'1.2-2' }} €</span></div>
+                <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300"><span class="w-2 h-2 rounded-sm bg-red-400"></span> Náklady <span class="ml-auto pl-4 font-semibold tabular-nums">{{ g.m.total | number:'1.2-2' }} €</span></div>
+                <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 mt-0.5 pt-0.5 border-t border-slate-100 dark:border-slate-600">Rozdiel
+                  <span class="ml-auto pl-4 font-bold tabular-nums"
+                        [class]="g.m.income - g.m.total > 0 ? 'text-emerald-600 dark:text-emerald-400' : g.m.income - g.m.total < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
+                    {{ g.m.income - g.m.total > 0 ? '+ ' : g.m.income - g.m.total < 0 ? '− ' : '' }}{{ (g.m.income - g.m.total < 0 ? g.m.total - g.m.income : g.m.income - g.m.total) | number:'1.2-2' }} €
+                  </span>
+                </div>
+              </div>
+            }
+          </div>
+          <div class="flex flex-wrap items-baseline justify-between gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700/50 text-sm">
+            <span class="text-slate-500 dark:text-slate-400">Spolu za {{ trendMonths() }} mesiacov</span>
+            <span class="flex flex-wrap gap-x-4 gap-y-0.5">
+              @if (consolidatedTotals().vat > 0) {
+                <span class="text-slate-500 dark:text-slate-400">DPH na odpočet <span class="font-semibold tabular-nums text-slate-600 dark:text-slate-300">{{ consolidatedTotals().vat | number:'1.2-2' }} €</span></span>
+              }
+              <span class="text-slate-500 dark:text-slate-400">Príjmy <span class="font-semibold tabular-nums"
+                    [class]="consolidatedTotals().income > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ consolidatedTotals().income > 0 ? '+ ' : '' }}{{ consolidatedTotals().income | number:'1.2-2' }} €</span></span>
+              <span class="text-slate-500 dark:text-slate-400">Náklady <span class="font-semibold tabular-nums"
+                    [class]="consolidatedTotals().cost > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ consolidatedTotals().cost > 0 ? '− ' : '' }}{{ consolidatedTotals().cost | number:'1.2-2' }} €</span></span>
+              <span class="text-slate-500 dark:text-slate-400">Rozdiel <span class="font-bold tabular-nums"
+                    [class]="consolidatedTotals().diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : consolidatedTotals().diff < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ consolidatedTotals().diff > 0 ? '+ ' : consolidatedTotals().diff < 0 ? '− ' : '' }}{{ (consolidatedTotals().diff < 0 ? -consolidatedTotals().diff : consolidatedTotals().diff) | number:'1.2-2' }} €</span></span>
+            </span>
+          </div>
+        </div>
+      }
+
+      <!-- Divisions: Príjem / Výdaj / Rozdiel per division (Fáza D) -->
+      @if (canInvoices() && canDivisions()) {
+        <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white capitalize">Divízie · {{ monthLabel() }}</h2>
+            <!-- D6 — mesačný report divízií -->
+            <button type="button" (click)="downloadDivisionReport()"
+                    class="touch-target inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-semibold transition-colors">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+              Report (Excel)
+            </button>
+          </div>
+          <div class="space-y-2">
+            @for (d of divisionStats(); track d.key) {
+              <button type="button" (click)="openDivision(d.key)"
+                      class="w-full flex items-start sm:items-center gap-3 sm:gap-6 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/40 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-left flex-wrap">
+                <span class="font-medium text-slate-900 dark:text-white w-full sm:w-auto sm:min-w-[8rem]">{{ d.label }}
+                  <span class="block text-[11px] font-normal text-slate-400 dark:text-slate-500">{{ d.count }} {{ d.count === 1 ? 'doklad' : (d.count >= 2 && d.count <= 4 ? 'doklady' : 'dokladov') }}</span>
+                </span>
+                <span class="flex-1 sm:flex-none text-xs text-slate-500 dark:text-slate-400">Príjem
+                  <span class="block text-sm font-semibold tabular-nums"
+                        [class]="d.income > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'">{{ d.income > 0 ? '+ ' : '' }}{{ d.income | number:'1.2-2' }} €</span>
+                </span>
+                <span class="flex-1 sm:flex-none text-xs text-slate-500 dark:text-slate-400">Výdaj
+                  <span class="block text-sm font-semibold tabular-nums"
+                        [class]="d.expense > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">{{ d.expense > 0 ? '− ' : '' }}{{ d.expense | number:'1.2-2' }} €</span>
+                </span>
+                <span class="flex-1 sm:flex-none text-xs text-slate-500 dark:text-slate-400">Rozdiel
+                  <span class="block text-sm font-bold tabular-nums"
+                        [class]="d.diff > 0 ? 'text-emerald-600 dark:text-emerald-400' : d.diff < 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400 dark:text-slate-500'">
+                    {{ d.diff > 0 ? '+ ' : d.diff < 0 ? '− ' : '' }}{{ (d.diff < 0 ? -d.diff : d.diff) | number:'1.2-2' }} €
+                  </span>
+                </span>
+                <svg class="hidden sm:block w-4 h-4 text-slate-400 ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            }
+          </div>
         </div>
       }
 
@@ -66,7 +329,7 @@
         <div class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-5 sm:p-6">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Náklady podľa pracoviska</h2>
-            <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <div class="flex items-center gap-2 flex-wrap text-sm text-slate-600 dark:text-slate-300">
               <span>Od</span>
               <span class="date-field w-36">
                 <input type="date" appDate [value]="reportFrom()"
@@ -83,6 +346,7 @@
           <div class="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 mb-4">
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-sky-500"></span> Mzdy</span>
             <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-amber-500"></span> Materiál</span>
+            <span class="inline-flex items-center gap-1.5"><span class="w-2 h-2 rounded-sm bg-violet-500"></span> Výjazdy</span>
           </div>
 
           @if (reportLoading()) {
@@ -111,11 +375,15 @@
                   <div class="col-span-2 flex h-2 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-700">
                     <span class="bg-sky-500" [style.width.%]="barPct(r.labour.cost)"></span>
                     <span class="bg-amber-500" [style.width.%]="barPct(r.material?.cost)"></span>
+                    <span class="bg-violet-500" [style.width.%]="barPct(r.trips?.cost)"></span>
                   </div>
 
                   <div class="col-span-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
                     <span>Mzdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.labour.cost | number:'1.2-2' }} €</span> · {{ r.labour.hoursWorked | number:'1.1-1' }} h</span>
                     <span>Materiál <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.material !== null ? (r.material!.cost | number:'1.2-2') + ' €' : '—' }}</span></span>
+                    @if (r.trips; as trips) {
+                      <span>Výjazdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ trips.cost | number:'1.2-2' }} €</span> · {{ trips.count }}×</span>
+                    }
                     @if (r.invoicedInclVat != null && r.invoicedInclVat > 0) {
                       <span>Faktúry <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ r.invoicedInclVat | number:'1.2-2' }} €</span> s DPH</span>
                     }
@@ -129,6 +397,9 @@
               <span class="text-sm text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-4 items-baseline">
                 <span>Mzdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().wages | number:'1.2-2' }} €</span></span>
                 <span>Materiál <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().material | number:'1.2-2' }} €</span></span>
+                @if (reportTotals().trips > 0) {
+                  <span>Výjazdy <span class="tabular-nums text-slate-700 dark:text-slate-300">{{ reportTotals().trips | number:'1.2-2' }} €</span></span>
+                }
                 <span class="font-semibold text-slate-900 dark:text-white">= {{ reportTotals().total | number:'1.2-2' }} €</span>
               </span>
             </div>
@@ -142,33 +413,63 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           @if (canMaterial()) {
             <a routerLink="/admin/materials"
-               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-              <div class="font-semibold text-slate-900 dark:text-white">Materiál</div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a inventár</div>
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-slate-900 dark:text-white">Materiál</span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Katalóg, nákupy a sklad</span>
+              </span>
             </a>
           }
           @if (canInvoices()) {
             <a routerLink="/admin/invoices"
-               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-              <div class="font-semibold text-slate-900 dark:text-white flex items-center gap-2">Faktúry
-                @if ((invoicePending() ?? 0) > 0) {
-                  <span class="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ invoicePending() }} na kontrolu</span>
-                }
-              </div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Faktúry od dodávateľov</div>
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-violet-100 dark:bg-violet-900/40 text-violet-600 dark:text-violet-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="font-semibold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">Faktúry
+                  @if ((invoicePending() ?? 0) > 0) {
+                    <span class="text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ invoicePending() }} na kontrolu</span>
+                  }
+                </span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Faktúry od dodávateľov</span>
+              </span>
             </a>
           }
           @if (canPayroll()) {
             <a routerLink="/admin/mzdy"
-               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-              <div class="font-semibold text-slate-900 dark:text-white">Mzdy</div>
-              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</div>
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-slate-900 dark:text-white">Mzdy</span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Výplaty, preddavky a hodiny</span>
+              </span>
+            </a>
+            <a routerLink="/admin/odvody"
+               class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+              <span class="w-9 h-9 shrink-0 rounded-xl bg-teal-100 dark:bg-teal-900/40 text-teal-600 dark:text-teal-300 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 4.99h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z"/></svg>
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-slate-900 dark:text-white">Odvody</span>
+                <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Ubytovanie, výjazdy a ďalšie sumy</span>
+              </span>
             </a>
           }
           <a routerLink="/admin/locations"
-             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors">
-            <div class="font-semibold text-slate-900 dark:text-white">Náklady a zisk (P&amp;L)</div>
-            <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Podľa pracoviska</div>
+             class="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 hover:border-amber-400 dark:hover:border-amber-500 transition-colors flex items-start gap-3">
+            <span class="w-9 h-9 shrink-0 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
+              <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            </span>
+            <span class="min-w-0">
+              <span class="block font-semibold text-slate-900 dark:text-white">Náklady a zisk (P&amp;L)</span>
+              <span class="block text-xs text-slate-500 dark:text-slate-400 mt-0.5">Podľa pracoviska</span>
+            </span>
           </a>
         </div>
       </div>

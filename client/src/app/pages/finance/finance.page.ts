@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { NavbarComponent } from '../../components/navbar/navbar.component';
 import { SpinnerComponent } from '../../components/spinner/spinner.component';
@@ -8,9 +8,10 @@ import { AlertComponent } from '../../components/alert/alert.component';
 import { AuthService } from '../../services/auth.service';
 import { ApiErrorService } from '../../services/api-error.service';
 import { FeatureFlagService } from '../../services/feature-flag.service';
-import { PayrollService } from '../../services/payroll.service';
+import { CostTrendMonth, PayrollService } from '../../services/payroll.service';
 import { MaterialPurchaseService } from '../../services/material-purchase.service';
-import { InvoiceService } from '../../services/invoice.service';
+import { InvoiceService, InvoiceDocument } from '../../services/invoice.service';
+import { Division, DivisionService, DIVISION_LABELS } from '../../services/division.service';
 import { LocationService, LocationPnl } from '../../services/location.service';
 import { DatepickerDirective } from '../../directives/datepicker.directive';
 import { MonthPickerComponent } from '../../components/month-picker/month-picker.component';
@@ -50,10 +51,61 @@ export class FinancePage {
   invoiceTotal = signal<number | null>(null);
   invoiceCount = signal<number | null>(null);
   invoicePending = signal<number | null>(null);
+  /** Month's documents — feeds the per-division Príjem/Výdaj/Rozdiel card. */
+  invoiceDocs = signal<InvoiceDocument[]>([]);
+  /** Monthly cost/income totals (oldest first) — sparklines + consolidated
+   *  chart. Window length follows trendMonths (6 = polrok, 12 = celý rok). */
+  trend = signal<CostTrendMonth[] | null>(null);
+  trendMonths = signal<6 | 12>(6);
+
+  setTrendMonths(m: 6 | 12) {
+    if (this.trendMonths() === m) return;
+    this.trendMonths.set(m);
+    this.loadTrend();
+  }
+
+  /** Trend is decoration — best-effort like every other card. */
+  async loadTrend() {
+    if (!this.canPayroll()) return;
+    try {
+      this.trend.set(await this.payroll.costTrend(this.month(), this.trendMonths()));
+    } catch {
+      this.trend.set(null);
+    }
+  }
+
+  private divisionSvc = inject(DivisionService);
+  private router = inject(Router);
+
+  /** Príjem / Výdaj / Rozdiel per division for the selected month (Fáza D). */
+  divisionStats = computed(() => {
+    const docs = this.invoiceDocs().filter(i => i.status !== 'discarded');
+    return (['profistav', 'stroje'] as Division[]).map(key => {
+      const mine = docs.filter(i => (i.division || 'profistav') === key);
+      const income = mine.filter(i => i.direction === 'income').reduce((s, i) => s + (i.totalInclVat || 0), 0);
+      const expense = mine.filter(i => i.direction !== 'income').reduce((s, i) => s + (i.totalInclVat || 0), 0);
+      return { key, label: DIVISION_LABELS[key], income, expense, diff: income - expense, count: mine.length };
+    });
+  });
+
+  /** D6 — monthly division report Excel for the month being viewed. */
+  downloadDivisionReport() {
+    this.invoices.downloadMonthlyReport(this.month());
+  }
+
+  /** Súhrn card click-through: activate the division and open its page ON
+   *  THE MONTH being viewed here (carried via ?mesiac=YYYY-MM). */
+  openDivision(d: Division) {
+    this.divisionSvc.set(d);
+    this.router.navigate(['/admin/invoices'], { queryParams: { mesiac: this.month() } });
+  }
 
   canPayroll = computed(() => this.flags.payrollAndPnL() || this.auth.isSuperAdmin());
   canInvoices = computed(() => this.flags.invoiceScanning() || this.auth.isSuperAdmin());
   canMaterial = computed(() => this.flags.materialPurchases() || this.auth.isSuperAdmin());
+  /** Stroje a divízie module — gates the per-division card; a customer
+   *  without divisions sees their documents on the Faktúry page directly. */
+  canDivisions = computed(() => this.flags.strojeDivisions() || this.auth.isSuperAdmin());
 
   monthLabel = computed(() => {
     const [y, m] = this.month().split('-').map(Number);
@@ -79,6 +131,7 @@ export class FinancePage {
       (r.labour?.hoursWorked ?? 0) > 0
       || (r.labour?.cost ?? 0) > 0
       || (r.material?.cost ?? 0) > 0
+      || (r.trips?.cost ?? 0) > 0
       || (r.invoicedInclVat ?? 0) > 0));
 
   reportTotals = computed(() => {
@@ -87,26 +140,202 @@ export class FinancePage {
       hours: rows.reduce((s, r) => s + (r.labour?.hoursWorked ?? 0), 0),
       wages: rows.reduce((s, r) => s + (r.labour?.cost ?? 0), 0),
       material: rows.reduce((s, r) => s + (r.material?.cost ?? 0), 0),
+      trips: rows.reduce((s, r) => s + (r.trips?.cost ?? 0), 0),
       invoiced: rows.reduce((s, r) => s + (r.invoicedInclVat ?? 0), 0),
-      total: rows.reduce((s, r) => s + (r.labour?.cost ?? 0) + (r.material?.cost ?? 0), 0)
+      total: rows.reduce((s, r) => s + (r.labour?.cost ?? 0) + (r.material?.cost ?? 0) + (r.trips?.cost ?? 0), 0)
     };
   });
 
-  // ─── Overview hero (the two real cost pillars) ───
-  // Month cost = wages + material. Invoices are NOT added: supplier-invoice
-  // material is already counted inside `materialSpend` (the P&L does the same),
-  // so adding faktúry on top would double-count. Faktúry is shown as a source,
-  // not a third pillar.
-  costTotal = computed(() => (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0));
-  wagesPct = computed(() => {
+  // ─── Overview hero (the three cost pillars) ───
+  // Month cost = wages + material + stroje. Profistav expense invoices are
+  // NOT added on top: their items land inside `materialSpend` on commit, so
+  // that would double-count. AZ Stroje invoices are the opposite case — they
+  // are excluded from material views by design, so without this pillar they
+  // appeared in no total at all (customer: "160 € spolu, ale Stroje majú
+  // −2 833 €").
+  strojeExpense = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction !== 'income' && (i.division || 'profistav') === 'stroje')
+      .reduce((s, i) => s + (i.totalInclVat || 0), 0));
+  /** Výjazdy + odvody for the selected month — from the trend (its last
+   *  month IS the selected month), the only per-month client source. */
+  tripsCost = computed(() => this.trend()?.at(-1)?.trips ?? 0);
+  odvodyCost = computed(() => this.trend()?.at(-1)?.odvody ?? 0);
+  /** DPH inside the month's expense documents (faktúry + bločky, both
+   *  divisions) — what a VAT payer could reclaim. */
+  expenseVat = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction !== 'income')
+      .reduce((s, i) => s + (i.totalVat || 0), 0));
+  /** Income invoices of both divisions in the selected month. */
+  incomeTotal = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction === 'income')
+      .reduce((s, i) => s + (i.totalInclVat || 0), 0));
+  incomeVat = computed(() =>
+    this.invoiceDocs()
+      .filter(i => i.status !== 'discarded' && i.direction === 'income')
+      .reduce((s, i) => s + (i.totalVat || 0), 0));
+  costTotal = computed(() =>
+    (this.wagesPayout() ?? 0) + (this.materialSpend() ?? 0) + this.strojeExpense()
+    + this.tripsCost() + this.odvodyCost());
+
+  /** Share of one cost pillar on the month total, in whole %. */
+  pctOf(value: number | null): number {
     const t = this.costTotal();
-    return t > 0 ? Math.round((this.wagesPayout() ?? 0) / t * 100) : 0;
+    return t > 0 ? Math.round(((value ?? 0) / t) * 100) : 0;
+  }
+
+  /** Donut segments for the hero cost split (r=15.9155 → circumference 100,
+   *  so dasharray works in percent). Negative components (advances over
+   *  gross) clamp to 0; single-part months render a full ring without gaps. */
+  heroDonut = computed(() => {
+    const w = Math.max(this.wagesPayout() ?? 0, 0);
+    const m = Math.max(this.materialSpend() ?? 0, 0);
+    const st = Math.max(this.strojeExpense(), 0);
+    const tr = Math.max(this.tripsCost(), 0);
+    const od = Math.max(this.odvodyCost(), 0);
+    const total = w + m + st + tr + od;
+    if (total <= 0) return [];
+    const parts = [
+      { cls: 'stroke-sky-500', value: w },
+      { cls: 'stroke-amber-500', value: m },
+      { cls: 'stroke-rose-500', value: st },
+      { cls: 'stroke-violet-500', value: tr },
+      { cls: 'stroke-teal-500', value: od },
+    ].filter(p => p.value > 0);
+    const gap = parts.length > 1 ? 2 : 0;
+    let start = 0;
+    return parts.map(p => {
+      const pct = (p.value / total) * 100;
+      const visible = Math.max(pct - gap, 0.5);
+      const seg = { cls: p.cls, dash: `${visible} ${100 - visible}`, offset: -(start + gap / 2) };
+      start += pct;
+      return seg;
+    });
   });
+
+  // ─── Trend sparklines (FLOWii-style, one per hero card) ───
+
+  /** Sparkline coordinates in a fixed 100×28 viewBox, x spaced evenly,
+   *  y scaled to the window's max. Empty = nothing to draw. */
+  private buildCoords(values: number[]) {
+    if (values.length < 2 || !values.some(v => v > 0)) return [];
+    const max = Math.max(...values);
+    const w = 100, h = 28, pad = 3;
+    return values.map((v, i) => ({
+      x: +(pad + (i * (w - 2 * pad)) / (values.length - 1)).toFixed(1),
+      y: +(h - pad - (Math.max(v, 0) / max) * (h - 2 * pad)).toFixed(1)
+    }));
+  }
+
+  /** % change vs the previous month; null when the previous month is 0. */
+  private static delta(values: number[]): number | null {
+    if (values.length < 2) return null;
+    const prev = values[values.length - 2];
+    if (prev <= 0) return null;
+    return Math.round(((values[values.length - 1] - prev) / prev) * 100);
+  }
+
+  trendDelta = computed(() => FinancePage.delta((this.trend() ?? []).map(m => m.total)));
+  trendCoords = computed(() => {
+    const t = this.trend() ?? [];
+    return this.buildCoords(t.map(m => m.total)).map((p, i) => ({ ...p, m: t[i] }));
+  });
+  trendPoints = computed(() => this.trendCoords().map(c => `${c.x},${c.y}`).join(' '));
+  trendLastPoint = computed(() => this.trendCoords().at(-1) ?? null);
+
+  incomeDelta = computed(() => FinancePage.delta((this.trend() ?? []).map(m => m.income)));
+  incomeCoords = computed(() => {
+    const t = this.trend() ?? [];
+    return this.buildCoords(t.map(m => m.income)).map((p, i) => ({ ...p, m: t[i] }));
+  });
+  incomePoints = computed(() => this.incomeCoords().map(c => `${c.x},${c.y}`).join(' '));
+  incomeLastPoint = computed(() => this.incomeCoords().at(-1) ?? null);
+
+  private static fmtEur(v: number): string {
+    return `${v.toLocaleString('sk-SK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  }
+
+  private static monthShort(month: string): string {
+    const [y, m] = month.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('sk-SK', { month: 'short' });
+  }
+
+  /** Hover title for one sparkline month, e.g. "máj 2026 · 12 345,60 €". */
+  sparkTitle(m: CostTrendMonth, value: number): string {
+    return `${FinancePage.monthShort(m.month)} ${m.month.slice(0, 4)} · ${FinancePage.fmtEur(value)}`;
+  }
+
+  // ─── Consolidated chart: Príjmy vs. Náklady per month ───
+
+  /** Grouped-bar geometry in a 320×130 viewBox (plot 8..112, labels below).
+   *  Negative months clamp to 0 — a bar can't go below the baseline. */
+  consolidated = computed(() => {
+    const t = this.trend() ?? [];
+    if (t.length < 2) return null;
+    const raw = Math.max(...t.map(m => Math.max(m.income, m.total, 0)));
+    if (raw <= 0) return null;
+    const niceMax = FinancePage.niceCeil(raw);
+    const W = 320, top = 8, bottom = 112;
+    const plotH = bottom - top;
+    const groupW = (W - 12) / t.length;
+    const barW = Math.min(15, groupW * 0.3);
+    const groups = t.map((m, i) => {
+      const cx = 6 + groupW * i + groupW / 2;
+      const hInc = (Math.max(m.income, 0) / niceMax) * plotH;
+      const hCost = (Math.max(m.total, 0) / niceMax) * plotH;
+      return {
+        m, cx, barW,
+        label: FinancePage.monthShort(m.month),
+        incX: cx - barW - 1.5, incY: bottom - hInc, incH: hInc,
+        costX: cx + 1.5, costY: bottom - hCost, costH: hCost,
+        groupX: cx - groupW / 2, groupW,
+      };
+    });
+    return { groups, niceMax, W, top, bottom, midY: (top + bottom) / 2 };
+  });
+
+  /** Window sums for the row under the consolidated chart. */
+  consolidatedTotals = computed(() => {
+    const t = this.trend() ?? [];
+    const income = t.reduce((s, m) => s + m.income, 0);
+    const cost = t.reduce((s, m) => s + m.total, 0);
+    const vat = t.reduce((s, m) => s + m.vat, 0);
+    return { income, cost, vat, diff: income - cost };
+  });
+
+  /** Hovered consolidated-chart month (index into groups); drives the
+   *  HTML tooltip — native SVG titles were too easy to miss. */
+  hoveredBar = signal<number | null>(null);
+
+  /** Hovered sparkline dot, per hero card ('cost' | 'income'). */
+  hoveredSpark = signal<{ card: 'cost' | 'income'; i: number } | null>(null);
+
+  /** Full month name for the tooltip header, e.g. "júl 2026". */
+  barMonthLabel(m: CostTrendMonth): string {
+    const [y, mo] = m.month.split('-').map(Number);
+    return new Date(y, mo - 1, 1).toLocaleDateString('sk-SK', { month: 'long', year: 'numeric' });
+  }
+
+  /** Axis label without cents — the gridline values. */
+  axisLabel(v: number): string {
+    return v.toLocaleString('sk-SK', { maximumFractionDigits: 0 });
+  }
+
+  /** Smallest "nice" ceiling (1/2/2.5/5 × 10^k) ≥ v — the chart's y max. */
+  private static niceCeil(v: number): number {
+    const pow = Math.pow(10, Math.floor(Math.log10(v)));
+    for (const m of [1, 2, 2.5, 5, 10]) {
+      if (m * pow >= v) return m * pow;
+    }
+    return 10 * pow;
+  }
 
   /** Largest per-site total in the report — scales the comparison bars. */
   reportMax = computed(() => {
     const rows = this.visibleReportRows();
-    const m = Math.max(0, ...rows.map(r => (r.labour?.cost ?? 0) + (r.material?.cost ?? 0)));
+    const m = Math.max(0, ...rows.map(r => (r.labour?.cost ?? 0) + (r.material?.cost ?? 0) + (r.trips?.cost ?? 0)));
     return m > 0 ? m : 1;
   });
 
@@ -116,7 +345,7 @@ export class FinancePage {
   }
 
   rowTotal(r: LocationPnl): number {
-    return (r.labour?.cost ?? 0) + (r.material?.cost ?? 0);
+    return (r.labour?.cost ?? 0) + (r.material?.cost ?? 0) + (r.trips?.cost ?? 0);
   }
 
   constructor() {
@@ -194,16 +423,28 @@ export class FinancePage {
           this.wagesPayout.set(null);
         }
       })());
+      tasks.push(this.loadTrend());
     }
 
     if (this.canInvoices()) {
       tasks.push((async () => {
         try {
           const rows = await this.invoices.list({ from, to });
-          this.invoiceCount.set(rows.length);
-          this.invoiceTotal.set(rows.reduce((s, d) => s + (d.totalInclVat || 0), 0));
+          this.invoiceDocs.set(rows);
+          // The footnote explains what's already inside Materiál — so it must
+          // count ONLY the documents that actually feed material purchases:
+          // expense direction, non-stroje (income and AZ Stroje docs are
+          // excluded from material views), not discarded. Counting everything
+          // made the note contradict a 0 € Materiál.
+          const inMaterial = rows.filter(d =>
+            d.status !== 'discarded'
+            && d.direction !== 'income'
+            && (d.division || 'profistav') !== 'stroje');
+          this.invoiceCount.set(inMaterial.length);
+          this.invoiceTotal.set(inMaterial.reduce((s, d) => s + (d.totalInclVat || 0), 0));
           this.invoicePending.set(rows.filter(d => d.status === 'review').length);
         } catch {
+          this.invoiceDocs.set([]);
           this.invoiceCount.set(null);
           this.invoiceTotal.set(null);
           this.invoicePending.set(null);

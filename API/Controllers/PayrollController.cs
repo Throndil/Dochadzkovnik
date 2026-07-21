@@ -75,13 +75,139 @@ public class PayrollController : ControllerBase
     public async Task<ActionResult<PayrollMonthlyDto>> Monthly(
         [FromQuery] string? month,
         [FromQuery(Name = "from")] string? fromStr,
-        [FromQuery(Name = "to")] string? toStr)
+        [FromQuery(Name = "to")] string? toStr,
+        [FromQuery] string? division = null)
     {
         if (!TryParsePeriod(month, fromStr, toStr, out var from, out var toExcl, out var label))
             return BadRequest("Zadajte mesiac vo formáte YYYY-MM alebo rozsah from/to vo formáte YYYY-MM-DD.");
 
-        var data = await BuildMonthlyAsync(label, from, toExcl);
+        var data = await BuildMonthlyAsync(label, from, toExcl, division);
         return data;
+    }
+
+    /// <summary>
+    /// GET /api/payroll/cost-trend?month=YYYY-MM&amp;months=6
+    /// Monthly cost totals for the /admin/finance sparkline: the `months`
+    /// calendar months ending at `month`, oldest first. Wages = payout
+    /// (hours × WageAtTime − advances) like /monthly totals; summed per
+    /// entry rather than per employee, so cent-level rounding can differ
+    /// from the Mzdy page — invisible at sparkline scale.
+    /// </summary>
+    [HttpGet("cost-trend")]
+    public async Task<ActionResult<List<CostTrendMonthDto>>> CostTrend(
+        [FromQuery] string? month, [FromQuery] int months = 6)
+    {
+        if (string.IsNullOrWhiteSpace(month) || !TryParseMonth(month, out var selStart, out var selEndExcl))
+            return BadRequest("Zadajte mesiac vo formáte YYYY-MM.");
+        months = Math.Clamp(months, 2, 24);
+        var from = selStart.AddMonths(-(months - 1));
+        var toExcl = selEndExcl;
+
+        var entries = await _db.TimeEntries
+            .Where(t => t.ClockIn >= from && t.ClockIn < toExcl && t.ClockOut != null)
+            .Select(t => new { t.EmployeeId, t.ClockIn, t.ClockOut, t.WageAtTime })
+            .ToListAsync();
+        // Per-worker employer contributions (% of gross, Employee.OdvodyPct).
+        var odvodyPcts = await _db.Employees
+            .Where(e => e.OdvodyPct != null)
+            .ToDictionaryAsync(e => e.Id, e => e.OdvodyPct!.Value);
+        var advances = await _db.EmployeeAdvances
+            .Where(a => a.Date >= from && a.Date < toExcl)
+            .Select(a => new { a.Date, a.Amount })
+            .ToListAsync();
+        // Same exclusion as the material views (MaterialPurchasesController):
+        // income invoices and AZ Stroje division documents are not material
+        // spend — without this the trend disagrees with the hero's Materiál.
+        var purchases = await _db.MaterialPurchases
+            .Where(p => p.PurchaseDate >= from && p.PurchaseDate < toExcl)
+            .Where(p => p.InvoiceDocument == null
+                     || (p.InvoiceDocument.Direction != "income" && p.InvoiceDocument.Division != "stroje"))
+            .Select(p => new { p.PurchaseDate, p.TotalCost })
+            .ToListAsync();
+
+        // Expense documents (faktúry + bločky, both divisions): AZ Stroje
+        // rows are their own cost pillar (excluded from material above);
+        // TotalVat over ALL of them feeds the DPH-reclaim figure.
+        var expenseDocs = await _db.InvoiceDocuments
+            .Where(i => i.IssueDate >= from && i.IssueDate < toExcl
+                     && i.Direction != "income" && i.Status != "discarded")
+            .Select(i => new { i.IssueDate, i.Division, i.TotalInclVat, i.TotalVat })
+            .ToListAsync();
+
+        // Remaining "€/h" add-ons from the Odvody page (ubytovanie,
+        // customer-added rows) — the global odvody row moved to per-worker
+        // OdvodyPct. ponytail: live rates — changing them shifts history.
+        var perHourAddon = (await _db.CompanyRates
+                .Where(r => r.Unit != null)
+                .Select(r => new { r.Amount, r.Unit })
+                .ToListAsync())
+            .Where(r => r.Unit!.Contains("€/h"))
+            .Sum(r => r.Amount);
+
+        // Výjazdy — same definition as the P&L (LocationsController): one
+        // ride per car per calendar day, priced at the live vyjazd_auta rate.
+        // ponytail: live rate — changing the tariff shifts history.
+        var tripRate = await _db.CompanyRates
+            .Where(r => r.Key == "vyjazd_auta")
+            .Select(r => (decimal?)r.Amount)
+            .FirstOrDefaultAsync() ?? 0m;
+        var tripEntries = await _db.TimeEntries
+            .Where(t => t.ClockIn >= from && t.ClockIn < toExcl && t.ClockOut != null && t.CarId != null)
+            .Select(t => new { t.CarId, t.ClockIn })
+            .ToListAsync();
+
+        // Income side — income invoices of BOTH divisions, by dátum dokladu.
+        var incomeDocs = await _db.InvoiceDocuments
+            .Where(i => i.IssueDate >= from && i.IssueDate < toExcl
+                     && i.Direction == "income" && i.Status != "discarded")
+            .Select(i => new { i.IssueDate, i.TotalInclVat })
+            .ToListAsync();
+
+        var result = new List<CostTrendMonthDto>();
+        for (var m0 = from; m0 < toExcl; m0 = m0.AddMonths(1))
+        {
+            var m1 = m0.AddMonths(1);
+            var monthEntries = entries.Where(t => t.ClockIn >= m0 && t.ClockIn < m1).ToList();
+            var gross = monthEntries.Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours * t.WageAtTime);
+            var hours = monthEntries.Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours);
+            var adv = advances.Where(a => a.Date >= m0 && a.Date < m1).Sum(a => a.Amount);
+            var mat = Math.Round(
+                purchases.Where(p => p.PurchaseDate >= m0 && p.PurchaseDate < m1).Sum(p => p.TotalCost),
+                2, MidpointRounding.AwayFromZero);
+            var monthDocs = expenseDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).ToList();
+            var stroje = monthDocs.Where(i => i.Division == "stroje").Sum(i => i.TotalInclVat);
+            var vat = monthDocs.Sum(i => i.TotalVat);
+            var tripCount = tripEntries
+                .Where(x => x.ClockIn >= m0 && x.ClockIn < m1)
+                .Select(x => new { x.CarId, x.ClockIn.Date })
+                .Distinct()
+                .Count();
+            var trips = Math.Round(tripCount * tripRate, 2, MidpointRounding.AwayFromZero);
+            // Odvody pillar = per-worker % of gross + hour-based add-ons
+            // (ubytovanie…) — the same employer-cost stack the P&L prices in.
+            var perWorker = monthEntries
+                .GroupBy(t => t.EmployeeId)
+                .Sum(g => Math.Round(
+                    g.Sum(t => (decimal)(t.ClockOut!.Value - t.ClockIn).TotalHours * t.WageAtTime)
+                    * (odvodyPcts.TryGetValue(g.Key, out var p) ? p : 0m) / 100m,
+                    2, MidpointRounding.AwayFromZero));
+            var odvody = perWorker + Math.Round(hours * perHourAddon, 2, MidpointRounding.AwayFromZero);
+            var income = incomeDocs.Where(i => i.IssueDate >= m0 && i.IssueDate < m1).Sum(i => i.TotalInclVat);
+            var wages = Math.Round(gross, 2, MidpointRounding.AwayFromZero) - adv;
+            result.Add(new CostTrendMonthDto
+            {
+                Month = m0.ToString("yyyy-MM"),
+                Wages = wages,
+                Material = mat,
+                Stroje = stroje,
+                Trips = trips,
+                Odvody = odvody,
+                Total = wages + mat + stroje + trips + odvody,
+                Income = income,
+                Vat = vat
+            });
+        }
+        return result;
     }
 
     /// <summary>
@@ -92,12 +218,13 @@ public class PayrollController : ControllerBase
     public async Task<IActionResult> ExportMonthly(
         [FromQuery] string? month,
         [FromQuery(Name = "from")] string? fromStr,
-        [FromQuery(Name = "to")] string? toStr)
+        [FromQuery(Name = "to")] string? toStr,
+        [FromQuery] string? division = null)
     {
         if (!TryParsePeriod(month, fromStr, toStr, out var from, out var toExcl, out var label))
             return BadRequest("Zadajte mesiac vo formáte YYYY-MM alebo rozsah from/to vo formáte YYYY-MM-DD.");
 
-        var data = await BuildMonthlyAsync(label, from, toExcl);
+        var data = await BuildMonthlyAsync(label, from, toExcl, division);
         var title = !string.IsNullOrWhiteSpace(month)
             ? month
             : $"{from:dd.MM.yyyy} – {toExcl.AddDays(-1):dd.MM.yyyy}";
@@ -290,7 +417,7 @@ public class PayrollController : ControllerBase
 
     // ─── Helpers ─────────────────────────────────────────────────────
 
-    private async Task<PayrollMonthlyDto> BuildMonthlyAsync(string periodLabel, DateTime from, DateTime toExcl)
+    private async Task<PayrollMonthlyDto> BuildMonthlyAsync(string periodLabel, DateTime from, DateTime toExcl, string? division = null)
     {
         // Pull every employee with activity in the window — TimeEntries with
         // ClockIn in [from, toExcl) OR EmployeeAdvances with Date in window.
@@ -306,9 +433,17 @@ public class PayrollController : ControllerBase
             .ToListAsync();
         var allIds = entryEmpIds.Concat(advanceEmpIds).Distinct().ToList();
 
-        var employees = await _db.Employees
-            .Where(e => allIds.Contains(e.Id))
-            .ToListAsync();
+        var empQuery = _db.Employees.Where(e => allIds.Contains(e.Id));
+        // Division scope (Fáza D8): the Mzdy page shows the active division's
+        // people only. Unknown/absent value = no filter (back-compat).
+        // Legacy rows carry ''/null Division — those count as profistav, the
+        // same "!= stroje ⇒ profistav" convention documents use. Strict
+        // equality here made such employees vanish from BOTH divisions.
+        if (division == "stroje")
+            empQuery = empQuery.Where(e => e.Division == "stroje");
+        else if (division == "profistav")
+            empQuery = empQuery.Where(e => e.Division != "stroje");
+        var employees = await empQuery.ToListAsync();
 
         // Pull all closed entries in the window and aggregate in memory.
         // Data volume is tiny (one customer, dozens of workers, hundreds of
@@ -366,7 +501,9 @@ public class PayrollController : ControllerBase
                 WageMissing           = ea != null && !ea.AnyNonZeroWage,
                 AdvancesTotal         = adv,
                 Gross                 = gross,
-                Payout                = gross - adv
+                Payout                = gross - adv,
+                OdvodyPct             = emp.OdvodyPct,
+                Odvody                = Math.Round(gross * (emp.OdvodyPct ?? 0m) / 100m, 2, MidpointRounding.AwayFromZero)
             });
         }
 
@@ -375,7 +512,8 @@ public class PayrollController : ControllerBase
             HoursWorked   = rows.Sum(r => r.HoursWorked),
             AdvancesTotal = rows.Sum(r => r.AdvancesTotal),
             Gross         = rows.Sum(r => r.Gross),
-            Payout        = rows.Sum(r => r.Payout)
+            Payout        = rows.Sum(r => r.Payout),
+            Odvody        = rows.Sum(r => r.Odvody)
         };
 
         return new PayrollMonthlyDto
