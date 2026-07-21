@@ -29,10 +29,14 @@ public class CloudinaryStorageService : IBlobStorageService
     private readonly ILogger<CloudinaryStorageService> _logger;
 
     /// <summary>
-    /// Top-level folder all of this project's assets live under, so they're
-    /// separated from anything else sharing the Cloudinary account. Configurable
-    /// via Cloudinary:ProjectFolder; defaults to "profistav".
+    /// Per-customer top-level folder every asset lives under, isolating this
+    /// customer from anyone else sharing the Cloudinary account. Set one unique
+    /// value per customer deployment via <c>Cloudinary:ProjectFolder</c>
+    /// (env <c>Cloudinary__ProjectFolder</c>); when a customer gets their own
+    /// database they must also get their own folder here. Falls back to
+    /// "profistav" (the first customer) so the original install keeps working.
     /// </summary>
+    private const string DefaultRoot = "profistav";
     private readonly string _root;
 
     public CloudinaryStorageService(Cloudinary cloudinary, IImageProcessingService imageProcessor,
@@ -41,7 +45,25 @@ public class CloudinaryStorageService : IBlobStorageService
         _cloudinary = cloudinary;
         _imageProcessor = imageProcessor;
         _logger = logger;
-        _root = (config["Cloudinary:ProjectFolder"] ?? "profistav").Trim().Trim('/');
+
+        // Never allow an empty root — an empty prefix would dump every asset at
+        // the account root and mix customers together. Empty/whitespace/unset
+        // all fall back to the default, with a loud warning so a new customer
+        // deployment that forgot to set its own folder is easy to spot in logs.
+        var configured = config["Cloudinary:ProjectFolder"];
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            _root = DefaultRoot;
+            _logger.LogWarning(
+                "Cloudinary:ProjectFolder is not set — using default root '{Root}'. " +
+                "Set a UNIQUE value per customer (own DB → own folder) so assets stay isolated.", _root);
+        }
+        else
+        {
+            _root = configured.Trim().Trim('/');
+            if (string.IsNullOrEmpty(_root)) _root = DefaultRoot;
+            _logger.LogInformation("Cloudinary root folder: {Root}", _root);
+        }
     }
 
     /// <summary>Prepend the project root to a relative folder path.</summary>
